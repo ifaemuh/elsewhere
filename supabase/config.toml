@@ -1,0 +1,14 @@
+[project]
+id = "elsewhere"
+
+[api]
+port = 54321
+schemas = ["public"]
+
+[db]
+port = 54322
+
+[auth]
+site_url = "http://localhost:8081"
+additional_redirect_urls = ["elsewhere://"]
+jwt_expiry = 3600

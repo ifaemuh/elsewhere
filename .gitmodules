@@ -1,0 +1,3 @@
+[submodule "awesome-agent-skills"]
+	path = awesome-agent-skills
+	url = https://github.com/VoltAgent/awesome-agent-skills.git

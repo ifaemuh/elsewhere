@@ -1,0 +1,24 @@
+{
+  "name": "elsewhere",
+  "version": "1.0.0",
+  "private": true,
+  "packageManager": "npm@11.7.0",
+  "workspaces": ["apps/*", "packages/*"],
+  "scripts": {
+    "dev": "turbo dev",
+    "build": "turbo build",
+    "lint": "turbo lint",
+    "typecheck": "turbo typecheck"
+  },
+  "devDependencies": {
+    "turbo": "^2",
+    "typescript": "^5.5"
+  },
+  "dependencies": {
+    "ruflo": "^3.5.51"
+  },
+  "overrides": {
+    "react": "19.1.0",
+    "react-dom": "19.1.0"
+  }
+}

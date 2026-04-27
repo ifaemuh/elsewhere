@@ -1,0 +1,25 @@
+{
+  "expo": {
+    "name": "Elsewhere",
+    "slug": "elsewhere",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "elsewhere",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.elsewhere.app"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#ffffff"
+      },
+      "package": "com.elsewhere.app"
+    },
+    "plugins": ["expo-router"],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}
