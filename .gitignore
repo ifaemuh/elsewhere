@@ -11,9 +11,19 @@ dist/
 # Supabase
 supabase/.temp/
 
-# Expo
-ios/
-android/
+# Native build artifacts (commit source, ignore artifacts)
+# iOS
+**/Pods/
+**/build/
+**/DerivedData/
+**/*.xcuserstate
+**/xcuserdata/
+# Android
+**/.gradle/
+**/local.properties
+**/app/release/
+**/captures/
+# Expo / RN secrets
 *.jks
 *.p8
 *.p12

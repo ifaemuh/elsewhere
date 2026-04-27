@@ -7,7 +7,9 @@
     "dev": "expo start",
     "build": "echo 'Mobile build via EAS'",
     "lint": "expo lint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "android": "expo run:android",
+    "ios": "expo run:ios"
   },
   "dependencies": {
     "@elsewhere/shared": "*",

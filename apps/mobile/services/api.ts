@@ -22,7 +22,9 @@ import type {
 } from '@elsewhere/shared';
 import { useAuthStore } from '@/stores/auth';
 
-const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3001';
+// On a real device, this must be the dev machine's LAN IP (e.g. http://192.168.1.x:3002),
+// not localhost. Override via EXPO_PUBLIC_API_URL in .env.
+const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3002';
 
 async function getToken(): Promise<string | null> {
   return useAuthStore.getState().session?.access_token ?? null;
