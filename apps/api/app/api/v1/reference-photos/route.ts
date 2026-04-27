@@ -114,6 +114,7 @@ export async function GET(req: NextRequest) {
     const { data, error } = await supabase
       .from('reference_photos')
       .select('*')
+      .eq('user_id', user.id)
       .is('deleted_at', null)
       .order('created_at', { ascending: false });
 
@@ -121,12 +122,14 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
+    const storage = createStorageAdapter(supabase);
+
     return NextResponse.json(
       (data ?? []).map((p: Record<string, unknown>) => ({
         id: p.id,
         userId: p.user_id,
         fileName: p.file_name,
-        url: p.storage_path, // Will need public URL resolution
+        url: storage.getPublicUrl(p.storage_path as string),
         contentType: p.content_type,
         status: p.status,
         createdAt: p.created_at,

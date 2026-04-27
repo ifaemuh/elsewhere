@@ -64,7 +64,7 @@ export default function PreviewStatusPage() {
             Preview job
           </div>
           <h1 className="mt-2 text-3xl font-semibold tracking-tight">
-            {job ? job.destination_name : 'Loading…'}
+            {job ? job.destinationName : 'Loading…'}
           </h1>
           <p className="mt-2 text-sm text-white/60">Job id: {jobId}</p>
         </div>
@@ -85,14 +85,14 @@ export default function PreviewStatusPage() {
 }
 
 function JobStatus({ job }: { job: PreviewJob }) {
-  if (job.status === 'completed' && job.playback_url) {
+  if (job.status === 'completed' && job.playbackUrl) {
     return (
       <Card className="mt-8 overflow-hidden border-white/10 bg-white/[0.03] text-white">
         <div className="aspect-[4/5] w-full bg-black">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src={job.playback_url}
-            alt={job.destination_name}
+            src={job.playbackUrl}
+            alt={job.destinationName}
             className="h-full w-full object-cover"
           />
         </div>
@@ -100,7 +100,7 @@ function JobStatus({ job }: { job: PreviewJob }) {
           <div className="text-sm text-white/70">{job.prompt}</div>
           <div className="flex gap-2">
             <Button asChild className="bg-white text-black hover:bg-white/90">
-              <a href={job.playback_url} target="_blank" rel="noreferrer">
+              <a href={job.playbackUrl} target="_blank" rel="noreferrer">
                 Open full size
               </a>
             </Button>
@@ -125,7 +125,7 @@ function JobStatus({ job }: { job: PreviewJob }) {
             <AlertTriangle className="size-4" /> Preview failed
           </div>
           <div className="text-sm text-red-200/80">
-            {job.error_message ?? 'Unknown error.'}
+            {job.errorMessage ?? 'Unknown error.'}
           </div>
           <Button asChild className="bg-white text-black hover:bg-white/90">
             <Link href="/preview">Try again</Link>

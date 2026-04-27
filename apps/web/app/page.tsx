@@ -181,10 +181,10 @@ function DestinationCard({ destination }: { destination: DestinationRow }) {
   return (
     <Card className="group overflow-hidden border-white/10 bg-white/[0.03] text-white transition hover:border-white/20 hover:bg-white/[0.06]">
       <div className="relative aspect-[4/5] overflow-hidden">
-        {destination.preview_image_url ? (
+        {destination.previewImageUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={destination.preview_image_url}
+            src={destination.previewImageUrl}
             alt={destination.name}
             className="h-full w-full object-cover transition group-hover:scale-[1.02]"
           />

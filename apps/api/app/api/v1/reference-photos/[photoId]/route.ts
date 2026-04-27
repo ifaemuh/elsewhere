@@ -33,6 +33,7 @@ export async function GET(
       .from('reference_photos')
       .select('*')
       .eq('id', photoId)
+      .eq('user_id', user.id)
       .is('deleted_at', null)
       .single();
 
@@ -40,11 +41,13 @@ export async function GET(
       return NextResponse.json({ error: 'Photo not found' }, { status: 404 });
     }
 
+    const storage = createStorageAdapter(supabase);
+
     return NextResponse.json({
       id: data.id,
       userId: data.user_id,
       fileName: data.file_name,
-      url: data.storage_path,
+      url: storage.getPublicUrl(data.storage_path),
       contentType: data.content_type,
       status: data.status,
       createdAt: data.created_at,
@@ -77,6 +80,7 @@ export async function DELETE(
       .from('reference_photos')
       .select('storage_path')
       .eq('id', photoId)
+      .eq('user_id', user.id)
       .is('deleted_at', null)
       .single();
 

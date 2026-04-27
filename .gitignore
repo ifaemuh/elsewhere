@@ -28,6 +28,9 @@ android/
 *.swo
 .DS_Store
 
+# Claude Code (per-user settings + worktrees)
+.claude/
+
 # ruflo
 .ruflo/
 

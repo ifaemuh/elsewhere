@@ -1,5 +1,7 @@
 # Elsewhere Master Build Plan
 
+Product strategy and positioning live in [docs/PRODUCT_BRIEF.md](docs/PRODUCT_BRIEF.md).
+
 ## Short Answer
 All 4 items are possible.
 They are not blocked by technology; they are blocked by sequencing, contracts, compliance, and operations.
@@ -12,12 +14,18 @@ They are not blocked by technology; they are blocked by sequencing, contracts, c
 
 ## Program Tracks
 
-### Track A: Consumer App (iOS)
+### Track A: Mobile App (primary product surface)
 - Discover (Sora personal previews)
 - Trips (package + booking)
 - Wallet (split + installments)
 - Assist (live disruptions + actions)
 - Profile (docs/admin/integrations)
+- Native preview export/share loop
+
+### Track A2: Web (supporting surface only)
+- Development/debug harness for preview generation
+- Optional deep-link fallback and install funnel
+- Future admin/support tooling
 
 ### Track B: Backend Platform
 - Auth + user identity
@@ -135,10 +143,11 @@ Exit criteria:
   - Tier 2: embedded API applications
 
 ## Immediate Next Coding Steps
-1. Add backend API clients + contracts for trips and financing.
-2. Replace local booking actions with backend-backed trip state machine.
-3. Add wallet ledger sync model.
-4. Add Assist event stream hooks (polling/websocket).
+1. Validate mobile selfie/reference-photo preview generation end to end.
+2. Confirm AI output quality is strong enough to anchor the product.
+3. Move mobile off Expo Go if native sharing/export dependencies require a custom dev client.
+4. Add native 9:16 preview export/share loop.
+5. Then continue booking, financing, wallet, and Assist work behind the proven preview wedge.
 
 ## Definition of Done
 1. Personal preview -> real booking flow is live.

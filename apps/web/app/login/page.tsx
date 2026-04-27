@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase';
@@ -9,6 +9,26 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Mail, Loader2, ArrowLeft } from 'lucide-react';
 
 export default function LoginPage() {
+  return (
+    <Suspense fallback={<LoginFallback />}>
+      <LoginContent />
+    </Suspense>
+  );
+}
+
+function LoginFallback() {
+  return (
+    <main className="min-h-screen bg-black text-white">
+      <div className="mx-auto flex min-h-screen max-w-md items-center px-6">
+        <div className="flex items-center gap-2 text-white/60">
+          <Loader2 className="size-4 animate-spin" /> Loading sign in…
+        </div>
+      </div>
+    </main>
+  );
+}
+
+function LoginContent() {
   const router = useRouter();
   const params = useSearchParams();
   const next = params.get('next') ?? '/preview';

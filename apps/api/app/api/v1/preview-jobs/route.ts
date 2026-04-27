@@ -29,7 +29,8 @@ export async function POST(req: NextRequest) {
         const { data: consent } = await supabase
           .from('consent_audit_entries')
           .select('has_identity_consent')
-          .eq('id', validated.consentId)
+          .eq('consent_id', validated.consentId)
+          .eq('user_id', user.id)
           .single();
 
         if (!consent?.has_identity_consent) {
@@ -66,6 +67,7 @@ export async function POST(req: NextRequest) {
           media_type: validated.mediaType,
           consent_id: validated.consentId,
           status: 'pending',
+          reference_photo_ids: validated.referencePhotoIds ?? null,
         })
         .select('id')
         .single();
