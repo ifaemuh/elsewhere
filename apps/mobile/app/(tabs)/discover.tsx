@@ -1590,11 +1590,69 @@ function DiscoverReelPost({
   const activeMediaUrl = selectedAnswer?.responseMediaUrl ?? card.mediaUrl;
   const activePosterUrl = selectedAnswer?.responsePosterUrl ?? card.mediaPosterUrl;
   const planDealLabel = priceBadgeLabel(card);
+  const lastTapRef = useRef(0);
+  const tapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const heartOpacity = useRef(new Animated.Value(0)).current;
+  const heartScale = useRef(new Animated.Value(0.6)).current;
+
+  useEffect(() => {
+    return () => {
+      if (tapTimerRef.current) clearTimeout(tapTimerRef.current);
+    };
+  }, []);
+
+  const flashHeart = () => {
+    heartOpacity.setValue(0);
+    heartScale.setValue(0.6);
+    Animated.parallel([
+      Animated.sequence([
+        Animated.timing(heartOpacity, {
+          toValue: 1,
+          duration: 110,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.timing(heartOpacity, {
+          toValue: 0,
+          duration: 520,
+          delay: 160,
+          easing: Easing.in(Easing.quad),
+          useNativeDriver: true,
+        }),
+      ]),
+      Animated.spring(heartScale, {
+        toValue: 1,
+        friction: 4,
+        tension: 130,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  };
+
+  const handleReelPress = () => {
+    const now = Date.now();
+    if (now - lastTapRef.current < 280) {
+      if (tapTimerRef.current) {
+        clearTimeout(tapTimerRef.current);
+        tapTimerRef.current = null;
+      }
+      lastTapRef.current = 0;
+      onLike();
+      flashHeart();
+      return;
+    }
+
+    lastTapRef.current = now;
+    tapTimerRef.current = setTimeout(() => {
+      onLearn();
+      tapTimerRef.current = null;
+    }, 285);
+  };
 
   return (
     <Pressable
       style={[styles.reelPost, { height, width }]}
-      onPress={onLearn}
+      onPress={handleReelPress}
     >
       {activeMediaUrl ? (
         <AutoplayMedia
@@ -1610,19 +1668,51 @@ function DiscoverReelPost({
       <View style={styles.reelShadeTop} />
       <View style={styles.reelShadeBottom} />
 
-      <View style={[styles.reelActionRail, { bottom: chromeBottom + 78 }]}>
-        <Pressable style={styles.reelRoundAction} onPress={onLike}>
+      <Animated.View
+        pointerEvents="none"
+        style={[
+          styles.doubleTapHeart,
+          {
+            opacity: heartOpacity,
+            transform: [{ scale: heartScale }],
+          },
+        ]}
+      >
+        <Text style={styles.doubleTapHeartText}>♥</Text>
+      </Animated.View>
+
+      <View style={[styles.reelActionRail, { bottom: chromeBottom + 132 }]}>
+        <Pressable
+          style={styles.reelRoundAction}
+          onPress={(event) => {
+            event.stopPropagation();
+            onLike();
+            flashHeart();
+          }}
+        >
           <Text style={[styles.reelRoundActionIcon, isLiked && styles.reelRoundActionIconActive]}>
             {isLiked ? '♥' : '♡'}
           </Text>
           <Text style={styles.reelRoundActionText}>like</Text>
         </Pressable>
-        <Pressable style={styles.reelRoundAction} onPress={onLearn}>
+        <Pressable
+          style={styles.reelRoundAction}
+          onPress={(event) => {
+            event.stopPropagation();
+            onLearn();
+          }}
+        >
           <Text style={styles.reelRoundActionIcon}>?</Text>
           <Text style={styles.reelRoundActionText}>learn</Text>
         </Pressable>
         <PlanRailAction label={planDealLabel} onPress={onPlan} />
-        <Pressable style={styles.reelRoundAction} onPress={onShare}>
+        <Pressable
+          style={styles.reelRoundAction}
+          onPress={(event) => {
+            event.stopPropagation();
+            onShare();
+          }}
+        >
           <Text style={styles.reelRoundActionIcon}>{'↗'}</Text>
           <Text style={styles.reelRoundActionText}>share</Text>
         </Pressable>
@@ -1666,9 +1756,44 @@ function InteractivePromptControls({
   onSelectAnswer: (answerId: string) => void;
 }) {
   const selectedAnswer = prompt.answers.find((answer) => answer.id === selectedAnswerId);
+  const entrance = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    entrance.setValue(0);
+    Animated.timing(entrance, {
+      toValue: 1,
+      duration: 420,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [entrance, selectedAnswerId]);
+
+  const panelMotion = {
+    opacity: entrance,
+    transform: [
+      {
+        translateY: entrance.interpolate({
+          inputRange: [0, 1],
+          outputRange: [24, 0],
+        }),
+      },
+      {
+        scale: entrance.interpolate({
+          inputRange: [0, 1],
+          outputRange: [0.96, 1],
+        }),
+      },
+    ],
+  };
 
   return (
-    <View style={styles.interactivePanel}>
+    <Animated.View style={[styles.interactivePanel, panelMotion]}>
+      <View style={styles.interactiveCueRow}>
+        <View style={styles.interactivePulseDot} />
+        <Text style={styles.interactiveCueText}>
+          {selectedAnswer ? 'field answer' : 'answer to reveal'}
+        </Text>
+      </View>
       <Text style={styles.interactiveQuestion} numberOfLines={selectedAnswer ? 1 : 2}>
         {selectedAnswer ? selectedAnswer.responseHook : prompt.question}
       </Text>
@@ -1696,30 +1821,32 @@ function InteractivePromptControls({
           </Pressable>
         ))}
       </View>
-    </View>
+    </Animated.View>
   );
 }
 
 function PlanRailAction({ label, onPress }: { label: string | null; onPress: () => void }) {
-  const slide = useRef(new Animated.Value(0)).current;
+  const [isExpanded, setIsExpanded] = useState(false);
+  const pulse = useRef(new Animated.Value(0)).current;
+  const roll = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     if (!label) {
-      slide.setValue(0);
+      pulse.setValue(0);
       return;
     }
 
     const animation = Animated.loop(
       Animated.sequence([
-        Animated.timing(slide, {
+        Animated.timing(pulse, {
           toValue: 1,
-          duration: 780,
+          duration: 920,
           easing: Easing.out(Easing.cubic),
           useNativeDriver: true,
         }),
-        Animated.timing(slide, {
-          toValue: 0.82,
-          duration: 920,
+        Animated.timing(pulse, {
+          toValue: 0,
+          duration: 860,
           easing: Easing.inOut(Easing.quad),
           useNativeDriver: true,
         }),
@@ -1727,36 +1854,83 @@ function PlanRailAction({ label, onPress }: { label: string | null; onPress: () 
     );
     animation.start();
     return () => animation.stop();
-  }, [label, slide]);
+  }, [label, pulse]);
 
-  const transform = {
+  useEffect(() => {
+    if (!label || !isExpanded) {
+      Animated.timing(roll, {
+        toValue: 0,
+        duration: 180,
+        easing: Easing.in(Easing.quad),
+        useNativeDriver: true,
+      }).start();
+      return;
+    }
+
+    Animated.timing(roll, {
+      toValue: 1,
+      duration: 420,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+
+    const timer = setTimeout(() => setIsExpanded(false), 3600);
+    return () => clearTimeout(timer);
+  }, [isExpanded, label, roll]);
+
+  const priceRolloutMotion = {
+    opacity: roll,
     transform: [
       {
-        translateX: slide.interpolate({
+        translateX: roll.interpolate({
           inputRange: [0, 1],
-          outputRange: [5, 0],
+          outputRange: [24, 0],
+        }),
+      },
+      {
+        scaleX: roll.interpolate({
+          inputRange: [0, 1],
+          outputRange: [0.64, 1],
         }),
       },
     ],
-    opacity: slide.interpolate({
-      inputRange: [0, 1],
-      outputRange: [0.72, 1],
-    }),
+  };
+  const dealGlow = label
+    ? {
+      transform: [
+        {
+          scale: pulse.interpolate({
+            inputRange: [0, 1],
+            outputRange: [1, 1.08],
+          }),
+        },
+      ],
+    }
+    : null;
+
+  const handlePress = (event: { stopPropagation?: () => void }) => {
+    event.stopPropagation?.();
+    if (label && !isExpanded) {
+      setIsExpanded(true);
+      return;
+    }
+    onPress();
   };
 
   return (
-    <Pressable style={styles.reelRoundAction} onPress={onPress}>
+    <Pressable style={styles.reelRoundAction} onPress={handlePress}>
       <View style={styles.planDealActionWrap}>
         {label ? (
-          <Animated.View pointerEvents="none" style={[styles.planDealCallout, transform]}>
+          <Animated.View pointerEvents="none" style={[styles.planDealRollout, priceRolloutMotion]}>
             <Text style={styles.planDealCalloutText} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.74}>
               {compactPriceLabel(label)}
             </Text>
           </Animated.View>
-        ) : (
-          <Text style={styles.reelRoundActionIcon}>✦</Text>
-        )}
-        {label ? (
+        ) : null}
+        <Animated.Text style={[styles.reelRoundActionIcon, label && styles.reelRoundActionIconDeal, dealGlow]}>
+          ✦
+        </Animated.Text>
+        {label && !isExpanded ? (
           <Text style={styles.planDealSignal} numberOfLines={1}>
             deal
           </Text>
@@ -2677,15 +2851,26 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 79, 109, 0.42)',
     borderColor: 'rgba(255, 255, 255, 0.48)',
   },
-  planDealCallout: {
-    width: 58,
-    minHeight: 44,
-    borderRadius: 22,
-    paddingHorizontal: 5,
+  reelRoundActionIconDeal: {
+    backgroundColor: 'rgba(255, 79, 109, 0.48)',
+    borderColor: 'rgba(255, 255, 255, 0.62)',
+    shadowColor: '#ff4f6d',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.50,
+    shadowRadius: 18,
+    elevation: 5,
+  },
+  planDealRollout: {
+    position: 'absolute',
+    right: 50,
+    width: 106,
+    minHeight: 42,
+    borderRadius: 21,
+    paddingHorizontal: 11,
     paddingVertical: 8,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255, 79, 109, 0.43)',
+    backgroundColor: 'rgba(255, 79, 109, 0.48)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.58)',
     shadowColor: '#ff4f6d',
@@ -2719,6 +2904,29 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     textShadowColor: 'rgba(0,0,0,0.55)',
     textShadowRadius: 10,
+  },
+  doubleTapHeart: {
+    position: 'absolute',
+    left: '50%',
+    top: '47%',
+    marginLeft: -42,
+    marginTop: -42,
+    width: 84,
+    height: 84,
+    borderRadius: 42,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255, 79, 109, 0.18)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.30)',
+  },
+  doubleTapHeartText: {
+    color: '#fff',
+    fontSize: 50,
+    lineHeight: 56,
+    fontWeight: '900',
+    textShadowColor: 'rgba(0,0,0,0.4)',
+    textShadowRadius: 14,
   },
   reelCopy: {
     position: 'absolute',
@@ -2814,6 +3022,30 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.24)',
     padding: 10,
+  },
+  interactiveCueRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    marginBottom: 7,
+  },
+  interactivePulseDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: SOCIAL_POP.coral,
+    shadowColor: '#ff4f6d',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.8,
+    shadowRadius: 10,
+  },
+  interactiveCueText: {
+    color: 'rgba(255,255,255,0.74)',
+    fontSize: 9,
+    lineHeight: 11,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+    letterSpacing: 0,
   },
   interactiveQuestion: {
     color: '#fff',
