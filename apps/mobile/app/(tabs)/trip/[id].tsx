@@ -641,11 +641,19 @@ function TripChatPanel({
 
 function TripVideoPlayer({ uri, posterUri }: { uri: string; posterUri?: string }) {
   const [playbackFailed, setPlaybackFailed] = useState(false);
+  const loopSeekingRef = useRef(false);
   const player = useVideoPlayer({ uri }, (instance) => {
     instance.loop = true;
     instance.muted = true;
+    instance.timeUpdateEventInterval = 0.12;
   });
   const { status } = useEvent(player, 'statusChange', { status: player.status });
+  const { currentTime } = useEvent(player, 'timeUpdate', {
+    currentTime: 0,
+    currentLiveTimestamp: null,
+    currentOffsetFromLive: null,
+    bufferedPosition: 0,
+  });
 
   useEffect(() => {
     if (status === 'readyToPlay') {
@@ -656,6 +664,21 @@ function TripVideoPlayer({ uri, posterUri }: { uri: string; posterUri?: string }
       setPlaybackFailed(true);
     }
   }, [player, status]);
+
+  useEffect(() => {
+    if (playbackFailed || status !== 'readyToPlay' || loopSeekingRef.current) return;
+    const duration = player.duration;
+    if (!Number.isFinite(duration) || duration <= 1.2 || currentTime <= 0.6) return;
+    if (duration - currentTime > 0.14) return;
+
+    loopSeekingRef.current = true;
+    player.currentTime = 0.01;
+    player.play();
+    const timer = setTimeout(() => {
+      loopSeekingRef.current = false;
+    }, 180);
+    return () => clearTimeout(timer);
+  }, [currentTime, playbackFailed, player, status]);
 
   return (
     <View style={styles.storyVideo}>
@@ -1408,16 +1431,16 @@ const styles = StyleSheet.create({
   },
   pageChipScroller: { gap: 8, paddingHorizontal: 16 },
   pageChip: {
-    backgroundColor: 'rgba(255, 255, 255, 0.72)',
+    backgroundColor: 'rgba(255, 255, 255, 0.18)',
     borderRadius: 999,
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.48)',
+    borderColor: 'rgba(255, 255, 255, 0.30)',
   },
-  pageChipActive: { backgroundColor: '#fff', borderColor: '#fff' },
-  pageChipText: { color: 'rgba(17, 17, 20, 0.72)', fontSize: 12, fontWeight: '900' },
-  pageChipTextActive: { color: SOCIAL_POP.coral },
+  pageChipActive: { backgroundColor: 'rgba(255, 255, 255, 0.78)', borderColor: 'rgba(255, 255, 255, 0.78)' },
+  pageChipText: { color: 'rgba(255, 255, 255, 0.82)', fontSize: 12, fontWeight: '900' },
+  pageChipTextActive: { color: '#111' },
   pageIndicatorDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: '#d8e1e5' },
   pageIndicatorDotActive: { backgroundColor: SOCIAL_POP.coral },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 },
@@ -1430,12 +1453,14 @@ const styles = StyleSheet.create({
   tripHeroCountry: { fontSize: 13, color: 'rgba(255, 255, 255, 0.84)', marginTop: 3, fontWeight: '700' },
   tripHeroTagline: { color: 'rgba(255, 255, 255, 0.9)', fontSize: 13, lineHeight: 18, marginTop: 6, fontWeight: '700' },
   tripHeroStatusPill: {
-    backgroundColor: 'rgba(255, 255, 255, 0.86)',
+    backgroundColor: 'rgba(255, 255, 255, 0.26)',
     borderRadius: 999,
     paddingHorizontal: 10,
     paddingVertical: 5,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.34)',
   },
-  tripHeroStatusText: { color: '#111', fontSize: 12, fontWeight: '900', textTransform: 'capitalize' },
+  tripHeroStatusText: { color: '#fff', fontSize: 12, fontWeight: '900', textTransform: 'capitalize' },
   statusPill: {
     backgroundColor: '#f1eee7',
     borderRadius: 999,
@@ -1453,7 +1478,18 @@ const styles = StyleSheet.create({
   monitorMeta: { color: '#777', fontSize: 12, textAlign: 'center', marginTop: 8 },
   section: { marginTop: 26 },
   sectionTitle: { fontSize: 18, fontWeight: '800', marginBottom: 12, color: '#111' },
-  feedCard: { borderWidth: 1, borderColor: 'rgba(20, 20, 20, 0.08)', borderRadius: 16, padding: 14, marginBottom: 12, backgroundColor: '#fff' },
+  feedCard: {
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.56)',
+    borderRadius: 18,
+    padding: 14,
+    marginBottom: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.58)',
+    shadowColor: '#263238',
+    shadowOffset: { width: 0, height: 14 },
+    shadowOpacity: 0.07,
+    shadowRadius: 26,
+  },
   feedHeader: { flexDirection: 'row', justifyContent: 'space-between', gap: 10, alignItems: 'flex-start' },
   feedKind: { fontSize: 12, fontWeight: '800', textTransform: 'capitalize' },
   feedStatus: { flex: 1, color: '#777', fontSize: 11, fontWeight: '700', textAlign: 'right', textTransform: 'capitalize' },
@@ -1464,14 +1500,21 @@ const styles = StyleSheet.create({
   feedTime: { flex: 1, color: '#777', fontSize: 12 },
   smallCta: { borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6 },
   smallCtaText: { color: '#fff', fontSize: 12, fontWeight: '800' },
-  compactCard: { backgroundColor: '#fff', borderRadius: 16, padding: 14, marginBottom: 10, borderWidth: 1, borderColor: 'rgba(20, 20, 20, 0.08)' },
-  exploreCard: {
-    backgroundColor: '#fff',
+  compactCard: {
+    backgroundColor: 'rgba(255, 255, 255, 0.58)',
     borderRadius: 18,
+    padding: 14,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.56)',
+  },
+  exploreCard: {
+    backgroundColor: 'rgba(255, 255, 255, 0.58)',
+    borderRadius: 20,
     marginBottom: 12,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: 'rgba(20, 20, 20, 0.08)',
+    borderColor: 'rgba(255, 255, 255, 0.56)',
   },
   exploreImageFrame: { height: 176, backgroundColor: '#111', overflow: 'hidden' },
   exploreImage: { width: '100%', height: '100%' },
@@ -1489,7 +1532,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     textTransform: 'capitalize',
   },
-  exploreBody: { padding: 14 },
+  exploreBody: { padding: 14, backgroundColor: 'rgba(255, 255, 255, 0.34)' },
   exploreActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 },
   explorePrimaryCta: {
     maxWidth: '100%',
@@ -1508,7 +1551,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     borderWidth: 1,
     borderColor: '#d6cec0',
-    backgroundColor: '#fbfaf7',
+    backgroundColor: 'rgba(255,255,255,0.46)',
     paddingHorizontal: 13,
     paddingVertical: 8,
     justifyContent: 'center',
@@ -1564,11 +1607,11 @@ const styles = StyleSheet.create({
   votePill: { backgroundColor: '#fff', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6, borderWidth: 1, borderColor: '#e1e7eb' },
   votePillText: { color: '#333', fontSize: 12, fontWeight: '700' },
   mediaCard: {
-    backgroundColor: '#fff',
+    backgroundColor: 'rgba(255, 255, 255, 0.58)',
     borderRadius: 18,
     marginBottom: 12,
     borderWidth: 1,
-    borderColor: 'rgba(20, 20, 20, 0.08)',
+    borderColor: 'rgba(255, 255, 255, 0.56)',
     overflow: 'hidden',
   },
   mediaThumbFrame: { height: 190, backgroundColor: '#111', overflow: 'hidden' },
@@ -1600,9 +1643,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   playBadgeText: { color: '#111', fontSize: 13, fontWeight: '900' },
-  mediaBody: { padding: 14 },
+  mediaBody: { padding: 14, backgroundColor: 'rgba(255, 255, 255, 0.34)' },
   mediaSummaryCard: {
-    backgroundColor: SOCIAL_POP.text,
+    backgroundColor: 'rgba(17, 17, 20, 0.86)',
     borderRadius: 18,
     padding: 16,
     marginBottom: 12,
@@ -1616,7 +1659,7 @@ const styles = StyleSheet.create({
     width: '48%',
     aspectRatio: 0.78,
     borderRadius: 16,
-    backgroundColor: SOCIAL_POP.text,
+    backgroundColor: 'rgba(17, 17, 20, 0.86)',
     overflow: 'hidden',
   },
   mediaGridImage: { width: '100%', height: '100%' },
@@ -1639,7 +1682,7 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   storyViewer: {
-    backgroundColor: SOCIAL_POP.text,
+    backgroundColor: 'rgba(17, 17, 20, 0.86)',
     borderRadius: 20,
     padding: 14,
     marginBottom: 14,
@@ -1667,38 +1710,64 @@ const styles = StyleSheet.create({
   storyPlayText: { color: '#111', fontSize: 12, fontWeight: '900' },
   storyCaption: { color: '#fff', fontSize: 14, lineHeight: 20, marginTop: 12 },
   recapVideoCard: {
-    backgroundColor: '#fff',
+    backgroundColor: 'rgba(255, 255, 255, 0.58)',
     borderWidth: 1,
-    borderColor: 'rgba(20, 20, 20, 0.08)',
+    borderColor: 'rgba(255, 255, 255, 0.56)',
     borderRadius: 18,
     padding: 14,
     marginBottom: 12,
   },
   socialPocCard: {
-    backgroundColor: '#fff',
+    backgroundColor: 'rgba(255, 255, 255, 0.58)',
     borderWidth: 1,
-    borderColor: '#e3dbcf',
+    borderColor: 'rgba(255, 255, 255, 0.56)',
     borderRadius: 18,
     padding: 14,
     marginTop: 14,
   },
-  paymentCard: { borderWidth: 1, borderColor: 'rgba(20, 20, 20, 0.08)', borderRadius: 16, padding: 14, backgroundColor: '#fff' },
+  paymentCard: {
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.56)',
+    borderRadius: 18,
+    padding: 14,
+    backgroundColor: 'rgba(255, 255, 255, 0.58)',
+  },
   paymentRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 5 },
   paymentValue: { color: '#111', fontSize: 16, fontWeight: '800' },
-  decisionCard: { borderWidth: 1, borderColor: '#e3dbcf', backgroundColor: '#fff', borderRadius: 16, padding: 14 },
+  decisionCard: {
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.56)',
+    backgroundColor: 'rgba(255, 255, 255, 0.58)',
+    borderRadius: 18,
+    padding: 14,
+  },
   decisionTitle: { fontSize: 18, fontWeight: '800', color: '#111' },
   decisionRecommendation: { color: '#333', lineHeight: 20, marginTop: 10, fontSize: 14 },
   valueRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 10, marginTop: 12 },
   valueLabel: { flex: 1, color: '#777', fontSize: 13 },
   valueAmount: { color: '#111', fontSize: 16, fontWeight: '800' },
   limitLine: { color: '#8a5a00', fontSize: 13, lineHeight: 18, marginTop: 6 },
-  opportunityCard: { borderWidth: 1, borderColor: 'rgba(20, 20, 20, 0.08)', borderRadius: 16, padding: 14, marginBottom: 12, backgroundColor: '#fff' },
+  opportunityCard: {
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.56)',
+    borderRadius: 18,
+    padding: 14,
+    marginBottom: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.58)',
+  },
   opportunityHeader: { flexDirection: 'row', justifyContent: 'space-between', gap: 12 },
   opportunityTitle: { flex: 1, fontSize: 16, fontWeight: '800', color: '#111' },
   opportunityStatus: { fontSize: 12, fontWeight: '800', textTransform: 'capitalize' },
   opportunityDetail: { color: '#555', lineHeight: 19, marginTop: 8, fontSize: 14 },
   deadline: { color: '#777', fontSize: 12, marginTop: 8 },
-  segmentCard: { backgroundColor: '#fff', borderRadius: 16, padding: 14, marginBottom: 10, borderWidth: 1, borderColor: 'rgba(20, 20, 20, 0.08)' },
+  segmentCard: {
+    backgroundColor: 'rgba(255, 255, 255, 0.58)',
+    borderRadius: 18,
+    padding: 14,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.56)',
+  },
   segmentProvider: { color: '#8b6b34', fontSize: 12, fontWeight: '800' },
   segmentTitle: { fontSize: 16, fontWeight: '800', color: '#111', marginTop: 3 },
   segmentMeta: { color: '#666', fontSize: 13, marginTop: 5 },
@@ -1706,10 +1775,10 @@ const styles = StyleSheet.create({
   emptyLine: { color: '#777', fontSize: 14, lineHeight: 20 },
   chatHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 },
   smartChatCard: {
-    backgroundColor: '#fff',
+    backgroundColor: 'rgba(255, 255, 255, 0.58)',
     borderWidth: 1,
-    borderColor: '#e3dbcf',
-    borderRadius: 16,
+    borderColor: 'rgba(255, 255, 255, 0.56)',
+    borderRadius: 18,
     padding: 14,
     marginTop: 18,
   },
@@ -1719,7 +1788,7 @@ const styles = StyleSheet.create({
   chatActionRail: { gap: 10, paddingTop: 12, paddingRight: 16 },
   chatActionCard: {
     width: 228,
-    backgroundColor: SOCIAL_POP.coral,
+    backgroundColor: 'rgba(255, 79, 109, 0.82)',
     borderRadius: 18,
     padding: 14,
     minHeight: 154,
@@ -1742,12 +1811,12 @@ const styles = StyleSheet.create({
   messageBubble: {
     alignSelf: 'flex-start',
     maxWidth: '84%',
-    backgroundColor: '#fff',
+    backgroundColor: 'rgba(255, 255, 255, 0.64)',
     borderRadius: 16,
     padding: 12,
     marginBottom: 10,
   },
-  messageBubbleUser: { alignSelf: 'flex-end', backgroundColor: SOCIAL_POP.coral },
+  messageBubbleUser: { alignSelf: 'flex-end', backgroundColor: 'rgba(255, 79, 109, 0.86)' },
   messageSender: { color: '#555', fontSize: 12, fontWeight: '800', marginBottom: 4 },
   messageSenderUser: { color: '#d9f0f6' },
   messageBody: { color: '#222', fontSize: 15, lineHeight: 20 },
@@ -1755,13 +1824,13 @@ const styles = StyleSheet.create({
   messageTime: { color: '#777', fontSize: 11, marginTop: 6, alignSelf: 'flex-end' },
   messageTimeUser: { color: '#d9f0f6' },
   gifAttachment: {
-    backgroundColor: '#fff',
+    backgroundColor: 'rgba(255, 255, 255, 0.62)',
     borderRadius: 10,
     padding: 10,
     marginTop: 10,
     minWidth: 170,
     borderWidth: 1,
-    borderColor: '#e1e7eb',
+    borderColor: 'rgba(255, 255, 255, 0.56)',
   },
   gifImage: { width: 170, height: 96, borderRadius: 8, marginBottom: 8, backgroundColor: '#edf2f4' },
   gifBadge: { color: '#8b6b34', fontSize: 11, fontWeight: '900' },
@@ -1769,8 +1838,8 @@ const styles = StyleSheet.create({
   gifProvider: { color: '#777', fontSize: 11, fontWeight: '700', marginTop: 3 },
   chatComposer: {
     borderWidth: 1,
-    borderColor: '#dce5e8',
-    backgroundColor: '#fff',
+    borderColor: 'rgba(255, 255, 255, 0.56)',
+    backgroundColor: 'rgba(255, 255, 255, 0.58)',
     borderRadius: 999,
     paddingHorizontal: 16,
     paddingVertical: 13,

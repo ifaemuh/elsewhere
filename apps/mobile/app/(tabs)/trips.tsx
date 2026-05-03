@@ -399,6 +399,7 @@ function TripReelCard({
       </View>
 
       <View style={[styles.tripReelCopy, { bottom: chromeBottom }]}>
+        <View style={styles.tripReelCopyGlass}>
         <Text style={styles.tripReelLocation}>{guide.destinationName}, {guide.destinationCountry}</Text>
         <Text style={styles.tripReelTitle}>{guide.tripName}</Text>
         <Text style={styles.tripReelTagline} numberOfLines={2}>
@@ -411,6 +412,7 @@ function TripReelCard({
         <Text style={styles.tripReelMetaLine}>
           {guide.travelerCount} travelers · {guide.opportunities.length} alerts · ${guide.potentialSavings.toLocaleString()} watched savings
         </Text>
+        </View>
       </View>
     </Pressable>
   );
@@ -522,7 +524,7 @@ const styles = StyleSheet.create({
   },
   tripReelShade: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.26)',
+    backgroundColor: 'rgba(0,0,0,0.20)',
   },
   tripReelTopFade: {
     ...StyleSheet.absoluteFillObject,
@@ -530,7 +532,7 @@ const styles = StyleSheet.create({
   },
   tripReelBottomFade: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.24)',
+    backgroundColor: 'rgba(0,0,0,0.18)',
   },
   tripReelMeta: {
     position: 'absolute',
@@ -571,9 +573,9 @@ const styles = StyleSheet.create({
     height: 42,
     borderRadius: 21,
     overflow: 'hidden',
-    backgroundColor: 'rgba(255,255,255,0.19)',
+    backgroundColor: 'rgba(255,255,255,0.14)',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.24)',
+    borderColor: 'rgba(255,255,255,0.32)',
     color: '#fff',
     textAlign: 'center',
     textAlignVertical: 'center',
@@ -581,6 +583,10 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '900',
     textTransform: 'uppercase',
+    shadowColor: '#fff',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.16,
+    shadowRadius: 14,
   },
   tripRailText: {
     color: '#fff',
@@ -594,6 +600,17 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 16,
     right: 82,
+  },
+  tripReelCopyGlass: {
+    alignSelf: 'flex-start',
+    maxWidth: '100%',
+    borderRadius: 26,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+    backgroundColor: 'rgba(255, 255, 255, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.20)',
+    overflow: 'hidden',
   },
   tripReelLocation: {
     color: '#fff',

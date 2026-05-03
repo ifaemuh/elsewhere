@@ -1982,11 +1982,19 @@ function SafeAutoplayVideo({
   soundEnabled: boolean;
 }) {
   const [playbackFailed, setPlaybackFailed] = useState(false);
+  const loopSeekingRef = useRef(false);
   const player = useVideoPlayer({ uri }, (instance) => {
     instance.loop = true;
     instance.muted = true;
+    instance.timeUpdateEventInterval = 0.12;
   });
   const { status } = useEvent(player, 'statusChange', { status: player.status });
+  const { currentTime } = useEvent(player, 'timeUpdate', {
+    currentTime: 0,
+    currentLiveTimestamp: null,
+    currentOffsetFromLive: null,
+    bufferedPosition: 0,
+  });
 
   useEffect(() => {
     if (status === 'readyToPlay') {
@@ -2002,6 +2010,21 @@ function SafeAutoplayVideo({
       setPlaybackFailed(true);
     }
   }, [isActive, player, soundEnabled, status]);
+
+  useEffect(() => {
+    if (!isActive || playbackFailed || status !== 'readyToPlay' || loopSeekingRef.current) return;
+    const duration = player.duration;
+    if (!Number.isFinite(duration) || duration <= 1.2 || currentTime <= 0.6) return;
+    if (duration - currentTime > 0.14) return;
+
+    loopSeekingRef.current = true;
+    player.currentTime = 0.01;
+    player.play();
+    const timer = setTimeout(() => {
+      loopSeekingRef.current = false;
+    }, 180);
+    return () => clearTimeout(timer);
+  }, [currentTime, isActive, playbackFailed, player, status]);
 
   return (
     <View style={style} accessibilityLabel={accessibilityLabel}>
