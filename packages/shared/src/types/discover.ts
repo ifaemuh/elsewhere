@@ -11,6 +11,7 @@ export type DiscoverFeedItemKind =
   | 'deal'
   | 'sponsored'
   | 'sponsored_native'
+  | 'photo_memory'
   | 'interactive_prompt'
   | 'assist_alert'
   | 'travel_admin'
@@ -26,12 +27,16 @@ export type DiscoverContentSourceKind =
   | 'partner'
   | 'social_link'
   | 'live_camera'
+  | 'photo_library'
   | 'ai_generated'
   | 'local_demo';
 export type DiscoverValueConfidence = 'low' | 'medium' | 'high';
 export type DiscoverDealTrend = 'down' | 'flat' | 'up' | 'watching';
 export type DiscoverMediaMode = 'video' | 'animated_still' | 'embed' | 'ai_video' | 'personal_ai';
 export type DiscoverRightsStatus = 'owned' | 'licensed' | 'partner' | 'embed_only' | 'user_shared';
+export type MusicRightsStatus = 'owned' | 'licensed' | 'partner' | 'rights_pending' | 'spotify_reference_only' | 'not_cleared';
+export type MusicProviderKind = 'elsewhere_licensed' | 'spotify_catalog' | 'direct_label' | 'commercial_library' | 'partner';
+export type PhotoMemoryApprovalStatus = 'private_candidate' | 'approved_for_discover' | 'approved_for_recap' | 'rejected';
 
 export interface DiscoverCurationAction {
   label: string;
@@ -108,12 +113,56 @@ export interface DiscoverNarration {
   disclosure: string;
 }
 
+export interface MusicLoopPoint {
+  startMs: number;
+  endMs: number;
+  confidence: DiscoverValueConfidence;
+}
+
+export interface MusicTrack {
+  id: string;
+  title: string;
+  artist: string;
+  provider: MusicProviderKind;
+  rightsStatus: MusicRightsStatus;
+  spotifyUrl: string | null;
+  isrc: string | null;
+  bpm: number;
+  beatGridMs: number;
+  vibeTags: string[];
+  genre: string;
+  loopPoints: MusicLoopPoint[];
+  licenseTerritory: string | null;
+  licenseUse: string | null;
+  playableInApp: boolean;
+  audioUrl: string | null;
+  limitation: string | null;
+}
+
+export interface MusicCue {
+  id: string;
+  trackId: string;
+  startMs: number;
+  durationMs: number;
+  beatAligned: boolean;
+  captionBeatIds: string[];
+}
+
+export interface SoundtrackRecommendation {
+  id: string;
+  track: MusicTrack;
+  reason: string;
+  usePolicy: 'play_in_app' | 'suggest_on_export' | 'taste_signal_only';
+}
+
 export interface DiscoverAudioMix {
   mode: 'video_embedded' | 'music_plus_voice' | 'music_only' | 'narration_ready';
+  musicTrackId?: string;
   bpm: number;
   beatGridMs: number;
   musicUrl: string | null;
   narrationUrl: string | null;
+  cues?: MusicCue[];
   loopStrategy: 'seamless_loop' | 'crossfade' | 'poster_motion';
   limitation: string | null;
 }
@@ -131,11 +180,62 @@ export interface DiscoverCollectionRail {
 }
 
 export interface DiscoverMusicAttribution {
+  trackId?: string;
   title: string;
   artistOrLibrary: string;
   genre: string;
-  licenseKind: 'owned' | 'licensed' | 'platform_embed' | 'royalty_free_demo';
+  licenseKind: 'owned' | 'licensed' | 'platform_embed' | 'royalty_free_demo' | 'rights_pending';
+  rightsStatus?: MusicRightsStatus;
+  provider?: MusicProviderKind;
+  spotifyUrl?: string | null;
+  isrc?: string | null;
+  beatGridMs?: number;
+  loopPoints?: MusicLoopPoint[];
+  vibeTags?: string[];
+  licenseTerritory?: string | null;
+  licenseUse?: string | null;
+  playableInApp?: boolean;
+  fallbackTrackId?: string | null;
   bpm?: number;
+}
+
+export interface PhotoMemoryCandidate {
+  id: string;
+  localAssetIds: string[];
+  previewAssetId: string | null;
+  mediaCount: number;
+  dateRangeLabel: string;
+  inferredLocation: string;
+  matchConfidence: DiscoverValueConfidence;
+  approvalStatus: PhotoMemoryApprovalStatus;
+  privacyLabel: string;
+}
+
+export interface PhotoMemoryCluster {
+  id: string;
+  title: string;
+  dateRangeLabel: string;
+  inferredLocation: string;
+  confidence: DiscoverValueConfidence;
+  mediaCount: number;
+  localAssetIds: string[];
+  approvalStatus: PhotoMemoryApprovalStatus;
+}
+
+export interface PhotoMemoryReel {
+  id: string;
+  clusterId: string;
+  title: string;
+  generatedPostId: string | null;
+  approvalStatus: PhotoMemoryApprovalStatus;
+  sourceAssetIds: string[];
+  privacyLabel: string;
+}
+
+export interface PhotoMemoryApproval {
+  candidateId: string;
+  action: 'approve_for_discover' | 'approve_for_recap' | 'keep_private' | 'reject';
+  decidedAt: string;
 }
 
 export interface DiscoverParticipant {
@@ -185,6 +285,7 @@ export interface DiscoverFeedItem {
     | 'personal_trip_ad'
     | 'personal_deal'
     | 'sponsored_native'
+    | 'photo_memory'
     | 'interactive_prompt'
     | 'assist_alert'
     | 'travel_admin'
@@ -203,13 +304,15 @@ export interface DiscoverFeedItem {
   sponsored?: boolean;
   advertiserName?: string;
   targetingReason?: string;
+  soundtrackRecommendations?: SoundtrackRecommendation[];
+  photoMemory?: PhotoMemoryReel;
   sourceLine: string;
   locationLabel?: string;
   primaryValueLabel?: string;
   priceBadgeLabel?: string;
   relevanceReason?: string;
   contentTopics?: string[];
-  textTreatment?: 'documentary' | 'question' | 'personal' | 'deal' | 'admin';
+  textTreatment?: 'documentary' | 'question' | 'personal' | 'deal' | 'admin' | 'memory';
   captionBeats?: DiscoverCaptionBeat[];
   narration?: DiscoverNarration;
   interactionStats?: {

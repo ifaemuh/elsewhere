@@ -20,6 +20,12 @@ import {
   type DiscoverTripValue,
   type EditorialShort,
 } from '@elsewhere/shared';
+import {
+  MUSIC_PROVIDER_COVERAGE,
+  getLicensedMusicTrack,
+  musicAttributionFromTrack,
+  recommendSoundtracks,
+} from './music-providers';
 
 type ProviderCoverage = DiscoverFeedResponse['providerCoverage'][number];
 
@@ -85,6 +91,12 @@ function providerCoverage(): ProviderCoverage[] {
       status: 'local_demo',
       detail: 'Deal and affordability signals use the local Deal Radar fixture until official provider keys are connected.',
     },
+    ...MUSIC_PROVIDER_COVERAGE.map((coverage) => ({
+      provider: coverage.provider,
+      sourceKind: 'partner' as const,
+      status: coverage.rightsStatus === 'licensed' ? 'connected' as const : 'not_configured' as const,
+      detail: coverage.detail,
+    })),
   ];
 }
 
@@ -97,12 +109,26 @@ function bpmForGenre(genre: string): number {
 }
 
 function music(title: string, genre: string, artistOrLibrary = 'Elsewhere Sound Library'): DiscoverMusicAttribution {
+  if (artistOrLibrary === 'Elsewhere Sound Library') {
+    return musicAttributionFromTrack(getLicensedMusicTrack(title, genre));
+  }
+
   return {
     title,
     artistOrLibrary,
     genre,
-    licenseKind: 'royalty_free_demo',
+    licenseKind: 'rights_pending',
+    rightsStatus: 'rights_pending',
+    provider: 'direct_label',
+    spotifyUrl: null,
+    isrc: null,
     bpm: bpmForGenre(genre),
+    beatGridMs: Math.round(60000 / bpmForGenre(genre)),
+    loopPoints: [],
+    vibeTags: [genre],
+    licenseTerritory: null,
+    licenseUse: null,
+    playableInApp: false,
   };
 }
 
@@ -406,18 +432,30 @@ function audioMixFor(
   narration: NonNullable<DiscoverFeedItem['narration']>,
 ): DiscoverAudioMix {
   const bpm = musicTrack.bpm ?? bpmForGenre(musicTrack.genre);
-  const beatGridMs = Math.round(60000 / bpm);
+  const beatGridMs = musicTrack.beatGridMs ?? Math.round(60000 / bpm);
   const hasEmbeddedAudio = input.mediaType === 'video';
+  const playableMusicUrl = musicTrack.playableInApp === false ? null : null;
   return {
-    mode: narration.audioUrl ? 'music_plus_voice' : hasEmbeddedAudio ? 'video_embedded' : 'narration_ready',
+    mode: narration.audioUrl && playableMusicUrl ? 'music_plus_voice' : hasEmbeddedAudio ? 'video_embedded' : 'narration_ready',
+    musicTrackId: musicTrack.trackId,
     bpm,
     beatGridMs,
-    musicUrl: null,
+    musicUrl: playableMusicUrl,
     narrationUrl: narration.audioUrl,
+    cues: [
+      {
+        id: `${input.id}-intro-cue`,
+        trackId: musicTrack.trackId ?? `inline-${input.id}`,
+        startMs: 0,
+        durationMs: beatGridMs * 16,
+        beatAligned: true,
+        captionBeatIds: (input.captionBeats ?? []).slice(0, 3).map((beat) => beat.id),
+      },
+    ],
     loopStrategy: hasEmbeddedAudio ? 'seamless_loop' : 'poster_motion',
     limitation: narration.audioUrl
       ? null
-      : 'Audio is narration-ready in this demo feed. Generated voice/music files can be attached without changing the post contract.',
+      : 'Audio is narration-ready in this demo feed. Commercial songs stay recommendations until direct sync rights are cleared.',
   };
 }
 
@@ -442,6 +480,12 @@ function item(input: DiscoverFeedItem): DiscoverFeedItem {
     captionBeats,
     narration,
     audioMix: input.audioMix ?? audioMixFor(input, musicTrack, narration),
+    soundtrackRecommendations: input.soundtrackRecommendations ?? recommendSoundtracks({
+      title: input.title,
+      locationLabel: input.locationLabel,
+      contentTopics: input.contentTopics,
+      music: musicTrack,
+    }),
     primaryAction: input.primaryAction ?? input.curationAction,
     assistWatchItems: input.assistWatchItems ?? input.tripProposal?.assistWatchItems,
   };
@@ -1688,6 +1732,63 @@ function travelReelItems(): DiscoverFeedItem[] {
         label: 'Watch',
         prompt: 'Watch Southern California bioluminescence conditions and alert when a safe local viewing window appears.',
         destinationName: 'Southern California',
+      },
+    }),
+    item({
+      id: 'reel-memory-bali-camera-roll',
+      kind: 'photo_memory',
+      feedScope: 'both',
+      postType: 'photo_memory',
+      hook: 'Your camera roll already knows what kind of trip you miss.',
+      title: 'A private Bali memory reel',
+      detail: 'Elsewhere found a previous-vacation-style cluster: beaches, slow mornings, friends, and villa downtime. It stays private until you approve it.',
+      mediaType: 'image',
+      mediaUrl: DEMO_MEDIA.discover.personalized.baliGroupStill,
+      mediaPosterUrl: DEMO_MEDIA.discover.personalized.baliGroupStill,
+      mediaMode: 'animated_still',
+      sourceLine: 'Private photo memory · local library candidate',
+      locationLabel: 'Bali',
+      primaryValueLabel: 'plan a similar reset',
+      relevanceReason: 'Matched from past-vacation patterns: beach light, group photos, food stops, and slow mornings.',
+      textTreatment: 'memory',
+      contentTopics: ['photo memory', 'beach', 'Bali', 'friends', 'villa', 'past trips'],
+      interactionStats: { likes: 3100, learns: 2400, plans: 1700, shares: 0 },
+      contentSources: [
+        {
+          kind: 'photo_library',
+          name: 'Private native photo library candidate',
+          url: null,
+          attribution: null,
+          freshnessLabel: 'Local/private until approved',
+          limitation: 'No camera-roll media is uploaded, shared, or used for generation until the user approves.',
+        },
+      ],
+      music: music('Blue Hour Coast', 'ambient'),
+      photoMemory: {
+        id: 'memory-reel-bali-camera-roll',
+        clusterId: 'memory-cluster-bali-previous-vacation',
+        title: 'Bali-style reset from your library',
+        generatedPostId: 'reel-memory-bali-camera-roll',
+        approvalStatus: 'private_candidate',
+        sourceAssetIds: ['local-demo-bali-001', 'local-demo-bali-002', 'local-demo-bali-003'],
+        privacyLabel: 'Private candidate. Approve before sharing, upload, recap, or AI generation.',
+      },
+      tripProposal: proposal({
+        destination: 'Bali',
+        origin: 'Los Angeles',
+        dateWindow: 'Flexible shoulder-season reset',
+        calendarFit: 'Best with one holiday bridge and two PTO days.',
+        groupFit: 'Best for the same pace pattern: mornings together, optional afternoons, easy dinners.',
+        dealTrend: 'watching',
+        flight: 820,
+        stay: 760,
+        activity: 260,
+        anchor: 'Villa base with slow mornings and optional split days',
+      }),
+      curationAction: {
+        label: 'Plan similar',
+        prompt: 'Use my prior beach/villa/group-trip photo patterns to plan a similar Bali-style reset, but keep all camera-roll media private unless approved.',
+        destinationName: 'Bali',
       },
     }),
     item({

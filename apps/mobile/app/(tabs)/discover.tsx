@@ -20,6 +20,7 @@ import { useEvent } from 'expo';
 import { useRouter } from 'expo-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Image } from 'expo-image';
+import * as MediaLibrary from 'expo-media-library';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { SOCIAL_POP } from '@/components/AppHeader';
 import { useHorizontalTabSwipe } from '@/hooks/useHorizontalTabSwipe';
@@ -41,6 +42,8 @@ import type {
   DiscoverTripProposal,
   DiscoverTripValue,
   EditorialShort,
+  PhotoMemoryCandidate,
+  SoundtrackRecommendation,
   SocialTripInviteCard,
   TravelDealSignal,
 } from '@elsewhere/shared';
@@ -56,7 +59,7 @@ type DiscoverLayoutVariant =
   | 'deal_compact'
   | 'personal_preview'
   | 'collection_rail';
-type DiscoverMediaSource = 'pexels' | 'local' | 'ai' | 'partner' | 'google_places' | 'youtube' | 'social_link' | 'live_camera';
+type DiscoverMediaSource = 'pexels' | 'local' | 'ai' | 'partner' | 'google_places' | 'youtube' | 'social_link' | 'live_camera' | 'photo_library';
 
 interface DiscoverDetailBlock {
   kind: DetailBlockKind;
@@ -117,6 +120,8 @@ interface PersonalizedDiscoveryCard {
   sponsored?: boolean;
   advertiserName?: string;
   targetingReason?: string;
+  soundtrackRecommendations?: SoundtrackRecommendation[];
+  photoMemory?: DiscoverFeedItem['photoMemory'];
   tripDetails: {
     dateWindow: string;
     estimatedPrice: string;
@@ -298,7 +303,7 @@ function isEditorialCardKind(cardKind: string): boolean {
 }
 
 function isDealCardKind(cardKind: string): boolean {
-  return cardKind === 'deal';
+  return cardKind === 'deal' || cardKind === 'personal_deal';
 }
 
 function primaryCtaLabel(card: Pick<PersonalizedDiscoveryCard, 'cardKind' | 'primaryCta'>): string {
@@ -312,6 +317,7 @@ function cardTypeLabel(card: Pick<PersonalizedDiscoveryCard, 'cardKind' | 'typeL
   if (card.cardKind === 'cultural_video') return 'Culture';
   if (card.cardKind === 'unique_stay') return 'Stay';
   if (card.cardKind === 'collection_rail') return 'Collection';
+  if (card.cardKind === 'photo_memory') return 'Memory';
   if (card.cardKind === 'deal') return 'Deal';
   if (card.cardKind === 'personal_deal') return 'Personal';
   if (card.cardKind === 'personal_trip_ad') return 'Personal';
@@ -339,6 +345,7 @@ function layoutVariantForCard(card: PersonalizedDiscoveryCard): DiscoverLayoutVa
   if (card.cardKind === 'cultural_video') return 'cultural_video';
   if (card.cardKind === 'deal') return 'deal_compact';
   if (card.cardKind === 'collection_rail') return 'collection_rail';
+  if (card.cardKind === 'photo_memory') return 'personal_preview';
   if (isPersonalCardKind(card.cardKind)) return 'personal_preview';
   return 'editorial_story';
 }
@@ -518,6 +525,8 @@ function cardFromFeedItem(item: DiscoverFeedItem, destinations: Destination[]): 
     sponsored: item.sponsored,
     advertiserName: item.advertiserName,
     targetingReason: item.targetingReason,
+    soundtrackRecommendations: item.soundtrackRecommendations,
+    photoMemory: item.photoMemory,
     collectionItems: item.collection?.items,
   };
 }
@@ -542,14 +551,16 @@ function friendAvatarForName(name: string, fallbackIndex: number): string | null
   return FRIEND_AVATAR_PATHS[Math.abs(hash || fallbackIndex) % FRIEND_AVATAR_PATHS.length];
 }
 
-function musicLabel(card: Pick<PersonalizedDiscoveryCard, 'music' | 'mediaMode' | 'rightsStatus' | 'creatorLabel' | 'sourceLine' | 'audioMix' | 'narration'>): string {
+function musicLabel(card: Pick<PersonalizedDiscoveryCard, 'music' | 'mediaMode' | 'rightsStatus' | 'creatorLabel' | 'sourceLine' | 'audioMix' | 'narration' | 'soundtrackRecommendations'>): string {
   const track = card.music?.title ?? 'Elsewhere Drift';
   const genre = card.music?.genre ?? 'chill hop';
   const source = card.music?.artistOrLibrary ?? 'Elsewhere Sound Library';
   const rights = card.rightsStatus === 'embed_only' ? 'embed only' : source;
   const bpm = card.audioMix?.bpm ?? card.music?.bpm;
   const sync = card.narration?.captionsAvailable ? 'caption-synced' : 'music bed';
-  return `${card.creatorLabel ?? card.sourceLine.split('·')[0].trim()} · ${track} · ${genre}${bpm ? ` · ${bpm} bpm` : ''} · ${sync} · ${rights}`;
+  const commercialIdea = card.soundtrackRecommendations?.find((recommendation) => !recommendation.track.playableInApp);
+  const ideaLabel = commercialIdea ? ` · export idea: ${commercialIdea.track.title} (${commercialIdea.track.rightsStatus.replace(/_/g, ' ')})` : '';
+  return `${card.creatorLabel ?? card.sourceLine.split('·')[0].trim()} · ${track} · ${genre}${bpm ? ` · ${bpm} bpm` : ''} · ${sync} · ${rights}${ideaLabel}`;
 }
 
 function readinessLabel(value: SocialTripInviteCard['previewReadiness']): string {
@@ -795,6 +806,8 @@ export default function DiscoverScreen() {
   const [activeReelIndex, setActiveReelIndex] = useState(0);
   const [interactiveAnswers, setInteractiveAnswers] = useState<Record<string, string>>({});
   const [revealedPromptIds, setRevealedPromptIds] = useState<Set<string>>(() => new Set());
+  const [photoMemoryCandidates, setPhotoMemoryCandidates] = useState<Record<string, PhotoMemoryCandidate>>({});
+  const [photoMemoryScanMessage, setPhotoMemoryScanMessage] = useState<string | null>(null);
   const { photos, error: photosError } = useReferencePhotos();
   const calendar = useCalendarSignals();
   const localDiscovery = useLocalDiscoveryContext();
@@ -1273,6 +1286,41 @@ export default function DiscoverScreen() {
     });
   };
 
+  const handleScanPhotoMemory = async (card: PersonalizedDiscoveryCard) => {
+    try {
+      setPhotoMemoryScanMessage(null);
+      const permission = await MediaLibrary.requestPermissionsAsync();
+      if (!permission.granted) {
+        setPhotoMemoryScanMessage('Photo access is off. Elsewhere will keep memory reels as private demo candidates.');
+        return;
+      }
+
+      const assets = await MediaLibrary.getAssetsAsync({
+        first: 80,
+        mediaType: [MediaLibrary.MediaType.photo, MediaLibrary.MediaType.video],
+        sortBy: [MediaLibrary.SortBy.creationTime],
+      });
+      const newest = assets.assets[0]?.creationTime;
+      const oldest = assets.assets[assets.assets.length - 1]?.creationTime;
+      const formatMonth = (value?: number) => value ? new Date(value).toLocaleDateString(undefined, { month: 'short', year: 'numeric' }) : 'recent';
+      const candidate: PhotoMemoryCandidate = {
+        id: `${card.id}-local-candidate`,
+        localAssetIds: assets.assets.map((asset) => asset.id),
+        previewAssetId: assets.assets[0]?.id ?? null,
+        mediaCount: assets.totalCount ?? assets.assets.length,
+        dateRangeLabel: `${formatMonth(oldest)} - ${formatMonth(newest)}`,
+        inferredLocation: locationLabel(card),
+        matchConfidence: assets.assets.length >= 12 ? 'medium' : 'low',
+        approvalStatus: 'private_candidate',
+        privacyLabel: 'Private candidate. Nothing uploads or shares until you approve it.',
+      };
+      setPhotoMemoryCandidates((current) => ({ ...current, [card.id]: candidate }));
+      setPhotoMemoryScanMessage(`Found ${assets.assets.length} local photo/video candidate${assets.assets.length === 1 ? '' : 's'} for a private ${locationLabel(card)} memory reel.`);
+    } catch (err) {
+      setPhotoMemoryScanMessage((err as Error).message);
+    }
+  };
+
   if (selectedCard) {
     return (
       <View style={styles.container} {...detailSwipeResponder.panHandlers}>
@@ -1325,10 +1373,12 @@ export default function DiscoverScreen() {
             isLiked={Boolean(likedCards[item.id])}
             showPromptControls={revealedPromptIds.has(item.id) || Boolean(interactiveAnswers[item.id])}
             selectedAnswerId={interactiveAnswers[item.id]}
+            photoMemoryCandidate={photoMemoryCandidates[item.id]}
             onLearn={() => handleCardPress(item)}
             onPlan={() => handleBookCard(item)}
             onLike={() => handleLikeCard(item)}
             onShare={() => Share.share({ title: item.title, message: item.detail })}
+            onScanPhotoMemory={() => handleScanPhotoMemory(item)}
             onSelectAnswer={(answerId) => {
               setInteractiveAnswers((current) => ({ ...current, [item.id]: answerId }));
             }}
@@ -1364,6 +1414,11 @@ export default function DiscoverScreen() {
       {feedError ? (
         <View style={[styles.reelsErrorToast, { top: insets.top + 74 }]}>
           <Text style={styles.reelsErrorText}>{feedError}</Text>
+        </View>
+      ) : null}
+      {photoMemoryScanMessage ? (
+        <View style={[styles.reelsErrorToast, { top: insets.top + 116 }]}>
+          <Text style={styles.reelsErrorText}>{photoMemoryScanMessage}</Text>
         </View>
       ) : null}
     </View>
@@ -1437,6 +1492,10 @@ function DiscoverDetail({
         {card.interactivePrompt ? <InteractiveDetailPanel prompt={card.interactivePrompt} /> : null}
         {card.adminAction ? <TravelAdminDetailPanel action={card.adminAction} /> : null}
         {card.tripValue ? <TripValuePanel value={card.tripValue} /> : null}
+        {card.photoMemory ? <PhotoMemoryDetailPanel reel={card.photoMemory} /> : null}
+        {card.soundtrackRecommendations?.length ? (
+          <SoundtrackRecommendationPanel recommendations={card.soundtrackRecommendations} />
+        ) : null}
 
         {isPersonal ? <ParticipantRow people={card.people} photos={photos} /> : null}
 
@@ -1604,6 +1663,7 @@ function treatmentLabel(card: PersonalizedDiscoveryCard): string {
   if (card.textTreatment === 'question' || card.interactivePrompt) return 'interactive field question';
   if (card.textTreatment === 'deal' || isDealCardKind(card.cardKind)) return 'relevant deal signal';
   if (card.textTreatment === 'personal' || isPersonalCardKind(card.cardKind)) return 'personal travel segment';
+  if (card.textTreatment === 'memory' || card.cardKind === 'photo_memory') return 'private memory reel';
   if (card.textTreatment === 'admin' || card.adminAction) return 'travel readiness';
   return 'documentary short';
 }
@@ -1748,10 +1808,12 @@ function DiscoverReelPost({
   isLiked,
   showPromptControls,
   selectedAnswerId,
+  photoMemoryCandidate,
   onLearn,
   onPlan,
   onLike,
   onShare,
+  onScanPhotoMemory,
   onSelectAnswer,
 }: {
   card: PersonalizedDiscoveryCard;
@@ -1765,10 +1827,12 @@ function DiscoverReelPost({
   isLiked: boolean;
   showPromptControls: boolean;
   selectedAnswerId?: string;
+  photoMemoryCandidate?: PhotoMemoryCandidate;
   onLearn: () => void;
   onPlan: () => void;
   onLike: () => void;
   onShare: () => void;
+  onScanPhotoMemory: () => void;
   onSelectAnswer: (answerId: string) => void;
 }) {
   const isPersonal = isPersonalCardKind(card.cardKind);
@@ -1918,6 +1982,12 @@ function DiscoverReelPost({
             prompt={card.interactivePrompt}
             selectedAnswerId={selectedAnswerId}
             onSelectAnswer={onSelectAnswer}
+          />
+        ) : card.photoMemory ? (
+          <PhotoMemoryControls
+            reel={card.photoMemory}
+            candidate={photoMemoryCandidate}
+            onScan={onScanPhotoMemory}
           />
         ) : card.adminAction ? (
           <TravelAdminControls action={card.adminAction} />
@@ -2145,6 +2215,44 @@ function TravelAdminControls({ action }: { action: DiscoverAdminAction }) {
   );
 }
 
+function PhotoMemoryControls({
+  reel,
+  candidate,
+  onScan,
+}: {
+  reel: NonNullable<DiscoverFeedItem['photoMemory']>;
+  candidate?: PhotoMemoryCandidate;
+  onScan: () => void;
+}) {
+  return (
+    <View style={styles.memoryPanel}>
+      <View style={styles.interactiveCueRow}>
+        <View style={styles.memoryPrivateDot} />
+        <Text style={styles.interactiveCueText}>private memory reel</Text>
+      </View>
+      <Text style={styles.memoryPanelTitle} numberOfLines={1}>
+        {candidate ? `${candidate.mediaCount} local items found` : reel.privacyLabel}
+      </Text>
+      <Text style={styles.memoryPanelBody} numberOfLines={2}>
+        {candidate
+          ? `${candidate.dateRangeLabel} · ${candidate.inferredLocation} · ${candidate.privacyLabel}`
+          : 'Scan Photos locally to build a candidate. Nothing uploads, shares, or trains AI until you approve it.'}
+      </Text>
+      <Pressable
+        style={styles.memoryScanButton}
+        onPress={(event) => {
+          event.stopPropagation();
+          onScan();
+        }}
+      >
+        <Text style={styles.memoryScanButtonText}>
+          {candidate ? 'rescan local' : 'scan photos'}
+        </Text>
+      </Pressable>
+    </View>
+  );
+}
+
 function ReelSoundToggle({ enabled, onPress }: { enabled: boolean; onPress: () => void }) {
   return (
     <Pressable style={styles.soundToggle} onPress={onPress}>
@@ -2217,6 +2325,36 @@ function InteractiveDetailPanel({ prompt }: { prompt: DiscoverInteractivePrompt 
         <View key={answer.id} style={styles.answerDetailRow}>
           <Text style={styles.answerDetailLabel}>{answer.label}</Text>
           <Text style={styles.answerDetailBody}>{answer.responseHook} {answer.responseDetail}</Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+function PhotoMemoryDetailPanel({ reel }: { reel: NonNullable<DiscoverFeedItem['photoMemory']> }) {
+  return (
+    <View style={styles.intelPanel}>
+      <Text style={styles.intelPanelLabel}>Private memory candidate</Text>
+      <Text style={styles.intelPanelTitle}>{reel.title}</Text>
+      <Text style={styles.intelPanelBody}>
+        {reel.privacyLabel} Source assets stay local until approval. This can become a Discover memory reel or a future trip recap only after consent.
+      </Text>
+    </View>
+  );
+}
+
+function SoundtrackRecommendationPanel({ recommendations }: { recommendations: SoundtrackRecommendation[] }) {
+  return (
+    <View style={styles.intelPanel}>
+      <Text style={styles.intelPanelLabel}>Soundtrack rights</Text>
+      {recommendations.slice(0, 2).map((recommendation) => (
+        <View key={recommendation.id} style={styles.answerDetailRow}>
+          <Text style={styles.answerDetailLabel}>
+            {recommendation.track.title} · {recommendation.track.artist}
+          </Text>
+          <Text style={styles.answerDetailBody}>
+            {recommendation.reason} Status: {recommendation.track.rightsStatus.replace(/_/g, ' ')}. {recommendation.track.limitation}
+          </Text>
         </View>
       ))}
     </View>
@@ -3379,6 +3517,59 @@ const styles = StyleSheet.create({
     lineHeight: 12,
     fontWeight: '900',
     textAlign: 'center',
+  },
+  memoryPanel: {
+    marginTop: 12,
+    maxWidth: 292,
+    borderRadius: 22,
+    padding: 11,
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.26)',
+  },
+  memoryPrivateDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#fff0b8',
+    shadowColor: '#fff0b8',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.72,
+    shadowRadius: 10,
+  },
+  memoryPanelTitle: {
+    color: '#fff',
+    fontSize: 13,
+    lineHeight: 16,
+    fontWeight: '900',
+    textShadowColor: 'rgba(0,0,0,0.5)',
+    textShadowRadius: 8,
+  },
+  memoryPanelBody: {
+    color: 'rgba(255,255,255,0.82)',
+    fontSize: 11,
+    lineHeight: 15,
+    marginTop: 5,
+    textShadowColor: 'rgba(0,0,0,0.5)',
+    textShadowRadius: 8,
+  },
+  memoryScanButton: {
+    alignSelf: 'flex-start',
+    minHeight: 31,
+    borderRadius: 999,
+    marginTop: 9,
+    paddingHorizontal: 12,
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.28)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.26)',
+  },
+  memoryScanButtonText: {
+    color: '#fff',
+    fontSize: 10,
+    lineHeight: 12,
+    fontWeight: '900',
+    textTransform: 'uppercase',
   },
   feedContent: { padding: 16, paddingBottom: 180 },
   feedPager: { flex: 1 },
