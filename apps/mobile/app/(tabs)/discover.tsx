@@ -206,10 +206,39 @@ function orderDiscoverCards<T extends BasePersonalizedDiscoveryCard>(cards: T[])
   if (!firstSponsored) return seededShuffle(cards, dailyDiscoverSeed());
 
   const remaining = cards.filter((card) => card.id !== firstSponsored.id);
-  return [
-    firstSponsored,
-    ...seededShuffle(remaining, dailyDiscoverSeed()),
-  ];
+  const contentCards = seededShuffle(
+    remaining.filter((card) =>
+      !card.sponsored &&
+      (
+        card.cardKind === 'editorial_short' ||
+        card.cardKind === 'interactive_prompt' ||
+        card.cardKind === 'unique_stay' ||
+        card.cardKind === 'cultural_video' ||
+        card.cardKind === 'live_view' ||
+        card.postType === 'destination_short' ||
+        card.postType === 'hotel_reveal'
+      ),
+    ),
+    `${dailyDiscoverSeed()}:content`,
+  );
+  const utilityCards = seededShuffle(
+    remaining.filter((card) => !contentCards.some((contentCard) => contentCard.id === card.id)),
+    `${dailyDiscoverSeed()}:utility`,
+  );
+  const ordered = [firstSponsored];
+  let contentRun = 0;
+
+  while (contentCards.length || utilityCards.length) {
+    if (contentCards.length && (contentRun < 4 || !utilityCards.length)) {
+      ordered.push(contentCards.shift()!);
+      contentRun += 1;
+    } else if (utilityCards.length) {
+      ordered.push(utilityCards.shift()!);
+      contentRun = 0;
+    }
+  }
+
+  return ordered;
 }
 
 function assetUrl(path: string): string {
@@ -372,6 +401,14 @@ function priceBadgeLabel(card: PersonalizedDiscoveryCard): string | null {
   }
   if (card.cardKind === 'assist_alert') return card.primaryValueLabel ?? null;
   return null;
+}
+
+function compactPriceLabel(label: string): string {
+  return label
+    .replace(/^from\s+/i, '')
+    .replace(/\s+protected$/i, '')
+    .replace(/^([A-Za-z]+)\s+from\s+/i, '')
+    .trim();
 }
 
 function preferenceSignature(card: PersonalizedDiscoveryCard): string[] {
@@ -1584,7 +1621,7 @@ function DiscoverReelPost({
           <Text style={styles.reelRoundActionIcon}>?</Text>
           <Text style={styles.reelRoundActionText}>learn</Text>
         </Pressable>
-        <PlanRailAction label={planDealLabel} reason={card.relevanceReason} onPress={onPlan} />
+        <PlanRailAction label={planDealLabel} onPress={onPlan} />
         <Pressable style={styles.reelRoundAction} onPress={onShare}>
           <Text style={styles.reelRoundActionIcon}>{'↗'}</Text>
           <Text style={styles.reelRoundActionText}>share</Text>
@@ -1598,11 +1635,11 @@ function DiscoverReelPost({
           people={isPersonal ? card.people : []}
           photos={photos}
         />
-        <Text style={styles.reelHook} numberOfLines={3} adjustsFontSizeToFit minimumFontScale={0.78}>
+        <Text style={styles.reelHook} numberOfLines={isPersonal ? 2 : 3} adjustsFontSizeToFit minimumFontScale={0.78}>
           {reelHook(card)}
         </Text>
         <MusicAttributionLabel label={musicLabel(card)} />
-        <Text style={styles.reelDeck} numberOfLines={2}>
+        <Text style={styles.reelDeck} numberOfLines={isPersonal ? 1 : 2}>
           {reelSubline(card, selectedAnswer)}
         </Text>
         {card.interactivePrompt && showPromptControls ? (
@@ -1663,7 +1700,7 @@ function InteractivePromptControls({
   );
 }
 
-function PlanRailAction({ label, reason, onPress }: { label: string | null; reason?: string; onPress: () => void }) {
+function PlanRailAction({ label, onPress }: { label: string | null; onPress: () => void }) {
   const slide = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -1697,7 +1734,7 @@ function PlanRailAction({ label, reason, onPress }: { label: string | null; reas
       {
         translateX: slide.interpolate({
           inputRange: [0, 1],
-          outputRange: [16, 0],
+          outputRange: [5, 0],
         }),
       },
     ],
@@ -1708,21 +1745,22 @@ function PlanRailAction({ label, reason, onPress }: { label: string | null; reas
   };
 
   return (
-    <Pressable style={[styles.reelRoundAction, label && styles.planRailAction]} onPress={onPress}>
+    <Pressable style={styles.reelRoundAction} onPress={onPress}>
       <View style={styles.planDealActionWrap}>
         {label ? (
           <Animated.View pointerEvents="none" style={[styles.planDealCallout, transform]}>
             <Text style={styles.planDealCalloutText} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.74}>
-              {label}
+              {compactPriceLabel(label)}
             </Text>
-            {reason ? (
-              <Text style={styles.planDealCalloutSubtext} numberOfLines={1}>
-                {reason}
-              </Text>
-            ) : null}
           </Animated.View>
+        ) : (
+          <Text style={styles.reelRoundActionIcon}>✦</Text>
+        )}
+        {label ? (
+          <Text style={styles.planDealSignal} numberOfLines={1}>
+            deal
+          </Text>
         ) : null}
-        <Text style={[styles.reelRoundActionIcon, label && styles.reelRoundActionIconDeal]}>✦</Text>
       </View>
       <Text style={styles.reelRoundActionText}>plan</Text>
     </Pressable>
@@ -2610,19 +2648,14 @@ const styles = StyleSheet.create({
   reelActionRail: {
     position: 'absolute',
     right: 12,
-    gap: 14,
+    gap: 13,
     alignItems: 'center',
   },
   reelRoundAction: { alignItems: 'center', gap: 4 },
-  planRailAction: {
-    width: 156,
-    alignItems: 'flex-end',
-    marginRight: -2,
-  },
   planDealActionWrap: {
-    width: 156,
-    height: 46,
-    alignItems: 'flex-end',
+    width: 56,
+    height: 47,
+    alignItems: 'center',
     justifyContent: 'center',
   },
   reelRoundActionIcon: {
@@ -2644,49 +2677,41 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 79, 109, 0.42)',
     borderColor: 'rgba(255, 255, 255, 0.48)',
   },
-  reelRoundActionIconDeal: {
-    backgroundColor: 'rgba(255, 79, 109, 0.48)',
-    borderColor: 'rgba(255, 255, 255, 0.62)',
+  planDealCallout: {
+    width: 58,
+    minHeight: 44,
+    borderRadius: 22,
+    paddingHorizontal: 5,
+    paddingVertical: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255, 79, 109, 0.43)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.58)',
     shadowColor: '#ff4f6d',
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.42,
     shadowRadius: 16,
     elevation: 5,
   },
-  planDealCallout: {
-    position: 'absolute',
-    right: 50,
-    top: 2,
-    minWidth: 104,
-    maxWidth: 144,
-    minHeight: 42,
-    borderRadius: 18,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-    backgroundColor: 'rgba(255, 255, 255, 0.20)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.38)',
-    shadowColor: '#ff4f6d',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.32,
-    shadowRadius: 18,
-  },
   planDealCalloutText: {
     color: '#fff',
-    fontSize: 13,
-    lineHeight: 15,
+    fontSize: 11,
+    lineHeight: 13,
     fontWeight: '900',
-    textAlign: 'right',
+    textAlign: 'center',
     textShadowColor: 'rgba(0,0,0,0.5)',
     textShadowRadius: 8,
   },
-  planDealCalloutSubtext: {
-    color: 'rgba(255,255,255,0.78)',
-    fontSize: 8,
-    lineHeight: 10,
+  planDealSignal: {
+    position: 'absolute',
+    bottom: 2,
+    color: 'rgba(255,255,255,0.88)',
+    fontSize: 7,
+    lineHeight: 8,
     fontWeight: '800',
-    marginTop: 2,
-    textAlign: 'right',
+    textAlign: 'center',
+    textTransform: 'uppercase',
   },
   reelRoundActionText: {
     color: '#fff',
@@ -2698,7 +2723,7 @@ const styles = StyleSheet.create({
   reelCopy: {
     position: 'absolute',
     left: 16,
-    right: 82,
+    right: 98,
   },
   reelLocationRow: {
     flexDirection: 'row',
@@ -2730,8 +2755,8 @@ const styles = StyleSheet.create({
   },
   reelHook: {
     color: '#fff',
-    fontSize: 28,
-    lineHeight: 31,
+    fontSize: 25,
+    lineHeight: 28,
     fontWeight: '900',
     marginTop: 8,
     textShadowColor: 'rgba(0,0,0,0.65)',
