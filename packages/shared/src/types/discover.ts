@@ -91,6 +91,33 @@ export interface EditorialShort {
   disclosure: string | null;
 }
 
+export interface DiscoverCaptionBeat {
+  id: string;
+  text: string;
+  emphasis?: string;
+  startMs?: number;
+  durationMs?: number;
+}
+
+export interface DiscoverNarration {
+  script: string;
+  voiceLabel: string;
+  audioUrl: string | null;
+  captionsAvailable: boolean;
+  syncOffsetMs?: number;
+  disclosure: string;
+}
+
+export interface DiscoverAudioMix {
+  mode: 'video_embedded' | 'music_plus_voice' | 'music_only' | 'narration_ready';
+  bpm: number;
+  beatGridMs: number;
+  musicUrl: string | null;
+  narrationUrl: string | null;
+  loopStrategy: 'seamless_loop' | 'crossfade' | 'poster_motion';
+  limitation: string | null;
+}
+
 export interface DiscoverCollectionRail {
   title: string;
   subtitle: string;
@@ -108,6 +135,7 @@ export interface DiscoverMusicAttribution {
   artistOrLibrary: string;
   genre: string;
   licenseKind: 'owned' | 'licensed' | 'platform_embed' | 'royalty_free_demo';
+  bpm?: number;
 }
 
 export interface DiscoverParticipant {
@@ -170,6 +198,7 @@ export interface DiscoverFeedItem {
   mediaMode?: DiscoverMediaMode;
   rightsStatus?: DiscoverRightsStatus;
   music?: DiscoverMusicAttribution;
+  audioMix?: DiscoverAudioMix;
   participants?: DiscoverParticipant[];
   sponsored?: boolean;
   advertiserName?: string;
@@ -180,6 +209,9 @@ export interface DiscoverFeedItem {
   priceBadgeLabel?: string;
   relevanceReason?: string;
   contentTopics?: string[];
+  textTreatment?: 'documentary' | 'question' | 'personal' | 'deal' | 'admin';
+  captionBeats?: DiscoverCaptionBeat[];
+  narration?: DiscoverNarration;
   interactionStats?: {
     likes: number;
     learns: number;

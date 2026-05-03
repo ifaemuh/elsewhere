@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto';
 import {
   DEMO_MEDIA,
   DEMO_MEDIA_METADATA,
+  type DiscoverAudioMix,
   type DiscoverContentSource,
   type DiscoverContentSourceKind,
   type DiscoverEditorialShortRequest,
@@ -87,12 +88,21 @@ function providerCoverage(): ProviderCoverage[] {
   ];
 }
 
+function bpmForGenre(genre: string): number {
+  if (genre.includes('afro')) return 104;
+  if (genre.includes('trap')) return 82;
+  if (genre.includes('house') || genre.includes('electronic')) return 116;
+  if (genre.includes('ambient')) return 68;
+  return 92;
+}
+
 function music(title: string, genre: string, artistOrLibrary = 'Elsewhere Sound Library'): DiscoverMusicAttribution {
   return {
     title,
     artistOrLibrary,
     genre,
     licenseKind: 'royalty_free_demo',
+    bpm: bpmForGenre(genre),
   };
 }
 
@@ -217,14 +227,221 @@ function editorialShort(input: {
   };
 }
 
+function compactSentence(value: string | undefined, maxLength = 104): string {
+  const normalized = (value ?? '').replace(/\s+/g, ' ').trim();
+  if (!normalized) return '';
+  const firstSentence = normalized.match(/^.*?[.!?](?:\s|$)/)?.[0]?.trim() ?? normalized;
+  if (firstSentence.length <= maxLength) return firstSentence;
+  return `${firstSentence.slice(0, maxLength - 1).trim()}...`;
+}
+
+function textTreatmentFor(input: DiscoverFeedItem): NonNullable<DiscoverFeedItem['textTreatment']> {
+  if (input.interactivePrompt || input.kind === 'interactive_prompt') return 'question';
+  if (input.adminAction || input.kind === 'travel_admin') return 'admin';
+  if (input.kind === 'personal_deal' || input.postType === 'personal_deal' || input.kind === 'deal') return 'deal';
+  if (
+    input.kind === 'personal_preview' ||
+    input.kind === 'personal_trip_ad' ||
+    input.kind === 'occasion' ||
+    input.postType === 'personal_trip_ad'
+  ) {
+    return 'personal';
+  }
+  return 'documentary';
+}
+
+function captionBeatsFor(input: DiscoverFeedItem): NonNullable<DiscoverFeedItem['captionBeats']> {
+  const hook = compactSentence(input.hook ?? input.editorialShort?.hook ?? input.title, 92);
+  const location = input.locationLabel ?? input.tripProposal?.destination ?? input.curationAction.destinationName ?? input.title;
+  const detail = compactSentence(input.editorialShort?.captionText ?? input.detail, 112);
+  const valueLabel = input.priceBadgeLabel ?? input.primaryValueLabel ?? input.tripValue?.label;
+
+  if (input.interactivePrompt) {
+    return [
+      {
+        id: `${input.id}-beat-hook`,
+        text: hook,
+        emphasis: location,
+        startMs: 0,
+        durationMs: 1800,
+      },
+      {
+        id: `${input.id}-beat-question`,
+        text: input.interactivePrompt.question,
+        emphasis: input.interactivePrompt.contextLabel || 'field question',
+        startMs: input.interactivePrompt.revealAfterMs ?? 2200,
+        durationMs: 2600,
+      },
+      {
+        id: `${input.id}-beat-answer`,
+        text: 'Pick an answer. The route changes with the story.',
+        emphasis: 'choose',
+        startMs: (input.interactivePrompt.revealAfterMs ?? 2200) + 2500,
+        durationMs: 1800,
+      },
+    ];
+  }
+
+  if (textTreatmentFor(input) === 'deal') {
+    return [
+      {
+        id: `${input.id}-beat-hook`,
+        text: hook,
+        emphasis: location,
+        startMs: 0,
+        durationMs: 1800,
+      },
+      {
+        id: `${input.id}-beat-value`,
+        text: valueLabel ? `${valueLabel}, only because the timing fits.` : 'This deal only appears because the timing fits.',
+        emphasis: valueLabel ?? 'relevant deal',
+        startMs: 1900,
+        durationMs: 2400,
+      },
+      {
+        id: `${input.id}-beat-watch`,
+        text: compactSentence(input.relevanceReason ?? input.detail, 104),
+        emphasis: 'Assist watching',
+        startMs: 4300,
+        durationMs: 2600,
+      },
+    ];
+  }
+
+  if (textTreatmentFor(input) === 'personal') {
+    return [
+      {
+        id: `${input.id}-beat-hook`,
+        text: hook,
+        emphasis: 'your group',
+        startMs: 0,
+        durationMs: 1900,
+      },
+      {
+        id: `${input.id}-beat-context`,
+        text: compactSentence(input.relevanceReason ?? input.detail, 104),
+        emphasis: valueLabel ?? location,
+        startMs: 2000,
+        durationMs: 2600,
+      },
+      {
+        id: `${input.id}-beat-action`,
+        text: 'Invite, split, watch the price, then let Assist protect the plan.',
+        emphasis: 'make it real',
+        startMs: 4700,
+        durationMs: 2600,
+      },
+    ];
+  }
+
+  if (textTreatmentFor(input) === 'admin') {
+    return [
+      {
+        id: `${input.id}-beat-hook`,
+        text: hook,
+        emphasis: input.adminAction?.kind.replace('_', ' ') ?? 'travel admin',
+        startMs: 0,
+        durationMs: 2200,
+      },
+      {
+        id: `${input.id}-beat-deadline`,
+        text: input.adminAction
+          ? `${input.adminAction.statusLabel}. ${input.adminAction.deadlineLabel}.`
+          : detail,
+        emphasis: input.adminAction?.actionLabel ?? 'handle it',
+        startMs: 2300,
+        durationMs: 2600,
+      },
+    ];
+  }
+
+  return [
+    {
+      id: `${input.id}-beat-hook`,
+      text: hook,
+      emphasis: location,
+      startMs: 0,
+      durationMs: 2100,
+    },
+    {
+      id: `${input.id}-beat-story`,
+      text: detail,
+      emphasis: input.editorialShort ? 'field note' : input.postType?.replace('_', ' ') ?? 'travel story',
+      startMs: 2100,
+      durationMs: 3200,
+    },
+    {
+      id: `${input.id}-beat-plan`,
+      text: valueLabel ? `Elsewhere can turn it into dates, stays, and ${valueLabel}.` : 'Elsewhere can turn it into dates, stays, and a watched plan.',
+      emphasis: 'plan this',
+      startMs: 5400,
+      durationMs: 2600,
+    },
+  ];
+}
+
+function narrationFor(
+  input: DiscoverFeedItem,
+  captionBeats: NonNullable<DiscoverFeedItem['captionBeats']>,
+): NonNullable<DiscoverFeedItem['narration']> {
+  return {
+    script: input.editorialShort?.script ?? captionBeats.map((beat) => beat.text).join(' '),
+    voiceLabel: input.interactivePrompt ? 'curious field host' : 'warm documentary guide',
+    audioUrl: null,
+    captionsAvailable: true,
+    syncOffsetMs: 0,
+    disclosure: 'Narration-ready script. OpenAI TTS can generate synced audio when enabled.',
+  };
+}
+
+function alignToBeat(durationMs: number | undefined, beatGridMs: number, beats = 4): number {
+  const minimum = beatGridMs * beats;
+  if (!durationMs) return Math.round(minimum);
+  return Math.round(Math.max(minimum, Math.round(durationMs / beatGridMs) * beatGridMs));
+}
+
+function audioMixFor(
+  input: DiscoverFeedItem,
+  musicTrack: DiscoverMusicAttribution,
+  narration: NonNullable<DiscoverFeedItem['narration']>,
+): DiscoverAudioMix {
+  const bpm = musicTrack.bpm ?? bpmForGenre(musicTrack.genre);
+  const beatGridMs = Math.round(60000 / bpm);
+  const hasEmbeddedAudio = input.mediaType === 'video';
+  return {
+    mode: narration.audioUrl ? 'music_plus_voice' : hasEmbeddedAudio ? 'video_embedded' : 'narration_ready',
+    bpm,
+    beatGridMs,
+    musicUrl: null,
+    narrationUrl: narration.audioUrl,
+    loopStrategy: hasEmbeddedAudio ? 'seamless_loop' : 'poster_motion',
+    limitation: narration.audioUrl
+      ? null
+      : 'Audio is narration-ready in this demo feed. Generated voice/music files can be attached without changing the post contract.',
+  };
+}
+
 function item(input: DiscoverFeedItem): DiscoverFeedItem {
+  const musicTrack = input.music ?? music('Elsewhere Drift', 'chill hop');
+  const bpm = musicTrack.bpm ?? bpmForGenre(musicTrack.genre);
+  const beatGridMs = Math.round(60000 / bpm);
+  const captionBeats = (input.captionBeats ?? captionBeatsFor(input)).map((beat) => ({
+    ...beat,
+    durationMs: alignToBeat(beat.durationMs, beatGridMs),
+  }));
+  const narration = input.narration ?? narrationFor(input, captionBeats);
+
   return {
     ...input,
     hook: input.hook ?? input.editorialShort?.hook ?? input.title,
     creatorLabel: input.creatorLabel ?? input.advertiserName ?? input.sourceLine.split('·')[0].trim(),
     mediaMode: input.mediaMode ?? inferMediaMode(input),
     rightsStatus: input.rightsStatus ?? inferRightsStatus(input),
-    music: input.music ?? music('Elsewhere Drift', 'chill hop'),
+    music: musicTrack,
+    textTreatment: input.textTreatment ?? textTreatmentFor(input),
+    captionBeats,
+    narration,
+    audioMix: input.audioMix ?? audioMixFor(input, musicTrack, narration),
     primaryAction: input.primaryAction ?? input.curationAction,
     assistWatchItems: input.assistWatchItems ?? input.tripProposal?.assistWatchItems,
   };

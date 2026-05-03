@@ -98,6 +98,10 @@ interface PersonalizedDiscoveryCard {
   relevanceReason?: string;
   contentTopics?: string[];
   interactionStats?: DiscoverFeedItem['interactionStats'];
+  textTreatment?: DiscoverFeedItem['textTreatment'];
+  captionBeats?: DiscoverFeedItem['captionBeats'];
+  narration?: DiscoverFeedItem['narration'];
+  audioMix?: DiscoverFeedItem['audioMix'];
   mediaMode?: DiscoverMediaMode;
   rightsStatus?: DiscoverRightsStatus;
   music?: DiscoverMusicAttribution;
@@ -495,6 +499,10 @@ function cardFromFeedItem(item: DiscoverFeedItem, destinations: Destination[]): 
     relevanceReason: item.relevanceReason,
     contentTopics: item.contentTopics,
     interactionStats: item.interactionStats,
+    textTreatment: item.textTreatment,
+    captionBeats: item.captionBeats,
+    narration: item.narration,
+    audioMix: item.audioMix,
     mediaMode: item.mediaMode,
     rightsStatus: item.rightsStatus,
     music: item.music,
@@ -534,12 +542,14 @@ function friendAvatarForName(name: string, fallbackIndex: number): string | null
   return FRIEND_AVATAR_PATHS[Math.abs(hash || fallbackIndex) % FRIEND_AVATAR_PATHS.length];
 }
 
-function musicLabel(card: Pick<PersonalizedDiscoveryCard, 'music' | 'mediaMode' | 'rightsStatus' | 'creatorLabel' | 'sourceLine'>): string {
+function musicLabel(card: Pick<PersonalizedDiscoveryCard, 'music' | 'mediaMode' | 'rightsStatus' | 'creatorLabel' | 'sourceLine' | 'audioMix' | 'narration'>): string {
   const track = card.music?.title ?? 'Elsewhere Drift';
   const genre = card.music?.genre ?? 'chill hop';
   const source = card.music?.artistOrLibrary ?? 'Elsewhere Sound Library';
   const rights = card.rightsStatus === 'embed_only' ? 'embed only' : source;
-  return `${card.creatorLabel ?? card.sourceLine.split('·')[0].trim()} · ${track} · ${genre} · ${rights}`;
+  const bpm = card.audioMix?.bpm ?? card.music?.bpm;
+  const sync = card.narration?.captionsAvailable ? 'caption-synced' : 'music bed';
+  return `${card.creatorLabel ?? card.sourceLine.split('·')[0].trim()} · ${track} · ${genre}${bpm ? ` · ${bpm} bpm` : ''} · ${sync} · ${rights}`;
 }
 
 function readinessLabel(value: SocialTripInviteCard['previewReadiness']): string {
@@ -1551,6 +1561,182 @@ function reelSubline(card: PersonalizedDiscoveryCard, selectedAnswer?: NonNullab
   return card.detail;
 }
 
+function fallbackCaptionBeats(card: PersonalizedDiscoveryCard): NonNullable<DiscoverFeedItem['captionBeats']> {
+  const location = locationLabel(card);
+  const value = priceBadgeLabel(card) ?? card.primaryValueLabel;
+  const phrase = card.audioMix?.beatGridMs ? Math.round(card.audioMix.beatGridMs * 4) : 2600;
+  const bar = card.audioMix?.beatGridMs ? Math.round(card.audioMix.beatGridMs * 6) : 3200;
+
+  if (card.interactivePrompt) {
+    return [
+      {
+        id: `${card.id}-fallback-hook`,
+        text: reelHook(card),
+        emphasis: location,
+        durationMs: phrase,
+      },
+      {
+        id: `${card.id}-fallback-question`,
+        text: card.interactivePrompt.question,
+        emphasis: card.interactivePrompt.contextLabel,
+        durationMs: bar,
+      },
+    ];
+  }
+
+  return [
+    {
+      id: `${card.id}-fallback-hook`,
+      text: reelHook(card),
+      emphasis: location,
+      durationMs: phrase,
+    },
+    {
+      id: `${card.id}-fallback-context`,
+      text: value ? `${value}, with Assist watching the timing.` : reelSubline(card),
+      emphasis: value ?? 'field note',
+      durationMs: bar,
+    },
+  ];
+}
+
+function treatmentLabel(card: PersonalizedDiscoveryCard): string {
+  if (card.textTreatment === 'question' || card.interactivePrompt) return 'interactive field question';
+  if (card.textTreatment === 'deal' || isDealCardKind(card.cardKind)) return 'relevant deal signal';
+  if (card.textTreatment === 'personal' || isPersonalCardKind(card.cardKind)) return 'personal travel segment';
+  if (card.textTreatment === 'admin' || card.adminAction) return 'travel readiness';
+  return 'documentary short';
+}
+
+function KineticReelCaption({
+  card,
+  selectedAnswer,
+  isActive,
+}: {
+  card: PersonalizedDiscoveryCard;
+  selectedAnswer?: NonNullable<DiscoverInteractivePrompt['answers']>[number];
+  isActive: boolean;
+}) {
+  const defaultBeats = useMemo(
+    () => (card.captionBeats?.length ? card.captionBeats : fallbackCaptionBeats(card)),
+    [card],
+  );
+  const beats = useMemo(
+    () => (selectedAnswer
+      ? [
+        {
+          id: `${card.id}-${selectedAnswer.id}-reveal`,
+          text: selectedAnswer.responseHook,
+          emphasis: selectedAnswer.isPreferred ? 'you got it' : 'field note',
+          durationMs: 2800,
+        },
+        {
+          id: `${card.id}-${selectedAnswer.id}-detail`,
+          text: selectedAnswer.responseDetail,
+          emphasis: selectedAnswer.responseCtaLabel,
+          durationMs: 4200,
+        },
+      ]
+      : defaultBeats),
+    [card.id, defaultBeats, selectedAnswer],
+  );
+  const [beatIndex, setBeatIndex] = useState(0);
+  const entrance = useRef(new Animated.Value(1)).current;
+  const activeBeat = beats[Math.min(beatIndex, beats.length - 1)] ?? beats[0];
+
+  useEffect(() => {
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+    let cancelled = false;
+
+    const showBeat = (nextIndex: number) => {
+      if (cancelled || !beats.length) return;
+      setBeatIndex(nextIndex);
+      entrance.setValue(0);
+      Animated.timing(entrance, {
+        toValue: 1,
+        duration: 520,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }).start();
+
+      const rawDuration = beats[nextIndex]?.durationMs ?? 3200;
+      const beatGrid = card.audioMix?.beatGridMs ?? 650;
+      const duration = Math.round(Math.max(beatGrid * 4, Math.round(rawDuration / beatGrid) * beatGrid));
+      timeout = setTimeout(() => {
+        showBeat((nextIndex + 1) % beats.length);
+      }, Math.max(1800, duration));
+    };
+
+    if (!isActive) {
+      setBeatIndex(0);
+      entrance.setValue(1);
+      return undefined;
+    }
+
+    showBeat(0);
+
+    return () => {
+      cancelled = true;
+      if (timeout) clearTimeout(timeout);
+    };
+  }, [beats, entrance, isActive]);
+
+  const motion = {
+    opacity: entrance,
+    transform: [
+      {
+        translateY: entrance.interpolate({
+          inputRange: [0, 1],
+          outputRange: [14, 0],
+        }),
+      },
+      {
+        scale: entrance.interpolate({
+          inputRange: [0, 1],
+          outputRange: [0.985, 1],
+        }),
+      },
+    ],
+  };
+
+  return (
+    <View style={styles.kineticCaption}>
+      <View style={styles.kineticKickerRow}>
+        <Text style={styles.kineticKicker}>{treatmentLabel(card)}</Text>
+        {card.narration?.voiceLabel ? (
+          <Text style={styles.kineticVoiceTag} numberOfLines={1}>
+            voiced by {card.narration.voiceLabel}
+          </Text>
+        ) : null}
+      </View>
+      <Animated.View style={motion}>
+        {activeBeat?.emphasis ? (
+          <Text style={styles.kineticEmphasis} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.72}>
+            {activeBeat.emphasis}
+          </Text>
+        ) : null}
+        <Text
+          style={[
+            styles.reelHook,
+            card.textTreatment === 'question' && styles.reelHookQuestion,
+            selectedAnswer && styles.reelHookAnswer,
+          ]}
+          numberOfLines={selectedAnswer ? 3 : 2}
+          adjustsFontSizeToFit
+          minimumFontScale={0.76}
+        >
+          {activeBeat?.text ?? reelHook(card)}
+        </Text>
+      </Animated.View>
+      {selectedAnswer ? (
+        <Text style={styles.reelDeck} numberOfLines={2}>
+          {selectedAnswer.responseDetail}
+        </Text>
+      ) : null}
+    </View>
+  );
+}
+
 function DiscoverReelPost({
   card,
   height,
@@ -1725,13 +1911,8 @@ function DiscoverReelPost({
           people={isPersonal ? card.people : []}
           photos={photos}
         />
-        <Text style={styles.reelHook} numberOfLines={isPersonal ? 2 : 3} adjustsFontSizeToFit minimumFontScale={0.78}>
-          {reelHook(card)}
-        </Text>
+        <KineticReelCaption card={card} selectedAnswer={selectedAnswer} isActive={isActive} />
         <MusicAttributionLabel label={musicLabel(card)} />
-        <Text style={styles.reelDeck} numberOfLines={isPersonal ? 1 : 2}>
-          {reelSubline(card, selectedAnswer)}
-        </Text>
         {card.interactivePrompt && showPromptControls ? (
           <InteractivePromptControls
             prompt={card.interactivePrompt}
@@ -1791,14 +1972,19 @@ function InteractivePromptControls({
       <View style={styles.interactiveCueRow}>
         <View style={styles.interactivePulseDot} />
         <Text style={styles.interactiveCueText}>
-          {selectedAnswer ? 'field answer' : 'answer to reveal'}
+          {selectedAnswer ? 'revealed segment' : prompt.contextLabel || 'answer to reveal'}
         </Text>
       </View>
       <Text style={styles.interactiveQuestion} numberOfLines={selectedAnswer ? 1 : 2}>
         {selectedAnswer ? selectedAnswer.responseHook : prompt.question}
       </Text>
+      {selectedAnswer ? (
+        <Text style={styles.interactiveResponseBody} numberOfLines={2}>
+          {selectedAnswer.responseDetail}
+        </Text>
+      ) : null}
       <View style={styles.interactiveAnswerRow}>
-        {(selectedAnswer ? [selectedAnswer] : prompt.answers).map((answer) => (
+        {(selectedAnswer ? [selectedAnswer] : prompt.answers).map((answer, index) => (
           <Pressable
             key={answer.id}
             style={[
@@ -1810,6 +1996,9 @@ function InteractivePromptControls({
               onSelectAnswer(answer.id);
             }}
           >
+            {!selectedAnswer ? (
+              <Text style={styles.interactiveAnswerIndex}>{String.fromCharCode(65 + index)}</Text>
+            ) : null}
             <Text
               style={styles.interactiveAnswerText}
               numberOfLines={1}
@@ -2961,14 +3150,61 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.78)',
     backgroundColor: 'rgba(255,255,255,0.16)',
   },
+  kineticCaption: {
+    marginTop: 8,
+  },
+  kineticKickerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    maxWidth: '100%',
+  },
+  kineticKicker: {
+    color: 'rgba(255,255,255,0.78)',
+    fontSize: 10,
+    lineHeight: 12,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+    textShadowColor: 'rgba(0,0,0,0.58)',
+    textShadowRadius: 8,
+  },
+  kineticVoiceTag: {
+    flexShrink: 1,
+    color: 'rgba(255,255,255,0.62)',
+    fontSize: 10,
+    lineHeight: 12,
+    fontWeight: '800',
+    textShadowColor: 'rgba(0,0,0,0.52)',
+    textShadowRadius: 8,
+  },
+  kineticEmphasis: {
+    alignSelf: 'flex-start',
+    maxWidth: 265,
+    marginTop: 7,
+    color: '#fff0b8',
+    fontSize: 13,
+    lineHeight: 15,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+    textShadowColor: 'rgba(0,0,0,0.7)',
+    textShadowRadius: 12,
+  },
   reelHook: {
     color: '#fff',
     fontSize: 25,
     lineHeight: 28,
     fontWeight: '900',
-    marginTop: 8,
+    marginTop: 3,
     textShadowColor: 'rgba(0,0,0,0.65)',
     textShadowRadius: 16,
+  },
+  reelHookQuestion: {
+    fontSize: 24,
+    lineHeight: 27,
+  },
+  reelHookAnswer: {
+    fontSize: 21,
+    lineHeight: 24,
   },
   reelMusicLabel: {
     color: 'rgba(255,255,255,0.82)',
@@ -3055,6 +3291,14 @@ const styles = StyleSheet.create({
     textShadowColor: 'rgba(0,0,0,0.5)',
     textShadowRadius: 8,
   },
+  interactiveResponseBody: {
+    color: 'rgba(255,255,255,0.82)',
+    fontSize: 11,
+    lineHeight: 15,
+    marginTop: 6,
+    textShadowColor: 'rgba(0,0,0,0.5)',
+    textShadowRadius: 8,
+  },
   interactiveAnswerRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -3071,10 +3315,29 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.26)',
     justifyContent: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
   interactiveAnswerButtonSelected: {
-    backgroundColor: 'rgba(255, 255, 255, 0.34)',
+    backgroundColor: 'rgba(255, 240, 184, 0.28)',
     borderColor: 'rgba(255,255,255,0.58)',
+    shadowColor: '#fff0b8',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.42,
+    shadowRadius: 14,
+  },
+  interactiveAnswerIndex: {
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    overflow: 'hidden',
+    color: '#101014',
+    backgroundColor: 'rgba(255,255,255,0.82)',
+    fontSize: 10,
+    lineHeight: 18,
+    fontWeight: '900',
+    textAlign: 'center',
   },
   interactiveAnswerText: {
     color: '#fff',
