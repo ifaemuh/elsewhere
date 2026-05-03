@@ -6,10 +6,13 @@ import type { ReferencePhoto } from '@elsewhere/shared';
 export function useReferencePhotos() {
   const queryClient = useQueryClient();
 
-  const { data: photos = [], isLoading } = useQuery({
+  const { data = [], isLoading, error } = useQuery({
     queryKey: ['reference-photos'],
     queryFn: () => api.listReferencePhotos(),
   });
+  const photos = [...data].sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+  );
 
   const uploadMutation = useMutation({
     mutationFn: async (uri: string) => {
@@ -48,8 +51,10 @@ export function useReferencePhotos() {
     photos: photos as ReferencePhoto[],
     hasPhotos: photos.length > 0,
     isLoading,
+    error: error instanceof Error ? error.message : null,
     uploadPhoto: uploadMutation.mutateAsync,
     deletePhoto: deleteMutation.mutateAsync,
     isUploading: uploadMutation.isPending,
+    uploadError: uploadMutation.error instanceof Error ? uploadMutation.error.message : null,
   };
 }

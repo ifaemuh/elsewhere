@@ -8,10 +8,10 @@ Most travel products start with search results and prices. Elsewhere starts with
 
 The product loop is:
 
-1. See the dream.
-2. Make it feasible.
-3. Book it together.
-4. Protect it while it happens.
+1. Dream it: AI preview.
+2. Book it: package, split, finance, and confirm.
+3. Live it: trip feed, schedule, group decisions, payments, and Assist.
+4. Relive it: real trip recap video and past-trip archive.
 
 ## One-Liner
 
@@ -39,6 +39,10 @@ This matters because the viral loop depends on native media creation, camera acc
 Users generate cinematic previews of themselves, friends, or families inside real, branded, or fantasy-inspired destinations.
 
 This makes discovery emotional and shareable. It shifts travel from "look at this place" to "look at me there."
+
+The preview system depends on a reusable reference library and multiple scene/activity presets per destination. A beautiful output is not enough; the result must actually resemble the user.
+
+Video generation can be tested behind backend-only feature flags, but still previews and native 9:16 motion exports remain the reliable first path until video quality, cost, latency, and API access are proven.
 
 Primary outcomes:
 
@@ -71,9 +75,13 @@ Primary outcomes:
 - Partners get higher conversion on aspirational travel.
 - Financing disclosures and obligations remain partner-backed and auditable.
 
-### 4. Group Trip Wallet
+### 4. Trip Feed, Group Room, And Wallet
 
-Each group trip has a shared room for itinerary approval, payment status, monthly progress, chat, reminders, and traveler accountability.
+Each trip has a living feed for itinerary approval, payment status, monthly progress, chat, reminders, local suggestions, group decisions, media, and traveler accountability.
+
+The default experience should not feel like a dashboard. It should feel like a calm, intelligent trip feed that surfaces the next useful card at the right time.
+
+Trip media can come from native photo libraries, manual uploads, videos, and approved social posts. Elsewhere can suggest likely trip media using time, geolocation, schedule, and group context, but private media should only enter the shared trip feed after the owner’s approval unless the owner has explicitly enabled auto-share.
 
 Primary outcomes:
 
@@ -81,6 +89,7 @@ Primary outcomes:
 - Payment awkwardness is reduced.
 - More travelers complete purchase.
 - Average trip value increases.
+- Real memories and recap content flow naturally back into the trip.
 
 ### 5. Travel Admin Assistant
 
@@ -98,6 +107,8 @@ Primary outcomes:
 Elsewhere Assist is the moat: an always-on, rules-aware travel problem solver.
 
 It is not a chatbot. It monitors trips, understands airline, hotel, OTA, fare, credit, and refund rules, detects disruption risk, and executes the best allowed action when possible.
+
+Assist should combine official provider APIs, booking records, public policy research, deal feeds, Reddit/community signals, advisories, and deterministic rule scoring. Public signals can alert and inspire; official provider data and booking records are required before Elsewhere acts on a trip.
 
 Primary outcomes:
 
@@ -148,3 +159,33 @@ After that, the first shippable path should prove the complete user loop at narr
 6. Record consent, disclosures, partner actions, and audit events throughout.
 
 The goal is not broad inventory on day one. The goal is one magical, financially actionable, operationally trustworthy trip flow.
+
+## Trip Feed Direction
+
+The consumer app should converge toward:
+
+```text
+Discover
+Trips
+Profile
+```
+
+Discover combines personalized previews, deal radar, destination ideas, and broad Assist intelligence.
+
+Discover should feel like a short-form documentary travel channel compressed into interactive mobile reels. The content should lead with curiosity, place, nature, food, culture, history, hotels, and human travel stories, then reveal Elsewhere utility: personal relevance, friends, calendar fit, prices, payment plans, booking paths, travel admin, and Assist monitoring. It should borrow the educational/adventurous energy of Discovery Channel and Travel Channel without implying affiliation or copying their formats.
+
+The default Discover reel actions are `Like`, `Learn`, `Plan`, and `Share`. Likes train the feed toward topics the user cares about. Learn opens the story layer. Plan turns the reel into a trip or action. Share uses native sharing.
+
+Trips contains upcoming, active, and past trips behind a simple top-right filter. By default, trips with action needed sort to the top. Trip names should use `Place Year`, with a concise generated tagline from the trip contents. Inside a trip, the default should be a smart feed rather than a dense set of tabs. Assist, wallet, group chat, checklists, local guide suggestions, and media surface as contextual trip cards. Recap lives inside the completed/past trip card and completed trip surface, not as a separate standalone trip card.
+
+Profile contains identity, payment methods, financing plans, travel credits, documents, reference photos, preferences, and integrations.
+
+The detailed product direction lives in [TRIP_FEED_PRODUCT_PLAN.md](TRIP_FEED_PRODUCT_PLAN.md).
+
+Preview/video/recap direction lives in [PREVIEW_VIDEO_RECAP_ROADMAP.md](PREVIEW_VIDEO_RECAP_ROADMAP.md).
+
+Travel intelligence and deal radar direction lives in [TRAVEL_INTELLIGENCE_DEAL_RADAR_PLAN.md](TRAVEL_INTELLIGENCE_DEAL_RADAR_PLAN.md).
+
+Trip media feed API and approval direction lives in [TRIP_MEDIA_FEED_API_PLAN.md](TRIP_MEDIA_FEED_API_PLAN.md).
+
+Trip room, planner, schedule, votes, action items, payments, chat, and notifications direction lives in [TRIP_ROOM_PLANNER_API_PLAN.md](TRIP_ROOM_PLANNER_API_PLAN.md).

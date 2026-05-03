@@ -1,6 +1,7 @@
 import { View, Text, FlatList, Pressable, StyleSheet, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
+import { AppHeader, SOCIAL_POP } from '@/components/AppHeader';
 import { api } from '@/services/api';
 import type { Trip } from '@elsewhere/shared';
 
@@ -15,8 +16,7 @@ export default function WalletScreen() {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Wallet</Text>
-      <Text style={styles.subtitle}>Payments and installments</Text>
+      <AppHeader pageLabel="Wallet" tagline="payments, plans, credits" />
 
       {isLoading ? (
         <ActivityIndicator style={styles.loader} />
@@ -28,6 +28,7 @@ export default function WalletScreen() {
         <FlatList
           data={bookedTrips}
           keyExtractor={(item) => item.id}
+          contentContainerStyle={styles.listContent}
           renderItem={({ item }) => {
             const raw = item as unknown as Record<string, unknown>;
             const dest = raw.destination as { name?: string } | undefined;
@@ -58,17 +59,18 @@ export default function WalletScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16, backgroundColor: '#fff' },
+  container: { flex: 1, padding: 16, backgroundColor: SOCIAL_POP.background },
   title: { fontSize: 28, fontWeight: '700', marginBottom: 4 },
   subtitle: { fontSize: 16, color: '#666', marginBottom: 24 },
   loader: { marginTop: 40 },
   empty: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   emptyText: { color: '#999', fontSize: 16 },
-  card: { padding: 20, backgroundColor: '#f8f9fa', borderRadius: 12, marginBottom: 12 },
+  listContent: { paddingBottom: 96 },
+  card: { padding: 20, backgroundColor: SOCIAL_POP.surface, borderRadius: 16, marginBottom: 12, borderWidth: 1, borderColor: SOCIAL_POP.border },
   cardTitle: { fontSize: 18, fontWeight: '600', marginBottom: 12 },
   row: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6 },
   label: { fontSize: 14, color: '#666' },
   amount: { fontSize: 16, fontWeight: '700' },
   value: { fontSize: 14, fontWeight: '600' },
-  cta: { color: '#0a7ea4', fontSize: 14, fontWeight: '600', marginTop: 12 },
+  cta: { color: SOCIAL_POP.coral, fontSize: 14, fontWeight: '800', marginTop: 12 },
 });

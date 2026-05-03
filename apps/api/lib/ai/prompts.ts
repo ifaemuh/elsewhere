@@ -13,11 +13,13 @@ export function buildPersonalizedPreviewPrompt(
   destinationName: string,
   enhancedPrompt: string,
 ): string {
-  return `Place the person from the reference photo into a cinematic travel scene at ${destinationName}.
+  return `Edit the input image into a cinematic travel scene at ${destinationName}.
+The person in the reference photo is the main subject and source of truth.
+Preserve the same person exactly: facial identity, gender presentation, race, ethnicity, skin tone, age, face shape, hair, glasses, and distinctive features.
+Do not replace the subject with a different person. Do not change the subject into a woman if the reference subject is a man. Do not change the subject's race or skin tone.
+Only change the environment, pose framing, lighting, and travel styling as needed to make the image feel like a real vacation photo.
 ${enhancedPrompt}
-The person should look natural in the scene, wearing appropriate vacation attire.
 Style: golden hour lighting, rich colors, editorial travel photography.
-Maintain the person's exact facial features and likeness.
 No text overlays or watermarks.`;
 }
 

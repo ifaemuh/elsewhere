@@ -7,6 +7,7 @@ export type { StorageAdapter } from './types';
 
 export function isLocalDev(): boolean {
   return (
+    process.env.ELSEWHERE_USE_LOCAL_STORES === 'true' ||
     process.env.ELSEWHERE_ENVIRONMENT === 'dev' &&
     !process.env.NEXT_PUBLIC_SUPABASE_URL
   );

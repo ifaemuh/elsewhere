@@ -2,25 +2,25 @@ import { z } from 'zod';
 
 // Trip
 export const tripQuoteRequestSchema = z.object({
-  destinationId: z.string().uuid(),
+  destinationId: z.string().min(1),
   travelerCount: z.number().int().min(1).max(20),
 });
 
 export const checkoutRequestSchema = z.object({
-  tripId: z.string().uuid(),
-  financingOfferId: z.string().uuid().optional(),
+  tripId: z.string().min(1),
+  financingOfferId: z.string().min(1).optional(),
 });
 
 // Financing
 export const financingOfferRequestSchema = z.object({
-  tripId: z.string().uuid(),
+  tripId: z.string().min(1),
   totalAmount: z.number().positive(),
   travelerCount: z.number().int().min(1),
 });
 
 export const financingCheckoutRequestSchema = z.object({
-  offerId: z.string().uuid(),
-  tripId: z.string().uuid(),
+  offerId: z.string().min(1),
+  tripId: z.string().min(1),
   totalAmount: z.number().positive(),
   travelerCount: z.number().int().min(1),
   policyVersion: z.string().min(1),

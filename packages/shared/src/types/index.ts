@@ -1,5 +1,9 @@
 export * from './destination';
+export * from './discover';
 export * from './trip';
+export * from './trip-intake';
+export * from './trip-room';
+export * from './trip-media';
 export * from './traveler';
 export * from './financing';
 export * from './assist';
@@ -7,3 +11,6 @@ export * from './consent';
 export * from './admin';
 export * from './growth';
 export * from './preview';
+export * from './preview-video';
+export * from './social';
+export * from './social-publishing';

@@ -14,7 +14,7 @@ function getClient(): Replicate {
 }
 
 export async function generatePersonalizedImage(
-  referenceImageUrl: string,
+  referenceImage: string | Buffer,
   prompt: string,
 ): Promise<Buffer> {
   const replicate = getClient();
@@ -22,9 +22,9 @@ export async function generatePersonalizedImage(
   const output = await replicate.run(MODEL, {
     input: {
       prompt,
-      image: referenceImageUrl,
+      input_image: referenceImage,
       aspect_ratio: '3:4',
-      output_format: 'webp',
+      output_format: 'jpg',
       safety_tolerance: 2,
     },
   });

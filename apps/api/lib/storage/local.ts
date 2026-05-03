@@ -4,6 +4,10 @@ import type { StorageAdapter } from './types';
 
 const STORAGE_ROOT = join(process.cwd(), '.data', 'storage');
 const LOCAL_PORT = process.env.PORT ?? '3002';
+const PUBLIC_BASE_URL =
+  process.env.ELSEWHERE_PUBLIC_API_URL ??
+  process.env.NEXT_PUBLIC_API_URL ??
+  `http://localhost:${LOCAL_PORT}`;
 
 export class LocalStorageAdapter implements StorageAdapter {
   async upload(path: string, data: Buffer | Uint8Array, _contentType: string): Promise<string> {
@@ -26,6 +30,6 @@ export class LocalStorageAdapter implements StorageAdapter {
   }
 
   getPublicUrl(path: string): string {
-    return `http://localhost:${LOCAL_PORT}/api/v1/local-assets/${path}`;
+    return `${PUBLIC_BASE_URL}/api/v1/local-assets/${path}`;
   }
 }

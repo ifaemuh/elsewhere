@@ -2,13 +2,18 @@ import { View, Text, Pressable, StyleSheet, ActivityIndicator } from 'react-nati
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Image } from 'expo-image';
 import { usePreviewJob } from '@/hooks/usePreviewJob';
+import { useReferencePhotos } from '@/hooks/useReferencePhotos';
 import { useMutation } from '@tanstack/react-query';
 import { api } from '@/services/api';
+import { useState } from 'react';
 
 export default function PreviewScreen() {
   const { jobId } = useLocalSearchParams<{ jobId: string }>();
   const router = useRouter();
   const { data: job, isLoading } = usePreviewJob(jobId);
+  const { photos } = useReferencePhotos();
+  const [imageError, setImageError] = useState<string | null>(null);
+  const referencePhoto = photos.find((photo) => photo.id === job?.referencePhotoIds?.[0]);
 
   const quoteMutation = useMutation({
     mutationFn: async () => {
@@ -69,12 +74,32 @@ export default function PreviewScreen() {
           style={styles.previewImage}
           contentFit="cover"
           transition={300}
+          onError={() => setImageError(job.playbackUrl ?? 'Preview image failed to load')}
         />
+      )}
+      {imageError && (
+        <View style={styles.imageError}>
+          <Text style={styles.imageErrorText}>Preview image could not load.</Text>
+          <Text style={styles.imageErrorUrl}>{imageError}</Text>
+        </View>
       )}
       <View style={styles.content}>
         {job.referencePhotoIds?.length ? (
           <View style={styles.personalizedBadge}>
             <Text style={styles.personalizedBadgeText}>Personalized for you</Text>
+          </View>
+        ) : null}
+        {referencePhoto ? (
+          <View style={styles.referenceRow}>
+            <Image
+              source={{ uri: referencePhoto.url }}
+              style={styles.referenceThumb}
+              contentFit="cover"
+            />
+            <View style={styles.referenceTextBlock}>
+              <Text style={styles.referenceLabel}>Reference used</Text>
+              <Text style={styles.referenceMeta}>Compare this to the generated subject.</Text>
+            </View>
           </View>
         ) : null}
         <Text style={styles.destination}>{job.destinationName}</Text>
@@ -105,6 +130,17 @@ const styles = StyleSheet.create({
   retryButton: { marginTop: 24, padding: 14, backgroundColor: '#0a7ea4', borderRadius: 8 },
   retryText: { color: '#fff', fontWeight: '600' },
   previewImage: { width: '100%', height: '60%' },
+  imageError: {
+    position: 'absolute',
+    top: 120,
+    left: 20,
+    right: 20,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.92)',
+    padding: 12,
+  },
+  imageErrorText: { color: '#c53030', fontWeight: '700', fontSize: 14 },
+  imageErrorUrl: { color: '#555', fontSize: 11, marginTop: 4 },
   content: { flex: 1, padding: 24, backgroundColor: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24, marginTop: -24 },
   destination: { fontSize: 24, fontWeight: '700' },
   prompt: { fontSize: 14, color: '#666', marginTop: 8 },
@@ -116,4 +152,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12, paddingVertical: 4, borderRadius: 12, marginBottom: 8,
   },
   personalizedBadgeText: { color: '#0a7ea4', fontSize: 12, fontWeight: '600' },
+  referenceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 12,
+  },
+  referenceThumb: { width: 48, height: 48, borderRadius: 24, backgroundColor: '#eee' },
+  referenceTextBlock: { flex: 1 },
+  referenceLabel: { fontSize: 13, fontWeight: '700', color: '#333' },
+  referenceMeta: { fontSize: 12, color: '#777', marginTop: 2 },
 });
