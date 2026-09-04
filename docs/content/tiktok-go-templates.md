@@ -134,3 +134,48 @@ no matter how it performs.
 
 `beat-this` / `madmom` from the Stemmies stack can extract a grid for planning shot
 lengths before you open CapCut, but CapCut's auto-beat is where the cut lands.
+
+---
+
+## Sourcing real POI footage
+
+The binding constraint. AI cannot depict a specific tagged venue, so every
+bookable video needs real media of the actual place. Ranked by value.
+
+| # | Source | Cost | Legal standing | Scales? |
+|---|---|---|---|---|
+| 1 | **Ask the operator directly** | Free | Written permission | Yes, ~1hr outreach per city |
+| 2 | **Viator / GYG Partner API images** | Free w/ affiliate | ⚠️ **Unconfirmed** | Yes |
+| 3 | **Own contact shooting (NYC)** | Free | Owned outright | No — one city |
+| 4 | **License creator UGC** | Per clip | Written license | Partly |
+| 5 | **TikTok Stitch / Duet** | Free | Built-in attribution | Yes, but fights the templates |
+| 6 | **Stock footage** | Subscription | ⚠️ Editorial-only trap | Yes |
+| 7 | **DMO media libraries** | Free | ⚠️ **Noncommercial** | Yes |
+
+**1 — Ask the operator.** Tours and attractions listed on GYG/Viator are small
+businesses that want marketing. A direct message asking for footage or permission
+to use their existing social clips converts well and yields written permission plus
+media of the exact venue being tagged. Do this first for every POI.
+
+**2 — Partner API images unlock the slideshow format.** Viator's affiliate tier
+grants access to content endpoints (product images, descriptions). "Photo slideshow
+compilations with trending audio" is one of the highest-performing 2026 travel
+formats, so real listing photos + Ken Burns + trending sound is a complete video
+with no filming. **Confirm usage rights with partner support before relying on
+this** — content-endpoint access is not the same as a licence to republish in social
+video. Unverified as of 2026-09-04.
+
+**3 — NYC-only is a feature.** It satisfies the 80% niche rule, NYC is a top-GMV
+market so per-POI commission runs higher, and it is the one real-footage source
+under direct control. `NYC things to do under $80` is a tighter, more legible niche
+than any broader alternative.
+
+### Traps
+
+- **DMO libraries are noncommercial.** NYC Tourism + Conventions maintains a real
+  five-borough B-roll library, but licensed for *noncommercial* promotional use by
+  media and travel professionals. Affiliate commission is commercial use. Request
+  written creator permission rather than assuming.
+- **Most landmark stock is editorial-only** — no property release, so commercial use
+  is excluded. Filter for **Commercial + Property Released**, and note that generic
+  city b-roll still fails the "must depict the tagged POI" requirement.
