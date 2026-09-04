@@ -1,14 +1,14 @@
-# Account: @goelsewhere
+# Account: @go.elsewhere
 
 **Decided 2026-09-04.**
 
 | | |
 |---|---|
-| Handle | `@goelsewhere` (was `@elsewhere973`) |
+| Handle | `@go.elsewhere` (was `@elsewhere973`) |
 | Display name | `elsewhere · things to do under $80` |
 | Bio | `the best of any city, under $80` |
 | Avatar | Skyline silhouette on a sunset circle. Chosen on a 50px legibility test, not at full size. |
-| Account type | **Personal.** Business accounts cannot see trending audio and are excluded from creator programs. |
+| Account type | **Personal** — confirmed 2026-09-04. Business accounts cannot see trending audio and are excluded from creator programs. |
 | Region | United States |
 
 ## One account, multi-city
@@ -28,6 +28,14 @@ far smaller than starving four accounts.
 
 **City is a series inside the account**, carried by the hook and caption, not the
 handle.
+
+## Handle availability is not what a 404 says
+
+`@goelsewhere` returned "Couldn't find this account" on its profile URL but could
+not actually be claimed; `@go.elsewhere` was taken instead. **A 404 on
+`tiktok.com/@handle` does not mean the handle is free** — TikTok reserves and
+blocks names that resolve to nothing. Verify inside the app before relying on it,
+including for `@elsewhere.nyc` below.
 
 ## Reserved
 
@@ -50,6 +58,15 @@ pool. Two to three days:
 2. Scroll that FYP 20–30 min/day, watch full videos, save some
 3. Favourite 10–15 trending sounds at 10k–200k uses while there
 
-## Still to confirm
+## Outstanding on the profile
 
-- Settings → Manage account reads **Personal**, not Business.
+As of 2026-09-04 the account is live at `@go.elsewhere`, Personal, 0/0/0, but the
+profile is still bare:
+
+- [ ] Display name → `elsewhere · things to do under $80` (currently just `elsewhere`)
+- [ ] Bio → `the best of any city, under $80` (currently empty)
+- [ ] Avatar → the skyline mark (currently a blank grey circle)
+- [ ] Warming — follow 25–30 accounts, scroll 2–3 days
+
+An avatarless, bioless account reads as a bot and measurably costs follows. These
+four are the whole remaining setup.
