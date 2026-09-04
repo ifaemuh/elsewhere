@@ -52,6 +52,37 @@ recruiting site, which claims creators keep 100% of commission while agencies
 earn via TikTok's GMV incentive program. Plausible but self-serving. Verify
 directly at `partner.tiktok-go.us` before signing with any agency.
 
+## Performance data (researched 2026-09-04)
+
+Numbers that constrain the content, not the code.
+
+**Algorithm**
+- Watch time + completion rate is **40-50% of ranking weight**; the 2026 bar is ~**70% completion**.
+- Distribution ladder: 200-500 users -> 1k -> 10k -> 100k+. Each rung must be cleared.
+- Shares and saves now outrank likes.
+- **7s clips finish at ~89%**; 11-18s is peak virality; viral-tier median is 41s.
+  `30s at 70% completion beats 3min at 15%`.
+- Clearing 40% of viewers past the 3-second mark roughly **doubles downstream conversion**.
+
+**Niche vs format**
+- 3+ unrelated topics = **~45% lower reach**. 80%+ within one niche = fastest growth.
+- Format variety *within* a niche is **not** penalized. Multiple templates are free;
+  multiple subjects are not. This licenses the variant test in milestone 1.
+
+**Conversion by price point (TikTok Shop data)**
+- Under $30 converts **above 5%**. Over $80 drops **below 1%** without retargeting.
+- Hotels ($200-800 AOV) sit deep in the dead zone. This is Shop data, not GO data,
+  and travel is a considered purchase — treat it as a hypothesis, not a verdict.
+- **Consequence: prioritize tours/attractions/restaurants over hotels.** Revenue per
+  1,000 taps is roughly a wash (10 x $27.50 vs 50 x $5.50), but low-AOV inventory has
+  lower variance and a *much* faster booking close, which directly shortens the
+  60-120 day payout lag. Viator, GetYourGuide and Tiqets are already GO partners.
+
+**Format**
+- UGC-style converts **40% better** than polished brand video. AI-generated cinematic
+  footage is definitionally polished — a real headwind against the generation thesis.
+  The milestone-1 axis may need to be **polished vs rough**, not photoreal vs stylized.
+
 ## Hard constraints (researched 2026-09-04)
 
 These shape the architecture and are not negotiable.
@@ -85,9 +116,12 @@ POI select -> Visual gen -> Audio gen -> Render -> Metadata -> Draft push -> Tra
 ```
 
 ### 1. POI selection
-Chooses which hotel/attraction/restaurant to make a video about, ranked by TikTok
-GO commission rate and booking volume. Highest-leverage stage: a $48 POI and a $7
-POI cost the same to produce.
+Chooses which attraction/tour/restaurant to make a video about, ranked by
+**expected value per video**, not headline commission: `commission x expected
+conversion`. A $48 hotel POI converting under 1% loses to an $6 tour POI
+converting at 5%, and the tour's booking closes in days rather than months.
+Default to sub-$80 inventory (Viator, GetYourGuide, Tiqets) over hotels until
+milestone 1 says otherwise.
 **Depends on:** TikTok GO POI data (manual seed list initially).
 
 ### 2. Visual generation
@@ -135,7 +169,9 @@ whether the business exists:
 **Do AI-generated location videos convert to bookings?**
 
 - 30 videos over 2 weeks, produced with maximum manual effort and minimum tooling.
-- Vary: photoreal vs. stylized, POI type, hook format.
+- Vary: **polished vs rough** (the axis the conversion data implicates), POI type,
+  hook format. Photoreal vs stylized is the secondary axis.
+- Hold constant: 12-20s length, hook before 0:03, one POI per video.
 - Measure: views -> POI taps -> bookings -> commission.
 - Also answers, for free: whether TikTok GO content is treated as branded
   content and thus restricted to the Commercial Music Library.
