@@ -186,7 +186,13 @@ The risk is real: someone booking a hotel usually wants to see the actual place.
    works for milestone 1; stage 1 ranking needs a real source.
 2. How many accounts before TikTok flags coordinated behavior? Unknown, and
    getting it wrong costs the accounts.
-3. Is TikTok GO content classified as branded content? If so, audio is limited
-   to the Commercial Music Library. Answered by milestone 1.
+3. ~~Is TikTok GO content classified as branded content?~~ **Resolved
+   2026-09-04.** The Commercial Music Library restriction is enforced by
+   *account type*, not content classification. A Personal/Creator account sees
+   the full General Sound Library including trending audio; Business accounts
+   see neither trending audio nor creator programs. **Use a Personal account.**
+   Accepted risk: the General Sound Library is licensed non-commercial, and GO
+   commission is arguably commercial use. Enforcement in practice is a muted
+   video, not legal action.
 4. Are agencies actually optional, and does the creator truly keep 100%? Verify
    at `partner.tiktok-go.us` rather than trusting agency marketing.
