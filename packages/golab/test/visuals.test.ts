@@ -50,3 +50,34 @@ test('the prompt reaches Replicate with a 9:16 aspect ratio', async () => {
   assert.equal(seen?.aspect_ratio, '9:16');
   assert.match(String(seen?.prompt), /SUMMIT One Vanderbilt/);
 });
+
+test('unwraps a FileOutput-style object exposing url()', async () => {
+  const buf = await generateLocationImage('POI', 'detail', 'photoreal', {
+    run: async () => ({ url: () => 'https://example.test/from-url.jpg' }),
+    fetchImage: async (url) => Buffer.from(url),
+  });
+  assert.equal(buf.toString(), 'https://example.test/from-url.jpg');
+});
+
+test('unwraps a FileOutput nested inside an array', async () => {
+  const buf = await generateLocationImage('POI', 'detail', 'photoreal', {
+    run: async () => [{ url: () => 'https://example.test/nested.jpg' }],
+    fetchImage: async (url) => Buffer.from(url),
+  });
+  assert.equal(buf.toString(), 'https://example.test/nested.jpg');
+});
+
+test('drains a ReadableStream when no url() is available', async () => {
+  const stream = new ReadableStream({
+    start(controller) {
+      controller.enqueue(new Uint8Array([1, 2]));
+      controller.enqueue(new Uint8Array([3]));
+      controller.close();
+    },
+  });
+  const buf = await generateLocationImage('POI', 'detail', 'photoreal', {
+    run: async () => stream,
+    fetchImage: async () => { throw new Error('should not fetch'); },
+  });
+  assert.deepEqual([...buf], [1, 2, 3]);
+});

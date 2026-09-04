@@ -42,7 +42,35 @@ export async function generateLocationImage(
     safety_tolerance: 2,
   });
 
-  const url = Array.isArray(output) ? output[0] : output;
-  if (typeof url !== 'string') throw new Error('Unexpected output format from Replicate');
-  return deps.fetchImage(url);
+  return normalizeOutput(output, deps);
+}
+
+/** Replicate returns one of several shapes depending on model and client version:
+ *  a URL string, an array of those, or a `FileOutput` — a ReadableStream subclass
+ *  that also exposes `url()`. Prefer the URL when one is available; fall back to
+ *  draining the stream. */
+async function normalizeOutput(output: unknown, deps: VisualDeps): Promise<Buffer> {
+  const value = Array.isArray(output) ? output[0] : output;
+
+  if (typeof value === 'string') return deps.fetchImage(value);
+
+  const maybeUrl = (value as { url?: unknown } | null)?.url;
+  if (typeof maybeUrl === 'function') {
+    return deps.fetchImage(String(maybeUrl.call(value)));
+  }
+
+  if (value instanceof ReadableStream) return drain(value);
+
+  throw new Error('Unexpected output format from Replicate');
+}
+
+async function drain(stream: ReadableStream): Promise<Buffer> {
+  const reader = stream.getReader();
+  const chunks: Uint8Array[] = [];
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (value) chunks.push(value as Uint8Array);
+  }
+  return Buffer.concat(chunks);
 }
