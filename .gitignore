@@ -48,3 +48,4 @@ supabase/.temp/
 *.swift
 *.xcodeproj/
 *.xcassets/
+packages/golab/data/assets/
