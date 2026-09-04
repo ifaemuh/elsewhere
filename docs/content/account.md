@@ -5,8 +5,8 @@
 | | |
 |---|---|
 | Handle | `@go.elsewhere` (was `@elsewhere973`) |
-| Display name | `elsewhere · things to do under $80` |
-| Bio | `the best of any city, under $80` |
+| Display name | `elsewhere · city guides` |
+| Bio | `the city, minus the tourist traps` |
 | Avatar | Skyline silhouette on a sunset circle. Chosen on a 50px legibility test, not at full size. |
 | Account type | **Personal** — confirmed 2026-09-04. Business accounts cannot see trending audio and are excluded from creator programs. |
 | Region | United States |
@@ -28,6 +28,30 @@ far smaller than starving four accounts.
 
 **City is a series inside the account**, carried by the hook and caption, not the
 handle.
+
+## Positioning: anti-tourist-trap
+
+**`under $80` was rejected as branding.** The sub-$80 threshold is a *content
+selection* rule — sub-$80 inventory converts above 5%, over-$80 drops below 1% —
+and it stays that. But it is an internal constraint, not a viewer benefit, and
+announcing it sets a discount tone under a name that means escape and discovery.
+
+The bio instead states the point of view the content already has.
+
+Alternates, if the chosen line underperforms:
+`skip the tourist traps` · `everything except the obvious stuff`
+
+**Consequence for the content plan: T4 (The Correction) is the flagship template,
+not one of four.** `don't do X, do this instead` is now the account's thesis rather
+than an experiment arm, and C4 (6am vs 6pm) is its Tier 1 echo. Phase A should
+weight T4 accordingly.
+
+`the city, minus the tourist traps` is deliberately city-agnostic, which fits the
+one-account multi-city decision.
+
+**Untested.** No data says a bio angle drives follows in this niche; this is a
+judgement call. Bios are free to change, so treat it as the cheapest available
+experiment — measure profile visits against follows.
 
 ## Handle availability is not what a 404 says
 
@@ -63,8 +87,8 @@ pool. Two to three days:
 As of 2026-09-04 the account is live at `@go.elsewhere`, Personal, 0/0/0, but the
 profile is still bare:
 
-- [ ] Display name → `elsewhere · things to do under $80` (currently just `elsewhere`)
-- [ ] Bio → `the best of any city, under $80` (currently empty)
+- [ ] Display name → `elsewhere · city guides` (currently just `elsewhere`)
+- [ ] Bio → `the city, minus the tourist traps` (currently empty)
 - [ ] Avatar → the skyline mark (currently a blank grey circle)
 - [ ] Warming — follow 25–30 accounts, scroll 2–3 days
 
