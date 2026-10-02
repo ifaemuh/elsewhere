@@ -49,13 +49,22 @@ jobs:
           if grep -q 'not checked because their source text is missing' "$RUNNER_TEMP/backstop.txt"; then
             echo "::warning::Some quotes were not checked because source text is missing (tracker outage or incomplete versions checkout). No rule status was changed for them."
           fi
+          # Exit 1 is "issues found" only when the tool's own summary line is present; a bare
+          # exit 1 (import-time failure, uncaught error before the handler) is abnormal.
+          if [ "$rc" -eq 1 ] && ! grep -q 'issue(s) in' "$RUNNER_TEMP/backstop.txt"; then
+            rc=99
+          fi
           if [ "$rc" -gt 1 ]; then
             echo "failed=true" >> "$GITHUB_OUTPUT"
-            echo "rules:check-quotes exited with $rc."
+            echo "rules:check-quotes failed abnormally (code $rc)."
+          fi
+          # A crash (4) or an unmarked exit 1 may have left partial writes: never publish them.
+          if [ "$rc" -eq 4 ] || [ "$rc" -eq 99 ]; then
+            echo "skip_pr=true" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Open a PR when any rule was flipped
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.check.outputs.skip_pr != 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
