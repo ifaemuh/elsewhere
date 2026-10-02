@@ -34,7 +34,7 @@ export const supabaseFake = {
         maybeSingle: async () => {
           const row = fakeDb.apiKeys.find((r) => filters.every((f) => f(r)));
           return {
-            data: row ? { id: row.id, partner_id: row.partner_id, rate_limit_rule: row.rate_limit_rule } : null,
+            data: row ? { id: row.id, partner_id: row.partner_id, rate_limit_rule: row.rate_limit_rule, revoked_at: row.revoked_at } : null,
             error: null,
           };
         },
