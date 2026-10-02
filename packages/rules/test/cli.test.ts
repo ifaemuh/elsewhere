@@ -170,6 +170,17 @@ test('rules:check-quotes flips on not_found only and names only that source', ()
   assert.equal(after.history.at(-1).note, 'quote not found in fx-carrier-coc');
 });
 
+test('rules:check-quotes exits 4 on an unexpected error, distinct from issues (1)', () => {
+  const versions = fixtureVersions();
+  // a directory where the source text should be: existsSync passes, readFileSync throws EISDIR
+  const coc = join(versions, 'Example Air/Conditions of Carriage.md');
+  rmSync(coc);
+  mkdirSync(coc);
+  const result = run('check-quotes.ts', [...fixtureArgs(fixtureData()), '--versions', versions]);
+  assert.equal(result.status, 4, result.stdout + result.stderr);
+  assert.match(result.stderr, /EISDIR/);
+});
+
 test('rules:check-quotes requires --versions', () => {
   assert.equal(run('check-quotes.ts', []).status, 2);
 });

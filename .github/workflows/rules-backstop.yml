@@ -41,11 +41,14 @@ jobs:
         run: |
           # Exit 0 = clean, 1 = quote or supports issues found (expected; --write-needs-review
           # flips verified rules whose quote is absent from fetched text, never on a missing source).
-          # Anything else (2 usage, 3 load failure, crash) fails the job after the PR step.
+          # Anything else (2 usage, 3 load failure, 4 crash) fails the job after the PR step.
           rc=0
           npm run -s rules:check-quotes -w @elsewhere/rules -- \
             --versions "$GITHUB_WORKSPACE/.sources-versions" --write-needs-review > "$RUNNER_TEMP/backstop.txt" || rc=$?
           cat "$RUNNER_TEMP/backstop.txt"
+          if grep -q 'not checked because their source text is missing' "$RUNNER_TEMP/backstop.txt"; then
+            echo "::warning::Some quotes were not checked because source text is missing (tracker outage or incomplete versions checkout). No rule status was changed for them."
+          fi
           if [ "$rc" -gt 1 ]; then
             echo "failed=true" >> "$GITHUB_OUTPUT"
             echo "rules:check-quotes exited with $rc."

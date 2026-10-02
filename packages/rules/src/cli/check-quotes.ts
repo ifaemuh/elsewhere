@@ -4,6 +4,13 @@ import { DEFAULT_DATA_DIR, DEFAULT_SOURCES_FILE, loadRuleFiles, loadSources, Rul
 import { markNeedsReview } from '../history';
 import { checkQuotes, checkSupports, sourceTextPath } from '../quotes';
 
+// Exit codes: 0 clean, 1 issues found, 2 usage, 3 load failure, 4 crash. Node's default
+// exit for an uncaught throw is 1, which would be mistaken for "issues found".
+process.on('uncaughtException', (error) => {
+  console.error(error instanceof Error ? (error.stack ?? error.message) : error);
+  process.exit(4);
+});
+
 const { values } = parseArgs({
   options: {
     versions: { type: 'string' },
