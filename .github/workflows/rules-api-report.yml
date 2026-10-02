@@ -1,0 +1,33 @@
+name: rules-api-weekly-report
+
+on:
+  schedule:
+    - cron: '0 14 * * 1' # Mondays 14:00 UTC
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Build the report
+        working-directory: apps/web
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node --conditions=react-server --import tsx scripts/rules-api-report.ts > "$RUNNER_TEMP/report.md"
+      - name: Open the report as an issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh label create rules-api-report --color 0E8A16 --force
+          gh issue create --title "Rules API weekly report — $(date -u +%F)" --label rules-api-report --body-file "$RUNNER_TEMP/report.md"
