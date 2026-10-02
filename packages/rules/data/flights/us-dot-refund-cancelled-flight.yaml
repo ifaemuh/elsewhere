@@ -27,7 +27,7 @@ how_to_claim:
   steps:
     - "Decline the rebooking and any voucher, credit, or other compensation the airline offers instead of a refund."
     - "If the refund doesn't arrive on its own, ask the airline for a full refund of the fare in writing. If you booked through a ticket agent, ask the agent."
-    - "Check that the money returns to your original form of payment. If you rejected an offer, check within 7 business days (credit card) or 20 calendar days (other payments) after you rejected it."
+    - "Check that the money returns to your original form of payment. If you rejected an offer, the refund is due within 7 business days (credit card) or 20 calendar days (other payments) after you rejected it."
   templates: [airline_refund_request]
 exceptions:
   - "Not owed if you accept the rebooking on an alternative flight, or accept a voucher, credit, or other compensation offered as an alternative to a refund."
