@@ -24,7 +24,7 @@ entitlement:
 how_to_claim:
   steps:
     - "Tell the airline that operated the flight which paid service you did not get."
-    - "If the refund doesn't arrive on its own, ask the airline that operated the flight for a refund of that fee in writing, even if you paid a travel agent."
+    - "If the refund doesn't arrive on its own, ask the airline you paid the fee to for a refund in writing. If a travel agent charged the fee, ask the airline that operated the flight."
     - "Check that the money returns to your original form of payment, within 7 business days for a credit card or 20 calendar days for other payments."
   templates: [airline_refund_request]
 exceptions:
@@ -40,7 +40,7 @@ sources:
     source: ecfr-14-cfr-260
     quotes:
       - text: "A covered carrier that is the merchant of record shall provide a prompt and automatic refund to a consumer for any fees it collected from the consumer for ancillary services if the service was not provided through no fault of the consumer (e.g., prepaid ancillary service not utilized by the consumer because of flight cancellation, significant change, or oversale situation; service not provided because of aircraft substitution, equipment malfunction, etc.)."
-        supports: [summary, applies_when, entitlement.amount, exceptions]
+        supports: [summary, applies_when, entitlement.amount, exceptions, how_to_claim.steps.1]
       - text: "If a ticket agent is the merchant of record for fees for all other ancillary services, the carrier that operated the flight and failed to provide the service through no fault of the consumer is responsible for providing a prompt and automatic refund."
         supports: [exceptions, how_to_claim.steps.1]
       - text: "any optional service related to air travel that a covered carrier provides for a fee, beyond passenger air transportation. Such services may include, but are not limited to, transport of checked or carry-on baggage, advance seat selection, access to in-flight entertainment programs or Wi-Fi, in-flight beverages, snacks, meals, pillows and blankets, seat upgrades, and lounge access."
@@ -53,8 +53,8 @@ sources:
         supports: [exceptions, how_to_claim.steps.0]
       - text: "Notification of the unavailability of the ancillary service by a consumer is considered a request for a refund."
         supports: [exceptions, how_to_claim.steps.0]
-      - text: "the operating carrier that failed to provide the ancillary service must timely notify the carrier that is the merchant of record about the unavailability of the ancillary service."
-        supports: [exceptions]
+      - text: "In situations where a carrier is the merchant of record for a fee for an ancillary service and the carrier that operates the flight where the ancillary service was not provided are different entities, the operating carrier that failed to provide the ancillary service must timely notify the carrier that is the merchant of record about the unavailability of the ancillary service."
+        supports: [exceptions, how_to_claim.steps.1]
       - text: "Notification by the operating carrier as set forth in this paragraph is necessary for the obligation to provide a prompt refund of ancillary service fees in paragraphs (b) and (c) of this section to apply."
         supports: [exceptions]
       - text: "Prompt refund means refunds made within 7 business days after the earliest date the refund was requested as set forth in § 260.6(a)(2) as required by 14 CFR 374.3 for credit card purchases and within 20 calendar days after the earliest date the refund was requested as set forth in § 260.6(a)(2) for cash, check, debit card, or other forms of purchases."

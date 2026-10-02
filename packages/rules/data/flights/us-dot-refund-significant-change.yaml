@@ -38,7 +38,7 @@ how_to_claim:
   steps:
     - "Decline the delayed or changed flight, the rebooking, and any voucher, credit, or other compensation the airline offers instead of a refund."
     - "If the refund doesn't arrive on its own, ask the airline for a full refund of the fare in writing. If you booked through a ticket agent, ask the agent."
-    - "Check that the money returns to your original form of payment, within 7 business days of rejecting the offer for a credit card or 20 calendar days for other payments."
+    - "Check that the money returns to your original form of payment. If you rejected an offer, check within 7 business days (credit card) or 20 calendar days (other payments) after you rejected it."
   templates: [airline_refund_request]
 exceptions:
   - "Not owed if you accept the significantly delayed or changed flight, a rebooking on an alternative flight, or a voucher, credit, or other compensation offered as an alternative to a refund."
@@ -89,6 +89,10 @@ sources:
     quotes:
       - text: "A refund is due within 7 business days after you reject an offer if you paid for the ticket with a credit card, and within 20 calendar days after you reject the offer if you paid for the ticket with another form of payment, such as a check or cash."
         supports: [how_to_claim.steps.2]
+      - text: "Merchants of record are responsible for issuing refunds when they are due."
+        supports: [exceptions]
+      - text: "A “merchant of record” is the entity that is shown in the financial charge statement for the ticket purchase, such as your debit or credit card charge statement."
+        supports: [exceptions]
 lead_character: pigeon
 tags: [refund, delay, schedule-change, airfare, dot]
 last_verified: null

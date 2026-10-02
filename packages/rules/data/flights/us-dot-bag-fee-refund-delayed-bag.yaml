@@ -5,9 +5,9 @@ domain: flights
 jurisdiction: US-DOT
 title: "Bag lost or badly delayed? The airline owes you the bag fee back"
 summary: >-
-  If your checked bag is lost, or not delivered within 12 hours of arrival (domestic), 15 hours (international, flight
-  of 12 hours or less) or 30 hours (international, flight over 12 hours), and you file a Mishandled Baggage Report, the
-  airline must promptly refund what you paid to check it.
+  If your checked bag is lost, or not delivered within 12 hours of arrival (domestic trip), 15 hours (international
+  trip) or 30 hours (international trip with a non-stop flight between the US and another country over 12 hours), and
+  you file a Mishandled Baggage Report, the airline must promptly refund what you paid to check it.
 applies_when:
   all:
     - fact: flight.touches_us
@@ -64,7 +64,7 @@ sources:
     source: ecfr-14-cfr-260
     quotes:
       - text: "Significantly delayed checked bag means a checked bag not delivered to or picked up by the consumer or another person authorized to act on behalf of the consumer within 12 hours of the last flight segment's arrival for domestic itineraries, within 15 hours of the last flight segment's arrival for international itineraries with a non-stop flight segment between the United States and a foreign point that is 12 hours or less in duration, and within 30 hours of the last flight segment's arrival for international itineraries with a non-stop flight segment between the United States and a foreign point that is more than 12 hours in duration."
-        supports: [summary, applies_when]
+        supports: [summary, applies_when, exceptions]
       - text: "The 15-hour and 30-hour standards apply to domestic segments of international itineraries."
         supports: [exceptions]
       - text: "A covered carrier that is the merchant of record or, if a ticket agent is the merchant of record, the covered carrier that operated the flight or the last flight segment in a multiple-carrier itinerary, must provide a prompt refund to a consumer of any fee charged for transporting a lost bag or a significantly delayed checked bag, as defined in § 260.2 of this part and determined according to paragraph (a) of this section, subject to the conditions in paragraphs (b) and (c) of this section."
