@@ -1,5 +1,5 @@
 name: Tokyo scenario, booked on united.com 20 hours ago, departs in 30 days
-situation: { trip.hours_since_booking: 20, trip.days_until_departure: 30, trip.booked_via: direct, flight.touches_us: true }
+situation: { trip.hours_since_booking: 20, trip.hours_booked_before_departure: 720, trip.booked_via: direct, flight.touches_us: true }
 rules: [fx-24h-free-cancellation]
 expect:
   - { rule_id: fx-24h-free-cancellation, outcome: applies, missing_facts: [] }
