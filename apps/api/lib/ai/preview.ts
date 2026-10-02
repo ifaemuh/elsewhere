@@ -18,6 +18,54 @@ interface JobUpdater {
   updateStatus(jobId: string, status: string, extra?: Record<string, unknown>): Promise<void>;
 }
 
+function hasGatewayAuth(): boolean {
+  return !!process.env.AI_GATEWAY_API_KEY || !!process.env.VERCEL;
+}
+
+function fallbackEnhancedPrompt(destinationName: string, userPrompt: string): string {
+  return [
+    userPrompt,
+    `Cinematic, photorealistic travel scene at ${destinationName}.`,
+    'Golden hour lighting, natural pose, editorial travel photography, rich detail.',
+  ].join(' ');
+}
+
+function cleanErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : 'Unknown error';
+  // Remove ANSI escape sequences that otherwise show up raw in mobile UI.
+  return message.replace(/\x1b\[[0-9;]*m/g, '').trim();
+}
+
+async function enhancePrompt(destinationName: string, userPrompt: string): Promise<string> {
+  if (!hasGatewayAuth()) {
+    return fallbackEnhancedPrompt(destinationName, userPrompt);
+  }
+
+  try {
+    const { text } = await generateText({
+      model: gateway(models.text),
+      prompt: `Enhance this travel image prompt for AI image generation. Make it vivid, cinematic, and specific.
+Keep it under 200 words. Only output the enhanced prompt, nothing else.
+
+Destination: ${destinationName}
+User's vision: ${userPrompt}`,
+      providerOptions: {
+        gateway: {
+          tags: ['feature:preview', 'step:prompt-enhance'],
+          models: [models.textFallback],
+        },
+      },
+    });
+
+    return text;
+  } catch (error) {
+    if (isLocalDev() && cleanErrorMessage(error).includes('Unauthenticated request to AI Gateway')) {
+      return fallbackEnhancedPrompt(destinationName, userPrompt);
+    }
+    throw error;
+  }
+}
+
 function createJobUpdater(): JobUpdater {
   if (isLocalDev()) {
     return {
@@ -40,15 +88,15 @@ function createJobUpdater(): JobUpdater {
   };
 }
 
-async function getReferencePhotoUrl(
+async function getReferencePhotoInput(
   photoId: string,
   userId: string,
   storage: StorageAdapter,
-): Promise<string | null> {
+): Promise<string | Buffer | null> {
   if (isLocalDev()) {
     const photo = referencePhotoStore.get(photoId);
     if (!photo || photo.user_id !== userId) return null;
-    return photo.url;
+    return storage.download(photo.storage_path);
   }
 
   const supabase = createAdminClient();
@@ -77,21 +125,10 @@ export async function generatePreviewImage(
   await jobs.updateStatus(jobId, 'processing');
 
   try {
-    // Step 1: Enhance the prompt with a text model (same for both paths)
-    const { text: enhancedPrompt } = await generateText({
-      model: gateway(models.text),
-      prompt: `Enhance this travel image prompt for AI image generation. Make it vivid, cinematic, and specific.
-Keep it under 200 words. Only output the enhanced prompt, nothing else.
-
-Destination: ${destinationName}
-User's vision: ${userPrompt}`,
-      providerOptions: {
-        gateway: {
-          tags: ['feature:preview', 'step:prompt-enhance'],
-          models: [models.textFallback],
-        },
-      },
-    });
+    // Step 1: Enhance the prompt when Gateway auth is available.
+    // Local mobile validation should still work without AI Gateway because
+    // the product wedge is the reference-photo -> Replicate path.
+    const enhancedPrompt = await enhancePrompt(destinationName, userPrompt);
 
     let imageBuffer: Buffer;
     let personalized = false;
@@ -110,14 +147,21 @@ User's vision: ${userPrompt}`,
           return true;
         },
         (err) => {
-          console.error('[preview] FLUX Kontext failed, falling back to generic:', err.message);
-          return false;
+          const message = cleanErrorMessage(err);
+          console.error('[preview] FLUX Kontext failed:', message);
+          throw new Error(`Personalized preview generation failed: ${message}`);
         },
       );
     }
 
     // Fallback: generic Gemini generation
     if (!personalized) {
+      if (!hasGatewayAuth()) {
+        throw new Error(
+          'AI_GATEWAY_API_KEY is required for generic previews. Add a selfie to test personalized previews locally, or set AI_GATEWAY_API_KEY.',
+        );
+      }
+
       const imageResult = await generateText({
         model: gateway(models.image),
         prompt: buildPreviewPrompt(destinationName, enhancedPrompt),
@@ -134,8 +178,10 @@ User's vision: ${userPrompt}`,
     }
 
     // Step 3: Upload to storage
-    const fileName = `previews/${userId}/${jobId}.webp`;
-    const imageUrl = await storage.upload(fileName, imageBuffer!, 'image/webp');
+    const contentType = personalized ? 'image/jpeg' : 'image/webp';
+    const extension = personalized ? 'jpg' : 'webp';
+    const fileName = `previews/${userId}/${jobId}.${extension}`;
+    const imageUrl = await storage.upload(fileName, imageBuffer!, contentType);
 
     // Step 4: Mark complete
     await jobs.updateStatus(jobId, 'completed', {
@@ -145,9 +191,9 @@ User's vision: ${userPrompt}`,
 
     return { imageUrl, enhancedPrompt, personalized };
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error';
+    const message = cleanErrorMessage(error);
     await jobs.updateStatus(jobId, 'failed', { error_message: message });
-    throw error;
+    throw new Error(message);
   }
 }
 
@@ -158,9 +204,9 @@ async function tryPersonalizedGeneration(
   enhancedPrompt: string,
   storage: StorageAdapter,
 ): Promise<Buffer> {
-  const photoUrl = await getReferencePhotoUrl(photoId, userId, storage);
-  if (!photoUrl) throw new Error('Reference photo not found');
+  const referenceImage = await getReferencePhotoInput(photoId, userId, storage);
+  if (!referenceImage) throw new Error('Reference photo not found');
 
   const prompt = buildPersonalizedPreviewPrompt(destinationName, enhancedPrompt);
-  return generatePersonalizedImage(photoUrl, prompt);
+  return generatePersonalizedImage(referenceImage, prompt);
 }

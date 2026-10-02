@@ -1,0 +1,16 @@
+fx-dot-refunds:
+  url: https://example.gov/refunds
+  kind: regulation
+  detector: { ecfr: { title: 14, part: 260 } }
+fx-dot-reservations:
+  url: https://example.gov/reservations
+  kind: regulation
+  detector: { ecfr: { title: 14, part: 259 } }
+fx-eu-guidance:
+  url: https://example.eu/air-passenger-rights
+  kind: agency_guidance
+  detector: { ota: { service: "Example EU Guidance", terms_type: "Official Guidance" } }
+fx-carrier-coc:
+  url: https://example.com/contract-of-carriage
+  kind: contract_of_carriage
+  detector: { ota: { service: "Example Air", terms_type: "Conditions of Carriage" } }

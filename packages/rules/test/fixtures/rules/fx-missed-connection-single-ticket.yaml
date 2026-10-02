@@ -1,0 +1,39 @@
+id: fx-missed-connection-single-ticket
+version: 1
+status: verified
+domain: flights
+jurisdiction: "carrier:XA"
+title: "Fixture: missed connection on one ticket"
+summary: >-
+  Miss a connection on the same ticket and the airline rebooks you on the next available
+  flight at no charge.
+applies_when:
+  all:
+    - fact: event.type
+      in: [missed_connection]
+    - fact: flight.single_ticket
+      eq: true
+entitlement:
+  kind: rebooking
+how_to_claim:
+  steps:
+    - "Go to the transfer desk and ask to be rebooked on the next available flight."
+  templates: []
+exceptions:
+  - "Separate tickets are not covered."
+sources:
+  - id: s1
+    source: fx-carrier-coc
+    quotes:
+      - text: "Example Air will rebook a passenger who misses a connection on the same ticket on the next available flight at no extra charge."
+        supports: [summary, applies_when, entitlement]
+      - text: "Passengers holding separate tickets are not covered by this protection."
+        supports: [exceptions]
+lead_character: raccoon
+tags: [fixture, connection]
+last_verified: 2026-10-06
+verified_by: fixture
+review_by: 2027-01-04
+history:
+  - { version: 1, status: draft, date: 2026-10-01 }
+  - { version: 1, status: verified, date: 2026-10-06 }

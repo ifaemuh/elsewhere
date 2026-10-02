@@ -1,0 +1,5 @@
+name: cancelled US flight, passenger has not decided yet
+situation: { event.type: cancellation, flight.touches_us: true }
+rules: [fx-us-refund-cancelled-flight]
+expect:
+  - { rule_id: fx-us-refund-cancelled-flight, outcome: may_apply, missing_facts: [passenger.accepted_alternative] }

@@ -1,0 +1,44 @@
+id: fx-us-refund-cancelled-flight
+version: 1
+status: verified
+domain: flights
+jurisdiction: US-DOT
+title: "Fixture: cancelled flight refund"
+summary: >-
+  If the airline cancels and you don't accept the alternative or a voucher, you get a
+  refund to your original payment method.
+applies_when:
+  all:
+    - fact: event.type
+      in: [cancellation]
+    - fact: flight.touches_us
+      eq: true
+    - fact: passenger.accepted_alternative
+      eq: false
+entitlement:
+  kind: refund
+  amount: { basis: full_ticket_price, payment: original_method }
+  timing: "7 business days for card purchases"
+how_to_claim:
+  steps:
+    - "Decline the alternative flight and any voucher."
+    - "Ask for the refund in writing."
+  templates: [airline_refund_request]
+exceptions:
+  - "Does not apply if you accept the alternative flight or a voucher."
+sources:
+  - id: s1
+    source: fx-dot-refunds
+    quotes:
+      - text: "A carrier must provide a prompt refund to a passenger whose flight is cancelled when the passenger does not accept an alternative flight or a voucher."
+        supports: [summary, applies_when]
+      - text: "Refunds go back to the original form of payment within 7 business days for credit card purchases."
+        supports: [entitlement.amount, entitlement.timing]
+lead_character: pigeon
+tags: [fixture, refund]
+last_verified: 2026-10-06
+verified_by: fixture
+review_by: 2027-01-04
+history:
+  - { version: 1, status: draft, date: 2026-10-01 }
+  - { version: 1, status: verified, date: 2026-10-06 }

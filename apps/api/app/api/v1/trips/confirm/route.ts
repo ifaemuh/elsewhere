@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAuthUser } from '@lib/supabase/middleware';
 import { errorResponse } from '@lib/utils/errors';
 import { transitionBookingState } from '@lib/engines/booking';
+import { isLocalDev } from '@lib/storage';
 
 export async function POST(req: NextRequest) {
   try {
@@ -13,6 +14,14 @@ export async function POST(req: NextRequest) {
         { error: 'Validation Error', message: 'tripId is required', statusCode: 400 },
         { status: 400 },
       );
+    }
+
+    if (isLocalDev()) {
+      return NextResponse.json({
+        tripId,
+        previousState: 'payment_pending',
+        newState: 'confirmed',
+      });
     }
 
     // Transition: payment_pending -> confirmed

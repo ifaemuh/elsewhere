@@ -1,0 +1,11 @@
+name: Paris scenario, DL JFK to CDG delayed 4h (US carrier into the EU is not covered)
+situation:
+  event.type: delay
+  event.delay_minutes: 240
+  event.cause: controllable
+  flight.carrier_iata: DL
+  flight.carrier_is_eu: false
+  flight.departs_eu: false
+  flight.arrives_eu: true
+rules: [fx-eu261-delay-compensation]
+expect: []

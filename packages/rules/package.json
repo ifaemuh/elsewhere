@@ -1,0 +1,19 @@
+{
+  "name": "@elsewhere/rules",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts", "./core": "./src/core.ts" },
+  "types": "./src/index.ts",
+  "scripts": {
+    "test": "node --import tsx --test \"test/**/*.test.ts\"",
+    "typecheck": "tsc --noEmit",
+    "build": "npm run rules:build",
+    "rules:build": "tsx src/cli/build.ts",
+    "rules:check-quotes": "tsx src/cli/check-quotes.ts",
+    "rules:declarations": "tsx src/cli/declarations.ts",
+    "rules:fetch-ecfr": "tsx src/cli/fetch-ecfr.ts"
+  },
+  "dependencies": { "yaml": "^2.9.1", "zod": "^4.6.5" },
+  "devDependencies": { "@types/node": "^22", "tsx": "^4.19.2", "typescript": "^5.5" }
+}

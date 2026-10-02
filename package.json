@@ -6,9 +6,12 @@
   "workspaces": ["apps/*", "packages/*"],
   "scripts": {
     "dev": "turbo dev",
+    "dev:mobile-preview": "node scripts/mobile-preview-test.mjs",
+    "audit:media": "node scripts/audit-media.mjs",
     "build": "turbo build",
     "lint": "turbo lint",
-    "typecheck": "turbo typecheck"
+    "typecheck": "turbo typecheck",
+    "test": "turbo test"
   },
   "devDependencies": {
     "turbo": "^2",

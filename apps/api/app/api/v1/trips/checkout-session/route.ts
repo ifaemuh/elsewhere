@@ -4,12 +4,21 @@ import { checkoutRequestSchema } from '@elsewhere/shared';
 import { errorResponse } from '@lib/utils/errors';
 import { transitionBookingState, failBooking } from '@lib/engines/booking';
 import { randomUUID } from 'crypto';
+import { isLocalDev } from '@lib/storage';
 
 export async function POST(req: NextRequest) {
   try {
     const { supabase } = await getAuthUser(req);
     const body = await req.json();
     const validated = checkoutRequestSchema.parse(body);
+
+    if (isLocalDev()) {
+      const sessionId = `checkout-${randomUUID()}`;
+      return NextResponse.json({
+        checkoutUrl: `https://checkout.elsewhere.test/session/${sessionId}`,
+        sessionId,
+      });
+    }
 
     // Transition: quote_created -> reserving_inventory
     await transitionBookingState(supabase, validated.tripId, 'reserving_inventory');

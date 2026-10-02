@@ -3,12 +3,47 @@ import { getAuthUser } from '@lib/supabase/middleware';
 import { tripQuoteRequestSchema } from '@elsewhere/shared';
 import { errorResponse } from '@lib/utils/errors';
 import { transitionBookingState } from '@lib/engines/booking';
+import { isLocalDev } from '@lib/storage';
+import { destinationStore } from '@lib/stores/memory';
+import { randomUUID } from 'crypto';
+
+function mockTripIdForDestination(destinationId: string): string {
+  return destinationId.replace(/^dest-/, 'mock-trip-');
+}
 
 export async function POST(req: NextRequest) {
   try {
     const { user, supabase } = await getAuthUser(req);
     const body = await req.json();
     const validated = tripQuoteRequestSchema.parse(body);
+
+    if (isLocalDev()) {
+      const destination = destinationStore.get(validated.destinationId);
+      if (!destination) {
+        return NextResponse.json(
+          { error: 'Not Found', message: 'Destination not found', statusCode: 404 },
+          { status: 404 },
+        );
+      }
+
+      const totalPerPerson =
+        destination.flightCost +
+        destination.hotelCost +
+        destination.activityCost +
+        destination.transferCost +
+        destination.partnerFee;
+      const total = totalPerPerson * validated.travelerCount;
+      const now = new Date().toISOString();
+
+      return NextResponse.json({
+        id: `quote-${randomUUID()}`,
+        tripId: mockTripIdForDestination(validated.destinationId),
+        total,
+        currencyCode: 'USD',
+        expiresAt: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+        createdAt: now,
+      });
+    }
 
     // Fetch destination for pricing
     const { data: destination, error: destError } = await supabase

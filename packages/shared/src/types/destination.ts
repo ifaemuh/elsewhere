@@ -1,3 +1,11 @@
+export interface DestinationScene {
+  id: string;
+  name: string;
+  summary: string;
+  prompt: string;
+  activityTags: string[];
+}
+
 export interface Destination {
   id: string;
   name: string;
@@ -10,6 +18,7 @@ export interface Destination {
   partnerFee: number;
   isFeatured: boolean;
   previewImageUrl: string | null;
+  scenes?: DestinationScene[];
   createdAt: string;
 }
 

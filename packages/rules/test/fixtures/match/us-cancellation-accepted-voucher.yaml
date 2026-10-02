@@ -1,0 +1,4 @@
+name: cancelled US flight, voucher accepted (Tokyo scenario keeps value as credit)
+situation: { event.type: cancellation, flight.touches_us: true, passenger.accepted_alternative: true }
+rules: [fx-us-refund-cancelled-flight]
+expect: []
