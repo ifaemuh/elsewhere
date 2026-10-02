@@ -16,25 +16,32 @@ export function generateStaticParams() {
 export async function generateMetadata({ params }: { params: Params }): Promise<Metadata> {
   const { id } = await params;
   const resolution = resolveRulePage(getLibrary(), id);
+  if (resolution.kind === 'gone') return { title: 'Travel rules · Elsewhere', robots: { index: false } };
   if (resolution.kind !== 'page') return { title: 'Travel rules · Elsewhere' };
   return { title: `${resolution.rule.title} · Elsewhere`, description: resolution.rule.summary };
 }
 
-export default function RulePage({ params }: { params: Params }) {
+// Unknown and draft ids are rejected before any Suspense boundary so they get a real 404.
+// (dynamicParams = false is not supported with Cache Components.)
+export default async function RulePage({ params }: { params: Params }) {
+  const { id } = await params;
+  const resolution = resolveRulePage(getLibrary(), id);
+  if (resolution.kind === 'missing') notFound();
+  // Retired rules with a replacement are 308'd by next.config.ts; this is only a fallback.
+  if (resolution.kind === 'redirect') permanentRedirect(resolution.to);
   return (
     <main className="mx-auto max-w-3xl px-6 py-12">
       <Link href="/rules" className="text-sm text-[#4b5745] hover:underline">
         ← All rules
       </Link>
       <Suspense fallback={<p className="mt-8 text-[#4b5745]">Loading the rule…</p>}>
-        <RuleContent params={params} />
+        <RuleContent id={id} />
       </Suspense>
     </main>
   );
 }
 
-async function RuleContent({ params }: { params: Params }) {
-  const { id } = await params;
+async function RuleContent({ id }: { id: string }) {
   const library = getLibrary();
   const resolution = resolveRulePage(library, id);
   if (resolution.kind === 'missing') notFound();

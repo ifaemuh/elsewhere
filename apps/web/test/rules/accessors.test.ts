@@ -142,3 +142,13 @@ describe('staticRuleParams', () => {
     expect(resolveRulePage(empty, params[0].id).kind).toBe('missing');
   });
 });
+
+describe('retiredRedirects', () => {
+  it('maps only retired rules whose replacement is published', async () => {
+    const { retiredRedirects } = await import('@/lib/rules/accessors');
+    const redirects = retiredRedirects(library);
+    expect(redirects.every((r) => r.permanent && r.source.startsWith('/rules/') && r.destination.startsWith('/rules/'))).toBe(true);
+    for (const r of redirects) expect(resolveRulePage(library, r.source.slice(7)).kind).toBe('redirect');
+    expect(redirects.map((r) => r.source)).toContain('/rules/fixture-old-refund-rule');
+  });
+});

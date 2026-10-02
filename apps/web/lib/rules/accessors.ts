@@ -54,6 +54,17 @@ export function resolveRulePage(library: RulesLibrary, id: string): RulePageReso
   return { kind: 'page', rule };
 }
 
+/** Real HTTP 308s for retired rules with a published replacement; next.config.ts feeds these to redirects(). */
+export function retiredRedirects(library: RulesLibrary): { source: string; destination: string; permanent: true }[] {
+  const out: { source: string; destination: string; permanent: true }[] = [];
+  for (const rule of library.rules) {
+    if (rule.status !== 'retired') continue;
+    const resolution = resolveRulePage(library, rule.id);
+    if (resolution.kind === 'redirect') out.push({ source: `/rules/${rule.id}`, destination: resolution.to, permanent: true });
+  }
+  return out;
+}
+
 export function needsReviewSince(rule: Rule): string | null {
   if (rule.status !== 'needs_review') return null;
   let since: string | null = null;
