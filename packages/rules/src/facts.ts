@@ -44,6 +44,11 @@ export const FACTS = {
   'flight.departs_uk': { type: 'boolean', description: 'The flight departs from an airport in the United Kingdom.' },
   'flight.distance_km': { type: 'number', description: 'Great-circle distance between origin and final destination, in km.' },
   'flight.single_ticket': { type: 'boolean', description: 'All flights in the journey are on one ticket or booking reference.' },
+  'flight.departs_us': { type: 'boolean', description: 'The flight departs from a US airport.' },
+  'flight.scheduled_duration_minutes': {
+    type: 'number',
+    description: 'Scheduled gate-to-gate time of the flight, in minutes.',
+  },
   'passenger.accepted_alternative': {
     type: 'boolean',
     description: 'The passenger accepted the rebooking, the changed flight, or a voucher or credit.',
