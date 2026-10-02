@@ -1,8 +1,13 @@
 import { Suspense } from 'react';
+import { cookies } from 'next/headers';
 import { notFound } from 'next/navigation';
+import { Button } from '@/components/ui/button';
 import { requireUser } from '@/lib/auth/user';
+import { ANONYMOUS_ID_COOKIE, isAnonymousId } from '@/lib/funnel/anonymous-id';
+import { assignVariant, variantPriceLabel } from '@/lib/funnel/variant';
 import { createClient } from '@/lib/supabase/server';
 import { inboundAddress } from '@/lib/trips/inbound-code';
+import { startPassCheckout } from './actions';
 
 type Params = Promise<{ id: string }>;
 type SearchParams = Promise<{ pass?: string }>;
@@ -19,7 +24,7 @@ export default function TripPage({ params, searchParams }: { params: Params; sea
 
 async function TripContent({ params, searchParams }: { params: Params; searchParams: SearchParams }) {
   const { id } = await params;
-  await searchParams;
+  const { pass } = await searchParams;
   await requireUser(`/trips/${id}`);
   const supabase = await createClient();
   // inbound_code and join_token_hash are not column-readable; never select * from trips.
@@ -55,6 +60,38 @@ async function TripContent({ params, searchParams }: { params: Params; searchPar
           We couldn’t load your forwarding address. Refresh the page to try again.
         </p>
       ) : null}
+      <PassSection tripId={trip.id} passStatus={trip.pass_status} justPaid={pass === 'success'} />
     </>
+  );
+}
+
+async function PassSection({ tripId, passStatus, justPaid }: { tripId: string; passStatus: 'none' | 'active' | 'comp'; justPaid: boolean }) {
+  if (passStatus !== 'none') {
+    return (
+      <section className="mt-6 rounded-xl border border-[#cfe3c8] bg-[#f1f8ee] p-6">
+        <h2 className="font-semibold">Trip pass active</h2>
+        <p className="mt-1 text-sm text-[#4b5745]">We’re watching every confirmed flight for the group.</p>
+      </section>
+    );
+  }
+  if (justPaid) {
+    return (
+      <section role="status" className="mt-6 rounded-xl border border-[#e4dfd0] bg-white p-6">
+        Payment received. Turning on the trip pass — refresh in a moment.
+      </section>
+    );
+  }
+  const anonymousId = (await cookies()).get(ANONYMOUS_ID_COOKIE)?.value;
+  const price = variantPriceLabel(isAnonymousId(anonymousId) ? assignVariant(anonymousId) : 'p19');
+  return (
+    <section className="mt-6 rounded-xl border border-[#e4dfd0] bg-white p-6">
+      <h2 className="font-semibold">Watch this trip</h2>
+      <p className="mt-1 text-sm text-[#4b5745]">
+        One {price} pass covers the whole group: flight watching, cited playbooks, and group alerts. We draft the messages; you send them.
+      </p>
+      <form action={startPassCheckout.bind(null, tripId)} className="mt-4">
+        <Button type="submit">Get the trip pass — {price}</Button>
+      </form>
+    </section>
   );
 }
