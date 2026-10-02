@@ -311,3 +311,60 @@ describe('replace_document_checks (Task 7 fix round)', () => {
     await rejects(() => asUser(db, MEMBER, () => db.query('select public.replace_document_checks($1, $2::jsonb)', [tripId, '[]'])), /permission denied/);
   });
 });
+
+describe('booking seats (Task 8)', () => {
+  let bookingId: string;
+  let otherTripBookingId: string;
+
+  beforeAll(async () => {
+    bookingId = await asService(db, async () =>
+      (await one<{ id: string }>(
+        `insert into public.bookings (trip_id, kind, provider, confirmation_code, extraction_confidence, dedupe_key)
+         values ($1, 'flight', 'TAP Air Portugal', 'C2SEAT', 0.97, 'seat-test') returning id`,
+        [tripId],
+      )).id,
+    );
+    const otherTrip = await asUser(db, OUTSIDER, async () =>
+      (await one<{ id: string }>(
+        `select public.create_trip('Elsewhere', 'FR', '2026-12-01', '2026-12-08', 'trip-c2otherc2oth', 'Olly', null, '{}'::jsonb) as id`,
+      )).id,
+    );
+    otherTripBookingId = await asService(db, async () =>
+      (await one<{ id: string }>(
+        `insert into public.bookings (trip_id, kind, provider, extraction_confidence, dedupe_key) values ($1, 'flight', 'Air France', 0.97, 'other-trip') returning id`,
+        [otherTrip],
+      )).id,
+    );
+  });
+
+  it('a member claims their own seat, and claiming again changes nothing', async () => {
+    const claimed = await asUser(db, MEMBER, () => one<{ member: string }>('select public.claim_booking_seat($1) as member', [bookingId]));
+    expect(claimed.member).toBe(memberMemberId);
+    await asUser(db, MEMBER, () => db.query('select public.claim_booking_seat($1)', [bookingId]));
+    const rows = await asService(db, () => db.query<{ member_id: string }>('select member_id from public.booking_members where booking_id = $1', [bookingId]));
+    expect(rows.rows).toEqual([{ member_id: memberMemberId }]);
+    const code = await asUser(db, MEMBER, () => one<{ code: string | null }>('select public.booking_confirmation_code($1) as code', [bookingId]));
+    expect(code.code).toBe('C2SEAT');
+  });
+
+  it('a member cannot put anyone else on a booking', async () => {
+    await rejects(() =>
+      asUser(db, MEMBER, () => db.query('insert into public.booking_members (booking_id, member_id, trip_id) values ($1, $2, $3)', [bookingId, plannerMemberId, tripId])),
+    );
+    const planner = await asService(db, () => db.query('select 1 from public.booking_members where booking_id = $1 and member_id = $2', [bookingId, plannerMemberId]));
+    expect(planner.rows).toHaveLength(0);
+  });
+
+  it('a non-member cannot claim a seat, here or on another trip', async () => {
+    await rejects(() => asUser(db, OUTSIDER, () => db.query('select public.claim_booking_seat($1)', [bookingId])), /not a member of this trip/);
+    await rejects(() => asUser(db, MEMBER, () => db.query('select public.claim_booking_seat($1)', [otherTripBookingId])), /not a member of this trip/);
+  });
+
+  it('a member takes themselves off; the planner assigns anyone; anon cannot call it', async () => {
+    const off = await asUser(db, MEMBER, () => db.query('delete from public.booking_members where booking_id = $1 and member_id = $2', [bookingId, memberMemberId]));
+    expect(off.affectedRows).toBe(1);
+    await asUser(db, PLANNER, () => db.query('insert into public.booking_members (booking_id, member_id, trip_id) values ($1, $2, $3)', [bookingId, memberMemberId, tripId]));
+    const anon = await asService(db, () => one<{ ok: boolean }>("select has_function_privilege('anon', 'public.claim_booking_seat(uuid)', 'execute') as ok"));
+    expect(anon.ok).toBe(false);
+  });
+});

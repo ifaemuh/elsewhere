@@ -333,6 +333,27 @@ returns text language sql stable security definer set search_path = public as $$
     );
 $$;
 
+-- A member puts only themselves on a booking of a trip they belong to. Assignment decides who reads
+-- a confirmation code, so members never insert booking_members rows directly ("Planners assign
+-- bookings" in section 12). They take themselves off under "Planner or self unassigns bookings".
+create or replace function public.claim_booking_seat(p_booking_id uuid)
+returns uuid language plpgsql security definer set search_path = public, pg_temp as $$
+declare v_trip uuid; v_member uuid;
+begin
+  select b.trip_id into v_trip from public.bookings b where b.id = p_booking_id;
+  select m.id into v_member from public.trip_members m where m.trip_id = v_trip and m.user_id = auth.uid();
+  if v_member is null then
+    raise exception 'not a member of this trip' using errcode = '42501';
+  end if;
+  insert into public.booking_members (booking_id, member_id, trip_id)
+  values (p_booking_id, v_member, v_trip)
+  on conflict (booking_id, member_id) do nothing;
+  return v_member;
+end;
+$$;
+revoke execute on function public.claim_booking_seat(uuid) from public, anon;
+grant execute on function public.claim_booking_seat(uuid) to authenticated;
+
 -- 6. Checks, incidents, playbooks, action items ------------------------------------
 create type check_result as enum ('ok', 'action_needed', 'unknown');
 create type incident_status as enum ('open', 'needs_answer', 'playbook_ready', 'resolved');
