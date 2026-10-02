@@ -1,0 +1,121 @@
+id: us-dot-bumping-compensation
+version: 1
+status: draft
+domain: flights
+jurisdiction: US-DOT
+title: "Bumped against your will from an oversold flight leaving the US? The airline owes you cash or a check"
+summary: >-
+  If an airline denies you boarding involuntarily on an oversold flight leaving a US airport, and its replacement
+  transportation is planned to reach your destination or first stopover more than 1 hour after your original flight,
+  it owes at least 200% of your one-way fare (capped at $1,075), or 400% (capped at $2,150) after longer delays.
+applies_when:
+  all:
+    - fact: event.type
+      in: [denied_boarding]
+    - fact: flight.departs_us
+      eq: true
+    - fact: event.delay_minutes
+      gt: 60
+entitlement:
+  kind: compensation
+  amount:
+    no_compensation: "if the carrier offers alternate transportation that, at the time the arrangement is made, is planned to arrive at the airport of the passenger's first stopover, or if none, the airport of the passenger's final destination not later than one hour after the planned arrival time of the passenger's original flight"
+    domestic_200_percent: "at least 200 percent of the fare to the passenger's destination or first stopover, or $1,075, whichever is lower, if the carrier offers alternate transportation that, at the time the arrangement is made, is planned to arrive at the airport of the passenger's first stopover, or if none, the airport of the passenger's final destination more than one hour but less than two hours after the planned arrival time of the passenger's original flight"
+    domestic_400_percent: "at least 400 percent of the fare to the passenger's destination or first stopover, or $2,150, whichever is lower, if the carrier does not offer alternate transportation that, at the time the arrangement is made, is planned to arrive at the airport of the passenger's first stopover, or if none, the airport of the passenger's final destination less than two hours after the planned arrival time of the passenger's original flight"
+    international_200_percent: "at least 200 percent of the fare to the passenger's destination or first stopover, or $1,075, whichever is lower, if the carrier offers alternate transportation that, at the time the arrangement is made, is planned to arrive at the airport of the passenger's first stopover, or if not, the airport of the passenger's final destination more than one hour but less than four hours after the planned arrival time of the passenger's original flight"
+    international_400_percent: "at least 400 percent of the fare to the passenger's destination or first stopover, or $2,150, whichever is lower, if the carrier does not offer alternate transportation that, at the time the arrangement is made, is planned to arrive at the airport of the passenger's first stopover, or if not, the airport of the passenger's final destination less than four hours after the planned arrival time of the passenger's original flight"
+    form: "cash or an immediately negotiable check for the appropriate amount of compensation"
+    unused_ancillary_fees: "a carrier shall refund all unused ancillary fees for optional services paid by a passenger who is voluntarily or involuntarily denied boarding"
+  timing: "The carrier that denied you boarding must pay on the day and at the place the denied boarding occurs. If it arranges alternate transportation that departs before the payment can be prepared, it must pay by mail or other means within 24 hours after the denied boarding occurs."
+how_to_claim:
+  steps:
+    - "If the airline asks for volunteers, ask before you give up your seat whether you are in danger of being denied boarding involuntarily and what it must pay if you are. A volunteer who accepts the airline's offer is not paid under these tiers."
+    - "If you are denied boarding against your will, ask for the written statement of your rights and the airline's boarding priorities. The airline must give it to you immediately after the denied boarding."
+    - "Ask what time the replacement transportation is planned to reach your destination, or your first stopover if you have one, compared with your original flight's planned arrival. That gap, measured when the airline arranges the replacement, sets your tier. Domestic and international tiers differ at the top."
+    - "The airline must offer the payment without waiting for you to ask, in cash or an immediately negotiable check, on the day and at the place it denies you boarding. If it offers a free or discounted flight instead, you can insist on the cash or check."
+    - "Ask the airline to refund any unused extras you paid for, such as a seat selection or a checked bag."
+    - "If you are not paid, write to the airline that denied you boarding and ask for the compensation. Keep the written statement, your boarding pass and the times of the replacement flight."
+  templates: [denied_boarding_claim]
+exceptions:
+  - "Volunteers are not paid under these tiers. A volunteer is a person who responds to the airline's request for volunteers and willingly accepts its offer of compensation, in any amount. Anyone else denied boarding counts as denied boarding involuntarily, even if they accept the compensation."
+  - "Not paid if you did not comply fully with the airline's contract of carriage or tariff provisions on ticketing, reconfirmation, check-in (including the check-in deadline) and acceptability for transportation."
+  - "Not paid if the flight could not take you because a smaller aircraft was substituted for operational or safety reasons, or, on an aircraft with 60 or fewer seats, because of weight and balance limits for operational or safety reasons."
+  - "Not paid if you are offered a seat or accommodations in a section of the aircraft other than the one on your ticket at no extra charge. If that section has a lower fare, you are owed an appropriate refund."
+  - "Not paid if the airline arranges comparable air transportation, or other transportation you use at no extra cost, that is planned to reach your next stopover or final destination no later than 1 hour after the planned arrival time of your original flight."
+  - "Only covers scheduled flight segments on aircraft with 30 or more passenger seats, and nonstop flight segments that start in the United States. Charter flights, smaller aircraft and flights leaving a foreign airport are not covered by this rule."
+  - "Only for an oversold flight. A flight cancellation is not denied boarding under this rule."
+  - "The tiers use the planned arrival of the replacement transportation when it is arranged, at your first stopover or, if you have none, your final destination. A stopover is a deliberate interruption of the journey, scheduled to exceed 4 hours."
+  - "The fare is the price you paid including mandatory taxes and fees, without optional ancillary fees. For a ticket bought with miles or vouchers, it is the lowest cash, check or credit card payment charged for a ticket in the same class of service on that flight."
+  - "Accepting the compensation may release the airline from any further liability to you for failing to honor your reservation. You may decline the payment and seek damages in court or another way."
+  - "The dollar caps are reviewed every two years for inflation, so the figures can change."
+sources:
+  - id: s1
+    source: ecfr-14-cfr-250
+    quotes:
+      - text: "Subject to the exceptions provided in § 250.6, a carrier to whom this part applies as described in § 250.2 shall pay compensation in interstate air transportation to passengers who are denied boarding involuntarily from an oversold flight as follows:"
+        supports: [summary, applies_when, entitlement.amount, exceptions]
+      - text: "No compensation is required if the carrier offers alternate transportation that, at the time the arrangement is made, is planned to arrive at the airport of the passenger's first stopover, or if none, the airport of the passenger's final destination not later than one hour after the planned arrival time of the passenger's original flight;"
+        supports: [summary, applies_when, entitlement.amount, how_to_claim.steps.2, exceptions]
+      - text: "Compensation shall be at least 200 percent of the fare to the passenger's destination or first stopover, or $1,075, whichever is lower, if the carrier offers alternate transportation that, at the time the arrangement is made, is planned to arrive at the airport of the passenger's first stopover, or if none, the airport of the passenger's final destination more than one hour but less than two hours after the planned arrival time of the passenger's original flight; and"
+        supports: [summary, applies_when, entitlement.amount, how_to_claim.steps.2]
+      - text: "Compensation shall be at least 400 percent of the fare to the passenger's destination or first stopover, or $2,150, whichever is lower, if the carrier does not offer alternate transportation that, at the time the arrangement is made, is planned to arrive at the airport of the passenger's first stopover, or if none, the airport of the passenger's final destination less than two hours after the planned arrival time of the passenger's original flight."
+        supports: [summary, entitlement.amount, how_to_claim.steps.2]
+      - text: "Subject to the exceptions provided in § 250.6, a carrier to whom this part applies as described in § 250.2 shall pay compensation to passengers in foreign air transportation who are denied boarding involuntarily at a U.S. airport from an oversold flight as follows:"
+        supports: [summary, applies_when, entitlement.amount, exceptions]
+      - text: "Compensation shall be at least 200 percent of the fare to the passenger's destination or first stopover, or $1,075, whichever is lower, if the carrier offers alternate transportation that, at the time the arrangement is made, is planned to arrive at the airport of the passenger's first stopover, or if not, the airport of the passenger's final destination more than one hour but less than four hours after the planned arrival time of the passenger's original flight; and"
+        supports: [summary, applies_when, entitlement.amount, how_to_claim.steps.2]
+      - text: "Compensation shall be at least 400 percent of the fare to the passenger's destination or first stopover, or $2,150, whichever is lower, if the carrier does not offer alternate transportation that, at the time the arrangement is made, is planned to arrive at the airport of the passenger's first stopover, or if not, the airport of the passenger's final destination less than four hours after the planned arrival time of the passenger's original flight."
+        supports: [summary, entitlement.amount, how_to_claim.steps.2]
+      - text: "Passengers traveling between points within the United States (including the territories and possessions) who are denied boarding involuntarily from an oversold flight are entitled to:"
+        supports: [entitlement.amount, how_to_claim.steps.2]
+      - text: "Passengers traveling from the United States to a foreign point who are denied boarding involuntarily from an oversold flight originating at a U.S. airport are entitled to:"
+        supports: [entitlement.amount, how_to_claim.steps.2]
+      - text: "Except for § 250.7, this part applies to every carrier, as defined in § 250.1, with respect to scheduled flight segments using an aircraft that has a designed passenger capacity of 30 or more passenger seats, operating in interstate air transportation or foreign air transportation with respect to nonstop flight segments originating at a point within the United States."
+        supports: [summary, applies_when, exceptions]
+      - text: "A “volunteer” is a person who responds to the carrier's request for volunteers and who willingly accepts the carriers' offer of compensation, in any amount, in exchange for relinquishing the confirmed reserved space. Any other passenger denied boarding is considered for purposes of this part to have been denied boarding involuntarily, even if that passenger accepts the denied boarding compensation."
+        supports: [exceptions, how_to_claim.steps.0]
+      - text: "Every carrier shall advise each passenger solicited to volunteer for denied boarding, no later than the time the carrier solicits that passenger to volunteer, whether he or she is in danger of being involuntarily denied boarding and, if so, the compensation the carrier is obligated to pay if the passenger is involuntarily denied boarding."
+        supports: [how_to_claim.steps.0]
+      - text: "Carriers must proactively offer to pay compensation to a passenger who is voluntarily or involuntarily denied boarding on an oversold flight, rather than waiting until the passenger requests the compensation."
+        supports: [how_to_claim.steps.3]
+      - text: "Every carrier shall furnish passengers who are denied boarding involuntarily from flights on which they hold confirmed reserved space immediately after the denied boarding occurs, a written statement explaining the terms, conditions, and limitations of denied boarding compensation, and describing the carriers' boarding priority rules and criteria."
+        supports: [how_to_claim.steps.1]
+      - text: "Every carrier shall tender to a passenger eligible for denied boarding compensation, on the day and place the denied boarding occurs, except as provided in paragraph (b), cash or an immediately negotiable check for the appropriate amount of compensation provided in § 250.5."
+        supports: [entitlement.amount, entitlement.timing, how_to_claim.steps.3]
+      - text: "Where a carrier arranges, for the passenger's convenience, alternate means of transportation that departs before the payment can be prepared and given to the passenger, tender shall be made by mail or other means within 24 hours after the time the denied boarding occurs."
+        supports: [entitlement.timing]
+      - text: "The passenger may insist on the cash/check payment or refuse all compensation and bring private legal action."
+        supports: [how_to_claim.steps.3, exceptions]
+      - text: "The carrier fully informs the passenger of the amount of cash/check compensation that would otherwise be due and that the passenger may decline the transportation benefit and receive the cash/check payment; and"
+        supports: [how_to_claim.steps.3]
+      - text: "In addition to the denied boarding compensation specified in this part, a carrier shall refund all unused ancillary fees for optional services paid by a passenger who is voluntarily or involuntarily denied boarding. The carrier is not required to refund the ancillary fees for services that are provided with respect to the passenger's alternate transportation."
+        supports: [entitlement.amount, how_to_claim.steps.4]
+      - text: "A passenger denied boarding involuntarily from an oversold flight shall not be eligible for denied boarding compensation if:"
+        supports: [exceptions]
+      - text: "The passenger does not comply fully with the carrier's contract of carriage or tariff provisions regarding ticketing, reconfirmation, check-in, and acceptability for transportation;"
+        supports: [exceptions]
+      - text: "The flight for which the passenger holds confirmed reserved space is unable to accommodate that passenger because of substitution of equipment of lesser capacity when required by operational or safety reasons; or, on an aircraft with a designed passenger capacity of 60 or fewer seats, the flight for which the passenger holds confirmed reserved space is unable to accommodate that passenger due to weight/balance restrictions when required by operational or safety reasons;"
+        supports: [exceptions]
+      - text: "The passenger is offered accommodations or is seated in a section of the aircraft other than that specified on the ticket at no extra charge, except that a passenger seated in a section for which a lower fare is charged shall be entitled to an appropriate refund; or"
+        supports: [exceptions]
+      - text: "The carrier arranges comparable air transportation, or other transportation used by the passenger at no extra cost to the passenger, that at the time such arrangements are made is planned to arrive at the airport of the passenger's next stopover or, if none, at the airport of the final destination not later than 1 hour after the planned arrival time of the passenger's original flight or flights."
+        supports: [summary, applies_when, exceptions]
+      - text: "you are denied boarding because the flight is canceled; or"
+        supports: [exceptions]
+      - text: "Fare means the price paid for air transportation including all mandatory taxes and fees. It does not include ancillary fees for optional services."
+        supports: [entitlement.amount, exceptions]
+      - text: "The fare paid by these passengers for purposes of calculating denied boarding compensation shall be the lowest cash, check, or credit card payment charged for a ticket in the same class of service on that flight."
+        supports: [exceptions]
+      - text: "Stopover means a deliberate interruption of a journey by the passenger, scheduled to exceed 4 hours, at a point between the place of departure and the final destination."
+        supports: [how_to_claim.steps.2, exceptions]
+      - text: "Acceptance of the compensation may relieve (name of air carrier) from any further liability to the passenger caused by its failure to honor the confirmed reservation. However, the passenger may decline the payment and seek to recover damages in a court of law or in some other manner."
+        supports: [exceptions, how_to_claim.steps.3]
+      - text: "The Department of Transportation will review the denied boarding compensation liability limit amounts prescribed in this part every two years except for the first review, which will take place in 2012, to put the reviews specified in this section on the same cycle as the reviews of domestic baggage liability limits specified in 14 CFR 254.6."
+        supports: [exceptions]
+lead_character: raccoon
+tags: [bumping, denied-boarding, oversold, compensation, dot]
+last_verified: null
+verified_by: null
+review_by: null
+history:
+  - { version: 1, status: draft, date: 2026-10-02 }
