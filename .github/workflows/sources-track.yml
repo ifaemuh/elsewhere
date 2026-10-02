@@ -26,7 +26,7 @@ jobs:
           node-version: 22
           cache: npm
 
-      - run: npm ci
+      - run: npm ci -w @elsewhere/rules --ignore-scripts
 
       - name: Check out the source collection
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4

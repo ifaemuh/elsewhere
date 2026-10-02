@@ -100,7 +100,7 @@ jobs:
           path: sources-versions
 
       - if: ${{ needs.versions.outputs.relevant == 'true' }}
-        run: npm ci
+        run: npm ci -w @elsewhere/rules --ignore-scripts
       - if: ${{ needs.versions.outputs.relevant == 'true' }}
         run: npm test -w @elsewhere/rules
       - if: ${{ needs.versions.outputs.relevant == 'true' }}

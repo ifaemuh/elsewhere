@@ -31,7 +31,7 @@ jobs:
           node-version: 22
           cache: npm
 
-      - run: npm ci
+      - run: npm ci -w @elsewhere/rules --ignore-scripts
 
       - name: List rules due within the window
         run: |
