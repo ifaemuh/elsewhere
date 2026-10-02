@@ -131,13 +131,13 @@ function normalizeProvider(provider: string): string {
     .join(' ');
 }
 
-function buildDedupeKey(
+export function buildDedupeKey(
   kind: string,
   code: string | null,
   provider: string,
   names: string[],
   bookedAt: string | null,
-  segments: NormalizedSegment[],
+  segments: Pick<NormalizedSegment, 'carrierIata' | 'flightNumber' | 'departureLocal'>[],
 ): string {
   const segmentKey = segments
     .map((s) => `${s.carrierIata}${s.flightNumber}@${s.departureLocal.slice(0, 10)}`)
@@ -148,6 +148,11 @@ function buildDedupeKey(
   if (code) return `${kind}|${code}|${normalizedProvider}`;
   const fingerprint = [normalizedProvider, ...names.map(compact).sort(), bookedAt ?? ''].join('|');
   return `${kind}|NOCODE|${createHash('sha256').update(fingerprint).digest('hex').slice(0, 16)}`;
+}
+
+/** The key intake gives a flight booking, for flights added or corrected by hand. A flight always has segments. */
+export function flightDedupeKey(code: string | null, segments: Pick<NormalizedSegment, 'carrierIata' | 'flightNumber' | 'departureLocal'>[]): string {
+  return buildDedupeKey('flight', code, '', [], null, segments);
 }
 
 export function normalizeBooking(raw: z.infer<typeof ExtractedBookingSchema>): NormalizedBooking {

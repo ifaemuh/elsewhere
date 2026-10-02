@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CONFIDENCE_THRESHOLD, groundBooking, normalizeBooking, scrubSensitive } from '@/lib/intake/normalize';
+import { CONFIDENCE_THRESHOLD, flightDedupeKey, groundBooking, normalizeBooking, scrubSensitive } from '@/lib/intake/normalize';
 import { ExtractedBookingSchema } from '@/lib/intake/extract';
 
 const raw = {
@@ -150,5 +150,14 @@ describe('groundBooking', () => {
     expect(b.segments[0].arrivalLocal).toBeNull();
     expect(b.problems).toContain('segment 1: arrival is not a real date and time');
     expect(b.confidence).toBe(0.95);
+  });
+});
+
+describe('flightDedupeKey (manual entry)', () => {
+  const segment = { carrierIata: 'TP', flightNumber: '204', departureLocal: '2026-11-03T18:15' };
+  it('equals the key intake builds for the same flight, with and without a code', () => {
+    expect(flightDedupeKey('ABC123', [segment])).toBe(normalizeBooking(raw).dedupeKey);
+    expect(flightDedupeKey(null, [segment])).toBe(normalizeBooking({ ...raw, confirmation_code: null }).dedupeKey);
+    expect(flightDedupeKey(null, [segment])).toBe('flight|NOCODE|TP204@2026-11-03');
   });
 });

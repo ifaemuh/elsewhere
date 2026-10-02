@@ -313,13 +313,16 @@ create table public.booking_members (
   booking_id uuid not null,
   member_id uuid not null,
   trip_id uuid not null,
+  -- True when the member put themselves on the booking. A self-claim shows them the booking but not its
+  -- confirmation code; the planner's assignment (or intake's passenger match) is what unlocks the code.
+  self_claimed boolean not null default false,
   primary key (booking_id, member_id),
   foreign key (booking_id, trip_id) references public.bookings(id, trip_id) on delete cascade,
   foreign key (member_id, trip_id) references public.trip_members(id, trip_id) on delete cascade
 );
 
 create or replace function public.booking_confirmation_code(p_booking_id uuid)
-returns text language sql stable security definer set search_path = public as $$
+returns text language sql stable security definer set search_path = public, pg_temp as $$
   select b.confirmation_code
   from public.bookings b
   where b.id = p_booking_id
@@ -328,7 +331,7 @@ returns text language sql stable security definer set search_path = public as $$
       or exists (
         select 1 from public.booking_members bm
         join public.trip_members m on m.id = bm.member_id
-        where bm.booking_id = b.id and m.user_id = auth.uid()
+        where bm.booking_id = b.id and m.user_id = auth.uid() and not bm.self_claimed
       )
     );
 $$;
@@ -345,14 +348,33 @@ begin
   if v_member is null then
     raise exception 'not a member of this trip' using errcode = '42501';
   end if;
-  insert into public.booking_members (booking_id, member_id, trip_id)
-  values (p_booking_id, v_member, v_trip)
+  -- A self-claim does not unlock the confirmation code. An existing planner or intake assignment keeps self_claimed = false.
+  insert into public.booking_members (booking_id, member_id, trip_id, self_claimed)
+  values (p_booking_id, v_member, v_trip, true)
   on conflict (booking_id, member_id) do nothing;
   return v_member;
 end;
 $$;
 revoke execute on function public.claim_booking_seat(uuid) from public, anon;
 grant execute on function public.claim_booking_seat(uuid) to authenticated;
+
+-- The planner assigns anyone. Assigning a member who self-claimed is the planner confirming them, which unlocks the code.
+create or replace function public.assign_booking_member(p_booking_id uuid, p_member_id uuid)
+returns void language plpgsql security definer set search_path = public, pg_temp as $$
+declare v_trip uuid;
+begin
+  select b.trip_id into v_trip from public.bookings b where b.id = p_booking_id;
+  if v_trip is null or not public.is_trip_planner(v_trip) then
+    raise exception 'only the planner can assign travelers' using errcode = '42501';
+  end if;
+  insert into public.booking_members (booking_id, member_id, trip_id, self_claimed)
+  values (p_booking_id, p_member_id, v_trip, false)
+  on conflict (booking_id, member_id) do update set self_claimed = false;
+end;
+$$;
+revoke execute on function public.assign_booking_member(uuid, uuid) from public, anon;
+grant execute on function public.assign_booking_member(uuid, uuid) to authenticated;
+revoke update on public.booking_members from anon, authenticated;
 
 -- 6. Checks, incidents, playbooks, action items ------------------------------------
 create type check_result as enum ('ok', 'action_needed', 'unknown');

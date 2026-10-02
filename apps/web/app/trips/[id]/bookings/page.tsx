@@ -37,7 +37,7 @@ async function BookingsContent({ params }: { params: Params }) {
       ? await supabase.from('action_items').select('related_entity_id').eq('trip_id', id).eq('source_kind', 'flight_not_found').in('status', ['open', 'snoozed'])
       : { data: [] };
   const needsCorrection = new Set((flagged ?? []).map((i) => i.related_entity_id as string));
-  const { data: assignments } = await supabase.from('booking_members').select('booking_id, member_id').eq('trip_id', id);
+  const { data: assignments } = await supabase.from('booking_members').select('booking_id, member_id, self_claimed').eq('trip_id', id);
   const { data: directory } = await supabase.rpc('trip_directory', { p_trip_id: id });
   const me = (directory ?? []).find((m: { user_id: string }) => m.user_id === user.id) as { member_id: string } | undefined;
   // Codes come one by one through the RLS-checked function; everyone else gets null.
@@ -53,6 +53,7 @@ async function BookingsContent({ params }: { params: Params }) {
         {(bookings ?? []).map((booking) => {
           const code = codes[booking.id];
           const onIt = new Set((assignments ?? []).filter((a) => a.booking_id === booking.id).map((a) => a.member_id));
+          const waitingOnPlanner = (assignments ?? []).some((a) => a.booking_id === booking.id && a.member_id === me?.member_id && a.self_claimed === true);
           return (
             <li key={booking.id} className="rounded-xl border border-[#e4dfd0] bg-white p-5">
               <div className="flex items-baseline justify-between">
@@ -62,6 +63,7 @@ async function BookingsContent({ params }: { params: Params }) {
                 </p>
                 <span className="text-sm text-[#4b5745]">{booking.confirmed_at ? 'Confirmed' : 'Waiting for the planner'}</span>
               </div>
+              {waitingOnPlanner && !code ? <p className="text-sm text-[#4b5745]">The planner confirms who is on a booking before its code shows.</p> : null}
               {booking.booked_via ? <p className="text-sm text-[#4b5745]">Booked through {booking.booked_via}</p> : null}
               <ul className="mt-2 text-sm">
                 {(booking.booking_segments ?? [])

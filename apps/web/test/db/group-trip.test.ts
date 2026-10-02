@@ -343,8 +343,6 @@ describe('booking seats (Task 8)', () => {
     await asUser(db, MEMBER, () => db.query('select public.claim_booking_seat($1)', [bookingId]));
     const rows = await asService(db, () => db.query<{ member_id: string }>('select member_id from public.booking_members where booking_id = $1', [bookingId]));
     expect(rows.rows).toEqual([{ member_id: memberMemberId }]);
-    const code = await asUser(db, MEMBER, () => one<{ code: string | null }>('select public.booking_confirmation_code($1) as code', [bookingId]));
-    expect(code.code).toBe('C2SEAT');
   });
 
   it('a member cannot put anyone else on a booking', async () => {
@@ -366,5 +364,31 @@ describe('booking seats (Task 8)', () => {
     await asUser(db, PLANNER, () => db.query('insert into public.booking_members (booking_id, member_id, trip_id) values ($1, $2, $3)', [bookingId, memberMemberId, tripId]));
     const anon = await asService(db, () => one<{ ok: boolean }>("select has_function_privilege('anon', 'public.claim_booking_seat(uuid)', 'execute') as ok"));
     expect(anon.ok).toBe(false);
+  });
+
+  const codeFor = (user: string) => asUser(db, user, async () => (await one<{ code: string | null }>('select public.booking_confirmation_code($1) as code', [bookingId])).code);
+
+  it('a self-claimed seat does not unlock the code; a planner assignment does', async () => {
+    await asService(db, () => db.query('delete from public.booking_members where booking_id = $1', [bookingId]));
+    await asUser(db, MEMBER, () => db.query('select public.claim_booking_seat($1)', [bookingId]));
+    expect(await codeFor(MEMBER)).toBeNull();
+    expect(await codeFor(PLANNER)).toBe('C2SEAT');
+    await asUser(db, PLANNER, () => db.query('select public.assign_booking_member($1, $2)', [bookingId, memberMemberId]));
+    expect(await codeFor(MEMBER)).toBe('C2SEAT');
+    const rows = await asService(db, () => db.query('select self_claimed from public.booking_members where booking_id = $1', [bookingId]));
+    expect(rows.rows).toEqual([{ self_claimed: false }]);
+  });
+
+  it('a planner-assigned member keeps the code when they claim again', async () => {
+    await asUser(db, MEMBER, () => db.query('select public.claim_booking_seat($1)', [bookingId]));
+    expect(await codeFor(MEMBER)).toBe('C2SEAT');
+  });
+
+  it('a member cannot flip self_claimed, and only the planner can assign', async () => {
+    await asService(db, () => db.query('update public.booking_members set self_claimed = true where booking_id = $1', [bookingId]));
+    await rejects(() => asUser(db, MEMBER, () => db.query('update public.booking_members set self_claimed = false where booking_id = $1', [bookingId])));
+    expect(await codeFor(MEMBER)).toBeNull();
+    await rejects(() => asUser(db, MEMBER, () => db.query('select public.assign_booking_member($1, $2)', [bookingId, memberMemberId])), /only the planner/);
+    await rejects(() => asUser(db, OUTSIDER, () => db.query('select public.assign_booking_member($1, $2)', [bookingId, memberMemberId])), /only the planner/);
   });
 });
