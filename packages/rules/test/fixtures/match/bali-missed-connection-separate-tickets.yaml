@@ -1,0 +1,4 @@
+name: missed connection across separate tickets is not protected
+situation: { event.type: missed_connection, flight.single_ticket: false }
+rules: [fx-missed-connection-single-ticket]
+expect: []

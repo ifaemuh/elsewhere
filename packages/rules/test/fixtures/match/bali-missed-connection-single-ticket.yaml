@@ -1,0 +1,5 @@
+name: Bali scenario, SQ DPS to SIN to SFO, missed connection on one ticket
+situation: { event.type: missed_connection, flight.single_ticket: true, flight.touches_us: true }
+rules: [fx-missed-connection-single-ticket, fx-us-refund-cancelled-flight]
+expect:
+  - { rule_id: fx-missed-connection-single-ticket, outcome: applies, missing_facts: [] }

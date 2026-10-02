@@ -15,3 +15,10 @@ test('index.ts exports the rule and source schemas', async () => {
     assert.ok(name in m, `${name} should be exported`);
   }
 });
+
+test('index.ts exports the matcher', async () => {
+  const m = await import('../src/index');
+  for (const name of ['matchRule', 'matchRules']) {
+    assert.equal(typeof (m as Record<string, unknown>)[name], 'function', `${name} should be exported`);
+  }
+});
