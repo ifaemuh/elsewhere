@@ -70,11 +70,11 @@ cases:
     situation: { event.type: delay, event.cause: controllable, event.delay_minutes: 180 }
     outcome: may_apply
     missing_facts: [trip.journey_departs_eu, flight.departs_eu, flight.departs_iceland_norway_switzerland, trip.journey_arrives_eu, flight.carrier_is_eu, flight.arrives_eu]
-  - name: "inbound to the EU, airline licence not known yet"
+  - name: "feeder leg of a journey into the EU, airline licence not known yet"
     situation: { trip.journey_departs_eu: false, flight.departs_eu: false, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: true, flight.arrives_eu: false, event.type: delay, event.cause: controllable, event.delay_minutes: 180 }
     outcome: may_apply
     missing_facts: [flight.carrier_is_eu]
-  - name: "journey between two non-EU airports"
+  - name: "EU airline flight between two non-EU airports, not via the EU"
     situation: { trip.journey_departs_eu: false, flight.departs_eu: false, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: false, flight.carrier_is_eu: true, flight.arrives_eu: false, event.type: delay, event.cause: controllable, event.delay_minutes: 300 }
     outcome: does_not_apply
   - name: "JFK-CDG leg on Air France of a JFK-CDG-DXB booking, 3 hours late"

@@ -110,9 +110,9 @@ cases:
     situation: { trip.journey_departs_eu: true, flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: false, event.type: schedule_change, event.cause: controllable, event.departure_moved_earlier_minutes: 121, event.notice_days: 10, event.reroute_departs_early_minutes: 121, event.reroute_arrival_delay_minutes: 0 }
     outcome: applies
   - name: "schedule change, how much earlier not known yet"
-    situation: { trip.journey_departs_eu: true, flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: false, event.type: schedule_change, event.cause: controllable, event.notice_days: 2, event.reroute_departs_early_minutes: 0, event.reroute_arrival_delay_minutes: 1440 }
+    situation: { trip.journey_departs_eu: true, flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: false, event.type: schedule_change, event.cause: controllable, event.notice_days: 2 }
     outcome: may_apply
-    missing_facts: [event.departure_moved_earlier_minutes]
+    missing_facts: [event.departure_moved_earlier_minutes, event.reroute_departs_early_minutes, event.reroute_arrival_delay_minutes]
   - name: "a delay is not a cancellation"
     situation: { trip.journey_departs_eu: true, flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: false, event.type: delay, event.cause: controllable, event.notice_days: 2, event.reroute_departs_early_minutes: 0, event.reroute_arrival_delay_minutes: 1440 }
     outcome: does_not_apply

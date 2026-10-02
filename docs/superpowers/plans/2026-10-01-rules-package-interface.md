@@ -146,7 +146,7 @@ export const FACTS: {
   'event.delay_minutes': FactDef;        // number
   'event.notice_days': FactDef;          // number
   'event.cause': FactDef;                // enum: controllable, uncontrollable, unknown
-  'event.reroute_departs_early_minutes': FactDef;     // number — cancellation/schedule_change: minutes before the scheduled departure that the offered re-routing leaves (0 if at/after, or none offered; a schedule change is its own offer)
+  'event.reroute_departs_early_minutes': FactDef;     // number — cancellation/schedule_change: minutes before the scheduled departure that the offered re-routing leaves (0 if at/after, or none offered; a schedule change's changed flight counts as an offer; if none meets the departure limit, report any)
   'event.reroute_arrival_delay_minutes': FactDef;     // number — cancellation/schedule_change: minutes after the original arrival that the offered re-routing arrives (0 if earlier; none offered = 1440+)
   'event.departure_delay_minutes': FactDef;           // number — delay: minutes after scheduled departure that the disrupted flight leaves or is expected to leave (that flight only; if expected and actual differ, report the longer)
   'event.departure_moved_earlier_minutes': FactDef;   // number — schedule_change: minutes earlier than scheduled that the flight now departs (0 if not earlier)
@@ -191,9 +191,10 @@ export type FactName = keyof typeof FACTS;
 // flight.leg_distance_km, flight.departs_iceland_norway_switzerland, trip.journey_departs_eu and
 // trip.journey_arrives_eu. Descriptions: flight.* facts describe the disrupted flight (missed_connection: the flight
 // whose delay caused the miss); flight.distance_km runs from the journey's first departure to its final destination;
-// flight.departs_eu/arrives_eu use the Commission's definition of the EU; cancellation includes dropping the booked
-// flight for a different one (not operated; same flight at another time = schedule_change; only this passenger kept off = denied_boarding); event.notice_days may be fractional and is not rounded up. Round 2: event.reroute_* also cover schedule_change
-// (the changed flight is its own offer); event.departure_delay_minutes reports the longer of expected and actual.
+// flight.departs_eu/arrives_eu use the Commission's definition of the EU; cancellation = booked flight not operated (including
+// when dropped and the passenger moved to a different flight) or took off and returned without continuing (same flight at another
+// time = schedule_change; only this passenger kept off = see denied_boarding); event.notice_days may be fractional and is not rounded up. Round 2: event.reroute_* also cover schedule_change
+// (the changed flight counts as an offer, alongside any other); event.departure_delay_minutes reports the longer of expected and actual.
 
 // Amendment (2026-10-02, Track A Task 20 legal review): descriptions in src/facts.ts also define
 // event.type `denied_boarding` (oversold flight, confirmed reservation; not documents/conduct/

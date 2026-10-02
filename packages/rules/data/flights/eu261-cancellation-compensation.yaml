@@ -90,7 +90,7 @@ exceptions:
   - "Does not apply if a package tour is cancelled for reasons other than cancellation of the flight."
   - "Not owed for free tickets or tickets at a reduced fare not available directly or indirectly to the public. Tickets issued under a frequent flyer or other commercial programme are covered."
   - "Only covers passengers carried by motorised fixed wing aircraft."
-  - "A flight arriving in the EU from outside the EU is covered only if the operating airline is licensed in an EU member state (an EU airline). A flight leaving the EU is covered whatever the airline. A journey that starts in the EU is covered on every flight of it, whatever the airline."
+  - "A flight arriving in the EU from outside the EU is covered only if the operating airline is licensed in an EU member state (an EU airline). A flight leaving the EU is covered whatever the airline. If your flights are on one booking and the journey starts in the EU, every flight of it is covered, whatever the airline: the rules look at the whole journey to your final destination."
   - "If your flight came into the EU from outside it, these rules don't apply if, in that non-EU country, you already received benefits or compensation and were also given assistance."
   - "Your outbound and return flights count separately, even if they are on one booking. Each direction is its own journey."
   - "EU here means the 27 EU countries, including Guadeloupe, French Guiana, Martinique, Mayotte, Reunion, Saint Barthelemy, Saint-Martin, the Azores, Madeira and the Canary Islands, but not the Faeroe Islands. The European Commission's guidance says the rules also apply to flights to and from Iceland, Norway and Switzerland; this rule covers flights leaving them."
@@ -189,15 +189,17 @@ sources:
       - text: "The outbound and return flights are always considered as two separate flights even if they were booked as part of one reservation."
         supports: [applies_when, exceptions]
       - text: "If you miss a connecting flight travelling within the EU or outside the EU on a flight originating from an EU country, you should be entitled to compensation, if you arrive at your final destination"
-        supports: [applies_when]
+        supports: [applies_when, exceptions]
       - text: "It is not relevant if the carrier operating the connecting flight is an EU or non-EU airline."
-        supports: [applies_when]
+        supports: [applies_when, exceptions]
       - text: "If you depart from a non-EU country to your final destination in an EU country, with connecting flights operated successively by non-EU and EU airlines or by EU airlines only,"
         supports: [applies_when]
       - text: "only the flights operated by EU airlines"
         supports: [applies_when]
       - text: "in case of a long delay on arrival at the final destination."
         supports: [applies_when]
+      - text: "your flights were booked as part of a single reservation"
+        supports: [exceptions]
       - text: "and is operated either"
         supports: [applies_when]
       - text: "from outside the EU and is operated"

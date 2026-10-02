@@ -23,7 +23,7 @@ export const FACTS = {
     type: 'enum',
     values: EVENT_TYPES,
     description:
-      'What happened to the trip. cancellation: the booked flight is not operated (the airline drops it and moves the passenger to a different flight); if the same flight still operates at another time, use schedule_change; if only this passenger is kept off it, use denied_boarding. denied_boarding: The airline did not let the passenger board a flight they held a confirmed reservation on ' +
+      'What happened to the trip. cancellation: the booked flight is not operated (including when the airline drops it and moves the passenger to a different flight), or the aircraft took off and returned without continuing; if the same flight still operates at another time, use schedule_change; if only this passenger is kept off it, see denied_boarding. denied_boarding: The airline did not let the passenger board a flight they held a confirmed reservation on ' +
       'because more passengers held confirmed reservations than there were seats. Not for refusals over documents, or over the passenger\'s own conduct, safety, security or health risk, or a cancelled flight.',
   },
   'event.delay_minutes': {
@@ -51,12 +51,12 @@ export const FACTS = {
   'event.reroute_departs_early_minutes': {
     type: 'number',
     description:
-      "For cancellation and schedule_change: how many minutes before the cancelled or changed flight's scheduled departure the re-routing the airline offered is scheduled to leave; 0 if at or after it. Planned times. For a schedule change, the changed flight itself is the re-routing offer unless the airline offered another. If several offers were made, report the offer that departs no more than 1 hour (notice under 7 days) or 2 hours (notice 7-13 days) earlier and arrives soonest. No re-routing offered = 0.",
+      "For cancellation and schedule_change: how many minutes before the cancelled or changed flight's scheduled departure the re-routing the airline offered is scheduled to leave; 0 if at or after it. Planned times. For a schedule change, the changed flight itself counts as a re-routing offer, alongside any other the airline offered. If several offers were made, report the offer that departs no more than 1 hour (notice under 7 days) or 2 hours (notice 7 to under 14 days) earlier and arrives soonest. If no offer meets the departure limit, report any of them. No re-routing offered = 0.",
   },
   'event.reroute_arrival_delay_minutes': {
     type: 'number',
     description:
-      'For cancellation and schedule_change: how many minutes after the originally scheduled arrival at the final destination that same offered re-routing is scheduled to arrive; 0 if it arrives at or before the original arrival. Planned times, not actual. For a schedule change, the changed flight itself is the re-routing offer unless the airline offered another. No re-routing offered = 1440 or more.',
+      'For cancellation and schedule_change: how many minutes after the originally scheduled arrival at the final destination that same offered re-routing is scheduled to arrive; 0 if it arrives at or before the original arrival. Planned times, not actual. For a schedule change, the changed flight itself counts as a re-routing offer, alongside any other the airline offered. No re-routing offered = 1440 or more.',
   },
   'event.departure_delay_minutes': {
     type: 'number',

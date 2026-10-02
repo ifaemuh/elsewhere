@@ -67,7 +67,7 @@ exceptions:
   - "Only applies if you had a confirmed reservation and, unless the airline set another time in advance and in writing, checked in at least 45 minutes before the published departure time. It also applies if the airline moved you from a flight you had booked to another one."
   - "Not owed for free tickets or tickets at a reduced fare not available directly or indirectly to the public. Tickets issued under a frequent flyer or other commercial programme are covered."
   - "Only covers passengers carried by motorised fixed wing aircraft."
-  - "A flight arriving in the EU from outside the EU is covered only if the operating airline is licensed in an EU member state (an EU airline). A flight leaving the EU is covered whatever the airline. On a journey from outside the EU with connections, only the flights operated by EU airlines count. A journey that starts in the EU is covered on every flight of it, whatever the airline."
+  - "A flight arriving in the EU from outside the EU is covered only if the operating airline is licensed in an EU member state (an EU airline). A flight leaving the EU is covered whatever the airline. On a journey from outside the EU with connections, only the flights operated by EU airlines count. If your flights are on one booking and the journey starts in the EU, every flight of it is covered, whatever the airline: the rules look at the whole journey to your final destination."
   - "If your flight came into the EU from outside it, these rules don't apply if, in that non-EU country, you already received benefits or compensation and were also given assistance."
   - "Not owed for a missed connection caused by delays at security checks, or if you did not respect the boarding time of your flight at the airport where you changed planes. Missed connections are covered when the flights were on a single reservation."
   - "Your outbound and return flights count separately, even if they are on one booking. Each direction is its own journey."
@@ -193,7 +193,7 @@ sources:
       - text: "If you miss a connecting flight travelling within the EU or outside the EU on a flight originating from an EU country, you should be entitled to compensation, if you arrive at your final destination"
         supports: [summary, applies_when, how_to_claim.steps.0, exceptions]
       - text: "It is not relevant if the carrier operating the connecting flight is an EU or non-EU airline."
-        supports: [summary, applies_when, how_to_claim.steps.0]
+        supports: [summary, applies_when, exceptions, how_to_claim.steps.0]
       - text: "Connecting flights are journeys where you have to take more than one flight to get to your final destination."
         supports: [summary, how_to_claim.steps.0]
       - text: "your flights were booked as part of a single reservation"
