@@ -1,0 +1,5 @@
+name: draft rules never match by default
+situation: { event.type: cancellation, flight.touches_us: true, passenger.accepted_alternative: false }
+rules: [fx-draft-cancellation-note, fx-us-refund-cancelled-flight]
+expect:
+  - { rule_id: fx-us-refund-cancelled-flight, outcome: applies, missing_facts: [] }

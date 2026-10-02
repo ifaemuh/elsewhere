@@ -1,0 +1,40 @@
+id: fx-24h-free-cancellation
+version: 1
+status: verified
+domain: flights
+jurisdiction: US-DOT
+title: "Fixture: 24-hour free cancellation"
+summary: >-
+  Booked directly at least 7 days out? You can cancel within 24 hours without penalty.
+applies_when:
+  all:
+    - fact: trip.hours_since_booking
+      lte: 24
+    - fact: trip.days_until_departure
+      gte: 7
+    - fact: trip.booked_via
+      eq: direct
+    - fact: flight.touches_us
+      eq: true
+entitlement:
+  kind: refund
+  timing: "within 24 hours of booking"
+how_to_claim:
+  steps:
+    - "Cancel on the airline's website within 24 hours of booking."
+  templates: []
+exceptions: []
+sources:
+  - id: s1
+    source: fx-dot-reservations
+    quotes:
+      - text: "A carrier must allow reservations made 7 days or more before departure to be cancelled within 24 hours without penalty."
+        supports: [summary, applies_when, entitlement]
+lead_character: owl
+tags: [fixture, booking]
+last_verified: 2026-10-06
+verified_by: fixture
+review_by: 2027-01-04
+history:
+  - { version: 1, status: draft, date: 2026-10-01 }
+  - { version: 1, status: verified, date: 2026-10-06 }

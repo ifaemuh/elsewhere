@@ -1,0 +1,15 @@
+# Open Terms Archive fetch tuning per source key. Defaults: select "body", client scripts
+# decided by the engine. Narrow `select` to the main content so navigation changes don't
+# record as new versions. Verified in the 2026-10-01 spike unless marked otherwise.
+dot-refunds: { select: main }
+dot-bumping-oversales: { select: main }            # same DOT template, not yet run
+dot-delays-cancellations: { select: main }         # same DOT template, not yet run
+dot-tarmac-delays: { select: main }                # same DOT template, not yet run
+dot-mishandled-baggage: { select: main }           # same DOT template, not yet run
+dot-customer-service-dashboard: { select: main }   # same DOT template, not yet run
+youreurope-air-passenger-rights: { select: main }
+eurlex-261-2004: { execute_client_scripts: true }  # plain fetch returns an empty body
+tsa-real-id: { select: main }
+uk-eta: { select: main }
+uk-caa-delays-cancellations: { select: main }
+dl-contract-of-carriage: { select: main }

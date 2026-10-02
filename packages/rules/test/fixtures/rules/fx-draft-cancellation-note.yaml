@@ -1,0 +1,31 @@
+id: fx-draft-cancellation-note
+version: 1
+status: draft
+domain: flights
+jurisdiction: US-DOT
+title: "Fixture: a draft rule"
+summary: "A draft that matching must ignore by default."
+applies_when:
+  all:
+    - fact: event.type
+      in: [cancellation]
+entitlement:
+  kind: refund
+how_to_claim:
+  steps:
+    - "Not used."
+  templates: []
+exceptions: []
+sources:
+  - id: s1
+    source: fx-dot-refunds
+    quotes:
+      - text: "A carrier must provide a prompt refund to a passenger whose flight is cancelled when the passenger does not accept an alternative flight or a voucher."
+        supports: [summary, entitlement]
+lead_character: pigeon
+tags: [fixture]
+last_verified: null
+verified_by: null
+review_by: null
+history:
+  - { version: 1, status: draft, date: 2026-10-01 }

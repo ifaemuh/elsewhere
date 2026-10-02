@@ -1,0 +1,10 @@
+name: Paris scenario, return CDG to JFK delayed 4h, cause not given yet
+situation:
+  event.type: delay
+  event.delay_minutes: 240
+  event.cause: unknown
+  flight.departs_eu: true
+  flight.arrives_eu: false
+rules: [fx-eu261-delay-compensation]
+expect:
+  - { rule_id: fx-eu261-delay-compensation, outcome: applies, missing_facts: [] }

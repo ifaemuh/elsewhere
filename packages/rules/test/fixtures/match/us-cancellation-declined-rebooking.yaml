@@ -1,0 +1,5 @@
+name: cancelled US flight, declined rebooking
+situation: { event.type: cancellation, flight.touches_us: true, passenger.accepted_alternative: false }
+rules: [fx-us-refund-cancelled-flight]
+expect:
+  - { rule_id: fx-us-refund-cancelled-flight, outcome: applies, missing_facts: [] }
