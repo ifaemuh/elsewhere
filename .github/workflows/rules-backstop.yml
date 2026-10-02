@@ -8,7 +8,6 @@ on:
 permissions:
   contents: write
   pull-requests: write
-  actions: write   # dispatch Rules CI on the backstop branch (github.token PRs trigger no workflows)
 
 concurrency:
   group: rules-backstop
@@ -96,15 +95,15 @@ jobs:
             echo "The nightly quote check could not find these quotes in the latest tracked source text."
             echo "Each failing verified rule is now needs_review. Re-verify with packages/rules/RESEARCH.md."
             echo
+            echo "**Founder:** this PR was opened by GitHub Actions, so its Rules CI run waits for approval."
+            echo "Click 'Approve workflows to run' (or close and reopen this PR) so Rules CI runs."
+            echo
             echo '```'
             cat "$RUNNER_TEMP/backstop.txt"
             echo '```'
           } > "$RUNNER_TEMP/body.md"
           gh pr create --base main --head "$branch" --label rules-backstop \
             --title "Rules backstop: quotes not found ($today)" --body-file "$RUNNER_TEMP/body.md"
-          # A PR opened with github.token starts no workflows, so run Rules CI on the branch by hand;
-          # its "Rules CI / rules" check attaches to the branch head and satisfies branch protection.
-          gh workflow run rules-ci.yml --ref "$branch"
 
       - name: Fail the run if the quote check itself failed
         if: ${{ !cancelled() && steps.check.outputs.failed == 'true' }}

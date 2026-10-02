@@ -12,8 +12,9 @@ on:
       - '.github/workflows/**'
       - 'package.json'
       - 'package-lock.json'
-  # The backstop opens its PR with github.token, and PRs opened that way trigger no workflows,
-  # so the backstop dispatches this workflow on its branch instead.
+  # For manual runs only. A dispatched run does not satisfy the required "Rules CI / rules"
+  # check on a PR; only the pull_request run does. (A PR opened with github.token gets a
+  # pull_request run that waits for a maintainer's "Approve workflows to run".)
   workflow_dispatch: {}
 
 permissions:
@@ -47,8 +48,8 @@ jobs:
             echo "relevant=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          changed=$(git diff --name-only "origin/$BASE_REF...HEAD")
-          if grep -Eq '^(packages/rules/|\.github/workflows/|package\.json$|package-lock\.json$)' <<<"$changed"; then
+          changed=$(git diff --name-only --no-renames "origin/$BASE_REF...HEAD")
+          if grep -Eq '^(packages/rules/|\.github/workflows/|package\.json$|package-lock\.json$|tsconfig[^/]*\.json$)' <<<"$changed"; then
             echo "relevant=true" >> "$GITHUB_OUTPUT"
           else
             echo "relevant=false" >> "$GITHUB_OUTPUT"
@@ -78,9 +79,18 @@ jobs:
   # Runs the PR's code. It has no secrets: the token never reaches this job.
   rules:
     needs: versions
+    # Always run, so a failed or skipped versions job cannot leave this required check "skipped"
+    # (which branch protection counts as passing). The first step fails it instead.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
+      - name: The versions job must have succeeded
+        if: ${{ needs.versions.result != 'success' }}
+        run: |
+          echo "::error::The versions job did not succeed (${{ needs.versions.result }}); failing the required check."
+          exit 1
+
       - if: ${{ needs.versions.outputs.relevant == 'true' }}
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:

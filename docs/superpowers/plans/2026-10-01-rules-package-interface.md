@@ -348,8 +348,9 @@ note naming the failing source). The nightly backstop uses this, then opens a PR
 
 ## Index (`src/index.ts`) and core (`src/core.ts`)
 
-`src/index.ts` re-exports everything above. Nothing else is public, and that includes
-these exports, which the tracks may rely on:
+`src/index.ts` re-exports everything above. Nothing else is public: "everything else is
+internal" means every export of the package other than those listed here and above. These
+are public too, and the tracks may rely on them:
 
 - From `facts`: `FactValueError` (thrown by `validateSituation`; track C's situation
   builder catches it), `FACT_NAMES`, `isFactName`, `factValueFits`, `describeFact`.

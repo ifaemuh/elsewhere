@@ -3708,7 +3708,7 @@ jobs:
             --title "Rules backstop: quotes not found ($(date -u +%F))" --body-file body.md
 ````
 
-PRs opened with `github.token` don't trigger other workflows, which is a GitHub rule, so the PR alone would never get a "Rules CI / rules" result. Final-review fix I1: the workflow has `actions: write` and, after `gh pr create`, runs `gh workflow run rules-ci.yml --ref "$branch"`; `rules-ci.yml` has a `workflow_dispatch` trigger, and the dispatched run's check attaches to the branch head. In CI, `rules:check-quotes --base-ref` also stops a flagged rule from failing: a quote that is new or changed relative to the merge-base must be found, but an unchanged quote of a rule that is no longer `verified` only warns, so the backstop PR (which flips status and changes no quote) goes green. The PR body also carries the full check output.
+A PR opened with `github.token` gets no automatic workflow run until a maintainer clicks "Approve workflows to run" (or closes and reopens the PR), and a `workflow_dispatch` run does not count as the required "Rules CI / rules" check. So the backstop does not dispatch anything (final re-review fix); its PR body tells the founder to approve the workflow run. In CI, `rules:check-quotes --base-ref` also stops a flagged rule from failing: a quote that is new or changed relative to the merge-base must be found, but an unchanged quote of a rule that is no longer `verified` only warns, so the backstop PR (which flips status and changes no quote) goes green once approved. The PR body also carries the full check output.
 
 - [ ] **Step 2: FOUNDER CONFIRMATION — let Actions open PRs**
 
@@ -4406,7 +4406,8 @@ Dots have no API, so the founder does this in ChatGPT on the Pro account. Give t
 3. Connect GitHub. Authorize `ifaemuh/elsewhere` (read and write) and `ifaemuh/elsewhere-sources-versions` (read). If the connector can't be scoped per repository, the Custom Rules below enforce the scope.
 4. Allow web access to `www.federalregister.gov`.
 5. Enter the Custom Rules exactly as in the table in `packages/rules/dot/setup.md`.
-6. Reply with the date and confirm the Dot is running.
+6. Fill in the "Connector identity" and "Connector scopes" rows of `setup.md` (the account the connector authenticates as; confirmation that it has no `workflows` or Actions write permission), and confirm the server-side guards there are already in place.
+7. Reply with the date and confirm the Dot is running.
 
 - [ ] **Step 4: Record the configuration**
 
