@@ -13,7 +13,8 @@
     "rules:check-quotes": "tsx src/cli/check-quotes.ts",
     "rules:declarations": "tsx src/cli/declarations.ts",
     "rules:fetch-ecfr": "tsx src/cli/fetch-ecfr.ts",
-    "rules:stale": "tsx src/cli/stale.ts"
+    "rules:stale": "tsx src/cli/stale.ts",
+    "rules:verify": "tsx src/cli/verify.ts"
   },
   "dependencies": { "yaml": "^2.9.1", "zod": "^4.6.5" },
   "devDependencies": { "@types/node": "^22", "tsx": "^4.19.2", "typescript": "^5.5" }
