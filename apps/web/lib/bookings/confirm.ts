@@ -1,0 +1,81 @@
+import 'server-only';
+import { AeroApiError, aeroApi } from '@/lib/flights/aeroapi';
+import { resolveSegment } from '@/lib/flights/resolve';
+import { createAdminClient } from '@/lib/supabase/admin';
+
+/**
+ * Runs whenever bookings become confirmed: by the planner, by high-confidence intake, or by manual entry.
+ * Returns the segment ids the caller should start monitoring (Task 9 fills this in).
+ *
+ * AeroAPI bills per call, so a segment is looked up at most once: resolved segments (scheduled_out set)
+ * are skipped, and so are segments that already have a flight-not-found item still waiting on the planner.
+ * If AeroAPI fails with a retryable error, the other segments are still processed and the first error is
+ * rethrown afterwards for the caller to retry; only the failed segments are looked up again.
+ */
+export async function onBookingsConfirmed(tripId: string, bookingIds: string[]): Promise<{ monitorSegmentIds: string[] }> {
+  if (bookingIds.length === 0) return { monitorSegmentIds: [] };
+  const admin = createAdminClient();
+  const { data: found, error } = await admin
+    .from('booking_segments')
+    .select('id, booking_id, carrier_iata, flight_number, origin_iata, destination_iata, departure_local, scheduled_out')
+    .in('booking_id', bookingIds)
+    .is('scheduled_out', null);
+  if (error) throw new Error(error.message);
+  if (!found || found.length === 0) return { monitorSegmentIds: [] };
+
+  const { data: flagged, error: flaggedError } = await admin
+    .from('action_items')
+    .select('related_entity_id')
+    .eq('trip_id', tripId)
+    .eq('source_kind', 'flight_not_found')
+    .in('status', ['open', 'snoozed'])
+    .in('related_entity_id', found.map((s) => s.id));
+  if (flaggedError) throw new Error(flaggedError.message);
+  const alreadyFlagged = new Set((flagged ?? []).map((i) => i.related_entity_id));
+  const segments = found.filter((s) => !alreadyFlagged.has(s.id));
+  if (segments.length === 0) return { monitorSegmentIds: [] };
+
+  const api = await aeroApi();
+  const { data: planner } = await admin.from('trip_members').select('user_id').eq('trip_id', tripId).eq('role', 'planner').single();
+  let firstFailure: AeroApiError | null = null;
+  for (const segment of segments) {
+    let resolution;
+    try {
+      resolution = await resolveSegment(
+        { id: segment.id, carrierIata: segment.carrier_iata, flightNumber: segment.flight_number, originIata: segment.origin_iata, destinationIata: segment.destination_iata, departureLocal: segment.departure_local },
+        api,
+      );
+    } catch (e) {
+      if (!(e instanceof AeroApiError)) throw e;
+      firstFailure ??= e;
+      continue;
+    }
+    if (resolution.kind === 'not_found') {
+      await admin.from('action_items').upsert(
+        {
+          trip_id: tripId,
+          kind: 'booking',
+          title: 'Check this flight number',
+          detail: `We couldn’t find ${segment.carrier_iata} ${segment.flight_number} from ${segment.origin_iata} on ${segment.departure_local.slice(0, 10)}. Check the flight number and date.`,
+          assigned_user_ids: planner ? [planner.user_id] : [],
+          source_kind: 'flight_not_found',
+          related_entity_id: segment.id,
+        },
+        { onConflict: 'trip_id,source_kind,related_entity_id,title', ignoreDuplicates: true },
+      );
+      continue;
+    }
+    await admin
+      .from('booking_segments')
+      .update({
+        scheduled_out: resolution.scheduledOut,
+        scheduled_in: resolution.scheduledIn,
+        origin_country: resolution.originCountry,
+        destination_country: resolution.destinationCountry,
+        distance_km: resolution.distanceKm,
+      })
+      .eq('id', segment.id);
+  }
+  if (firstFailure) throw firstFailure;
+  return { monitorSegmentIds: [] };
+}
