@@ -1,0 +1,89 @@
+name: Track rule sources
+
+on:
+  schedule:
+    - cron: '17 6 * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sources-track
+  cancel-in-progress: false
+
+jobs:
+  track:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Check out the source collection
+        uses: actions/checkout@v4
+        with:
+          repository: ifaemuh/elsewhere-sources-declarations
+          token: ${{ secrets.SOURCES_REPOS_TOKEN }}
+          path: ota
+
+      - name: Sync declarations from sources.yaml
+        run: |
+          npm run -s rules:declarations -w @elsewhere/rules -- --out "$GITHUB_WORKSPACE/ota/declarations"
+          cd ota
+          git config user.name "elsewhere-sources-bot"
+          git config user.email "elsewhere-sources-bot@users.noreply.github.com"
+          git add -A declarations
+          if ! git diff --cached --quiet; then
+            git commit -m "Sync declarations from elsewhere sources.yaml@${GITHUB_SHA::7}"
+            git push
+          fi
+
+      - name: Check out versions
+        uses: actions/checkout@v4
+        with:
+          repository: ifaemuh/elsewhere-sources-versions
+          token: ${{ secrets.SOURCES_REPOS_TOKEN }}
+          path: ota/data/versions
+          fetch-depth: 0
+
+      - name: Check out snapshots
+        uses: actions/checkout@v4
+        with:
+          repository: ifaemuh/elsewhere-sources-snapshots
+          token: ${{ secrets.SOURCES_REPOS_TOKEN }}
+          path: ota/data/snapshots
+          fetch-depth: 0
+
+      - name: Track web sources with Open Terms Archive
+        working-directory: ota
+        env:
+          OTA_ENGINE_GITHUB_TOKEN: ${{ secrets.SOURCES_REPOS_TOKEN }}
+        run: |
+          npm ci
+          npx ota track
+
+      - name: Track eCFR parts
+        if: ${{ !cancelled() }}
+        run: |
+          npm run -s rules:fetch-ecfr -w @elsewhere/rules -- --versions "$GITHUB_WORKSPACE/ota/data/versions"
+          cd ota/data/versions
+          git config user.name "elsewhere-sources-bot"
+          git config user.email "elsewhere-sources-bot@users.noreply.github.com"
+          git add -A eCFR
+          if ! git diff --cached --quiet; then
+            parts=$(git diff --cached --name-only | sed 's#^eCFR/##; s#\.md$##' | paste -sd, -)
+            git commit -m "Record eCFR changes: ${parts}"
+          fi
+
+      - name: Publish versions and snapshots
+        if: ${{ !cancelled() }}
+        run: |
+          git -C ota/data/versions push
+          git -C ota/data/snapshots push
