@@ -23,6 +23,8 @@ export interface NewActionItem {
 }
 
 export interface IntakeDeps {
+  /** Atomic received -> processing. True only for the one caller that made the change. */
+  claimMessage(id: string): Promise<boolean>;
   loadMessage(id: string): Promise<IntakeMessage | null>;
   loadEmail(providerMessageId: string): Promise<InboundEmail>;
   storeEmail(message: IntakeMessage, email: InboundEmail): Promise<string>;
@@ -49,6 +51,7 @@ export type FailureKind = 'unreadable' | 'save' | 'lookup';
 
 export type IntakeResult =
   | { status: 'missing' }
+  | { status: 'claimed_elsewhere' }
   | { status: 'failed'; reason: string; problems?: string[] }
   | { status: 'parsed' | 'needs_confirmation'; bookingIds: string[]; monitorSegmentIds: string[] };
 
@@ -67,6 +70,11 @@ export interface PersistOutcome {
 async function plannerIds(deps: IntakeDeps, tripId: string): Promise<string[]> {
   const planner = (await deps.members(tripId)).find((member) => member.role === 'planner');
   return planner ? [planner.user_id] : [];
+}
+
+/** Step 0: take the message so no other run processes it. */
+export async function claimPhase(messageId: string, deps: IntakeDeps): Promise<boolean> {
+  return deps.claimMessage(messageId);
 }
 
 /** Step A: fetch and archive the message, then read it. The paid, nondeterministic part: it must not rerun on a later retry. */

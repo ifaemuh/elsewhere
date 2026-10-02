@@ -235,7 +235,7 @@ create table public.travel_admin_partner_routes (
 
 -- 5. Intake and bookings -------------------------------------------------------
 create type booking_kind as enum ('flight', 'hotel', 'rental', 'car', 'rail', 'activity');
-create type inbound_status as enum ('received', 'parsed', 'needs_confirmation', 'quarantined', 'failed');
+create type inbound_status as enum ('received', 'parsed', 'needs_confirmation', 'quarantined', 'failed', 'processing');
 
 create table public.inbound_messages (
   id uuid primary key default gen_random_uuid(),

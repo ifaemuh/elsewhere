@@ -28,6 +28,7 @@ function harness(opts: { source?: 'email' | 'screenshot'; bookings?: NormalizedB
     extracted: [] as unknown[],
   };
   const deps: IntakeDeps = {
+    claimMessage: async () => true,
     loadMessage: async () => ({ id: 'msg-1', tripId: 'trip-1', source: opts.source ?? 'email', providerMessageId: opts.providerMessageId === undefined ? 'em_1' : opts.providerMessageId, storagePath: opts.storagePath !== undefined ? opts.storagePath : opts.source === 'screenshot' ? 'trip-1/screenshots/a.png' : null, subject: 'Your TAP booking' }),
     loadEmail: async () => ({ id: 'em_1', from: 'pat@example.test', subject: 'Your TAP booking', text: 'itinerary', html: null, attachments: [], problems: opts.emailProblems ?? [] }),
     storeEmail: async () => 'trip-1/msg-1/email.json',

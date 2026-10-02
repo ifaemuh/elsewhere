@@ -6,7 +6,7 @@ import { segmentMonitorWorkflow } from './segment-monitor';
 
 export async function intakeWorkflow(messageId: string) {
   'use workflow';
-  const result = await runIntake(messageId, { extract: extractStep, persist: persistStep, confirm: confirmStep, markFailed: markFailedStep });
+  const result = await runIntake(messageId, { claim: claimStep, extract: extractStep, persist: persistStep, confirm: confirmStep, markFailed: markFailedStep });
   if ('monitorSegmentIds' in result) {
     for (const segmentId of result.monitorSegmentIds) await start(segmentMonitorWorkflow, [segmentId]);
   }
@@ -27,6 +27,12 @@ async function fatalIfPermanent<T>(run: () => Promise<T>): Promise<T> {
 
 async function liveDeps() {
   return (await import('../lib/intake/live-deps')).liveIntakeDeps();
+}
+
+// Step 0 takes the message; a second run for the same message finds it taken and exits.
+async function claimStep(messageId: string): Promise<boolean> {
+  'use step';
+  return (await import('../lib/intake/process')).claimPhase(messageId, await liveDeps());
 }
 
 // Step A fetches, archives and reads the message; its small result is all later steps see.

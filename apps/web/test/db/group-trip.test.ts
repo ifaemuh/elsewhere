@@ -223,4 +223,16 @@ describe('intake (Task 5)', () => {
       await rejects(() => asUser(db, PLANNER, () => db.query('select * from public.save_booking($1, $2, $3::jsonb, true)', [tripId, tripId, booking('flight|SB5')])), /permission denied/);
     });
   });
+
+  describe('claiming an inbound message', () => {
+    it('lets exactly one claim flip received to processing', async () => {
+      const { id } = await asService(db, () =>
+        one<{ id: string }>("insert into public.inbound_messages (trip_id, source, provider_message_id) values ($1, 'email', 'em_claim_1') returning id", [tripId]),
+      );
+      const claim = () =>
+        asService(db, () => db.query("update public.inbound_messages set status = 'processing' where id = $1 and status = 'received' returning id", [id]));
+      expect((await claim()).rows).toHaveLength(1);
+      expect((await claim()).rows).toHaveLength(0);
+    });
+  });
 });

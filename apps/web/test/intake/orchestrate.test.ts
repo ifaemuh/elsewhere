@@ -7,6 +7,7 @@ const extraction = (bookings: unknown[] = [{}]): ReadyExtraction =>
 
 function steps(overrides: Partial<IntakeSteps> = {}) {
   const s = {
+    claim: vi.fn(async () => true),
     extract: vi.fn(async () => extraction()),
     persist: vi.fn(async () => ({ bookingIds: ['b'], confirmedIds: ['b'], needsConfirmation: false })),
     confirm: vi.fn(async () => ({ status: 'parsed' as const, bookingIds: ['b'], monitorSegmentIds: ['s'] })),
@@ -53,5 +54,33 @@ describe('runIntake', () => {
     await runIntake('m', s);
     expect(s.markFailed).toHaveBeenCalledWith('m', 'flight lookup did not finish', ['p'], 'lookup', 'trip/m/email.json');
     expect(s.extract).toHaveBeenCalledTimes(1);
+  });
+
+  it('exits cleanly, doing nothing, when another run already owns the message', async () => {
+    const s = steps({ claim: vi.fn(async () => false) });
+    expect(await runIntake('m', s)).toEqual({ status: 'claimed_elsewhere' });
+    expect(s.extract).not.toHaveBeenCalled();
+    expect(s.markFailed).not.toHaveBeenCalled();
+  });
+
+  it('pays for exactly one extraction when two runs start concurrently', async () => {
+    let status = 'received';
+    const claim = async () => {
+      await Promise.resolve();
+      if (status !== 'received') return false;
+      status = 'processing';
+      return true;
+    };
+    const a = steps({ claim });
+    const b = steps({ claim, extract: a.extract });
+    await Promise.all([runIntake('m', a), runIntake('m', b)]);
+    expect(a.extract).toHaveBeenCalledTimes(1);
+  });
+
+  it('marks a claimed message failed (never back to received) when a later step fails', async () => {
+    const s = steps({ persist: vi.fn(async () => { throw new Error('boom'); }) });
+    await runIntake('m', s);
+    expect(s.claim).toHaveBeenCalledTimes(1);
+    expect(s.markFailed).toHaveBeenCalledTimes(1);
   });
 });

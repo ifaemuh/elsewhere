@@ -2,6 +2,8 @@ import type { ExtractOutcome, FailureKind, IntakeResult, PersistOutcome, ReadyEx
 
 /** The workflow's steps, injected so the control flow is testable and the workflow body stays deterministic. */
 export interface IntakeSteps {
+  /** Atomically takes the message (received -> processing). False means another run owns it. */
+  claim(messageId: string): Promise<boolean>;
   extract(messageId: string): Promise<ExtractOutcome>;
   persist(extraction: ReadyExtraction): Promise<PersistOutcome>;
   confirm(extraction: ReadyExtraction, persisted: PersistOutcome): Promise<IntakeResult>;
@@ -16,6 +18,9 @@ function reasonFor(error: unknown): string {
 }
 
 /**
+ * Claim, then extract, persist, confirm. The claim makes a second start of the same message a no-op, so a
+ * redelivery or concurrent start never pays for a second extraction. A claimed message ends as parsed,
+ * needs_confirmation or failed; only an explicit planner or admin action sets a failed one back to received.
  * Extract, persist, confirm. Each is its own step, and a step's result is replayed from the event log, so
  * a retry of a later step never reruns the paid extraction. Whatever still fails after retries ends as a
  * failed message with a planner-facing item, never a message stuck in "received".
@@ -24,6 +29,7 @@ export async function runIntake(messageId: string, steps: IntakeSteps): Promise<
   let extraction: ReadyExtraction | null = null;
   let stage: FailureKind = 'unreadable';
   try {
+    if (!(await steps.claim(messageId))) return { status: 'claimed_elsewhere' };
     const extracted = await steps.extract(messageId);
     if (extracted.status === 'missing') return extracted;
     extraction = extracted;

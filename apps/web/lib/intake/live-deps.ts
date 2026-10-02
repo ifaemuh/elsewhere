@@ -23,6 +23,12 @@ function must<T>(result: { data: T; error: { message: string } | null }): NonNul
 export function liveIntakeDeps(): IntakeDeps {
   const admin = createAdminClient();
   return {
+    async claimMessage(id) {
+      // One conditional UPDATE is the lock: only the run that flips received -> processing gets a row back.
+      const { data, error } = await admin.from('inbound_messages').update({ status: 'processing' }).eq('id', id).eq('status', 'received').select('id');
+      if (error) throw new Error(error.message);
+      return (data ?? []).length > 0;
+    },
     async loadMessage(id) {
       // A missing message is a normal outcome ({ status: 'missing' }), so this read does not use must().
       const { data: row, error } = await admin.from('inbound_messages').select('id, trip_id, source, provider_message_id, storage_path, subject').eq('id', id).maybeSingle();
