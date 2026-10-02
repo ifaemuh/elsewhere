@@ -1,14 +1,10 @@
-import type { Rule, RuleChange, RulesLibrary } from '@elsewhere/rules/core';
+import type { Rule, RulesLibrary } from '@elsewhere/rules/core';
+import { needsReviewSince } from '@/lib/rules/accessors';
 import { rulePageUrl } from './links';
 import type { Citation, LinkAttribution, PublicRule, PublicStatus, RuleSummary } from './types';
 
 export function isPublic(rule: Rule): boolean {
   return rule.status !== 'draft';
-}
-
-export function needsReviewSince(rule: Rule, changes: RuleChange[]): string {
-  const change = changes.find((c) => c.rule_id === rule.id && c.to_status === 'needs_review');
-  return (change?.date ?? rule.last_verified ?? 'recently').slice(0, 10);
 }
 
 export function citationsFor(rule: Rule, library: RulesLibrary): Citation[] {
@@ -38,7 +34,7 @@ export function toPublicRule(rule: Rule, library: RulesLibrary, attribution: Lin
     page_url: rulePageUrl(rule.id, attribution),
   };
   if (rule.status === 'needs_review') {
-    pub.notice = `Being re-checked since ${needsReviewSince(rule, library.changes)} after a source change.`;
+    pub.notice = `Being re-checked since ${(needsReviewSince(rule) ?? 'recently')} after a source change.`;
   }
   if (rule.status === 'retired' && rule.replaced_by) {
     pub.replaced_by = rule.replaced_by;

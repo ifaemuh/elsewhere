@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { rulePageUrl, sanitizeMedium } from '@/lib/rules-api/links';
+import { appOrigin, rulePageUrl, sanitizeMedium } from '@/lib/rules-api/links';
 import { isPublic, toPublicRule, toRuleSummary } from '@/lib/rules-api/projection';
 import { standardLibrary } from '../helpers/fixture-library';
 
@@ -24,6 +24,22 @@ describe('rulePageUrl', () => {
     expect(sanitizeMedium('')).toBe('unknown');
     expect(sanitizeMedium(null)).toBe('unknown');
     expect(sanitizeMedium('x'.repeat(80))).toHaveLength(40);
+  });
+});
+
+describe('links edge cases', () => {
+  it('trims a dash left dangling by the 40-char cut', () => {
+    expect(sanitizeMedium(`${'a'.repeat(39)}-bbb`)).toBe('a'.repeat(39));
+  });
+
+  it('falls back to localhost when the app URL is empty', () => {
+    const prev = process.env.NEXT_PUBLIC_APP_URL;
+    process.env.NEXT_PUBLIC_APP_URL = '';
+    try {
+      expect(appOrigin()).toBe('http://localhost:3000');
+    } finally {
+      process.env.NEXT_PUBLIC_APP_URL = prev;
+    }
   });
 });
 

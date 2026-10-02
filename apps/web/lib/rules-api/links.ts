@@ -1,15 +1,15 @@
 import type { LinkAttribution } from './types';
 
 export function appOrigin(): string {
-  return (process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000').replace(/\/+$/, '');
+  return (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000').replace(/\/+$/, '');
 }
 
 export function sanitizeMedium(raw: string | null | undefined): string {
   const cleaned = (raw ?? '')
     .toLowerCase()
     .replace(/[^a-z0-9._-]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 40);
+    .slice(0, 40)
+    .replace(/^-+|-+$/g, '');
   return cleaned || 'unknown';
 }
 
