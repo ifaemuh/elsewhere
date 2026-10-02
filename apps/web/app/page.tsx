@@ -36,6 +36,7 @@ export default function HomePage() {
           alt="The raccoon at a departure gate, panicking over a cancelled flight"
           width={1200}
           height={953}
+          sizes="(min-width: 768px) 45vw, 100vw"
           priority
           className="w-full rounded-2xl"
         />
