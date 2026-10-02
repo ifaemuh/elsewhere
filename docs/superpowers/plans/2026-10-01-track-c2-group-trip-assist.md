@@ -25,7 +25,7 @@
 
 **Depends on:**
 - **Every C1 task.** The schema, clients, proxy, `getLibrary()`, the cast, sign-in, trips, the trip pass, and the Stripe webhook must all exist.
-- **Track A, including its Task 18 contract amendment,** which adds the facts `flight.departs_us` and `flight.scheduled_duration_minutes`.
+- **Track A, including its Task 18 contract amendment** (adds `flight.departs_us`) **and contract 30b549f** (adds the itinerary facts `trip.itinerary_domestic_us` and `trip.us_foreign_nonstop_minutes`, and removes `flight.scheduled_duration_minutes`).
 - **Track A's rule conventions,** which C2 relies on. C2's tests pin them with fixtures. Report gaps to Track A; do not edit rules here.
   - A document-requirement rule encodes the failing condition, so `applies` means action is needed.
   - Its minimum is in `entitlement.amount.min_months_valid_after_return`.
@@ -4896,6 +4896,19 @@ EOF
 ---
 
 ### Task 10: From a flight event to rule facts, and the one question to ask
+
+> **Controller note (2026-10-02), contract 30b549f.** 14 CFR 260 sets its significant-change and
+> delayed-bag thresholds per itinerary, so `flight.scheduled_duration_minutes` is gone. Change the
+> code below as follows, and add tests for each bullet:
+> - `SituationInput.booking` gains `segments: { originCountry: string | null; destinationCountry: string | null; scheduledOut: string | null; scheduledIn: string | null }[]`, covering every segment on the same booking (ticket).
+> - Set `trip.itinerary_domestic_us` to `false` when any segment has a known country outside `US_JURISDICTION`. Set it to `true` only when every segment's countries are known and all are in `US_JURISDICTION`. Otherwise leave it unset.
+> - Set `trip.us_foreign_nonstop_minutes` to the scheduled minutes of the segment with exactly one end in `US_JURISDICTION` on the same journey as the event's segment. When the booking has both an outbound and a return US–foreign segment, use the one nearest in time to the event's segment. Leave it unset when no such segment has both scheduled times.
+> - Delete the `flight.scheduled_duration_minutes` line.
+> - Tests must cover:
+>   - a domestic connection on an international ticket gives `itinerary_domestic_us: false` while `flight.is_domestic_us: true`
+>   - a US-only ticket gives `true`
+>   - an unknown country leaves the fact unset
+>   - a round trip picks the same-direction US–foreign segment
 
 **Files:**
 - Create: `apps/web/lib/assist/regions.ts`, `apps/web/lib/assist/carriers.ts`, `apps/web/lib/assist/situation.ts`, `apps/web/lib/assist/questions.ts`, `apps/web/test/assist/situation.test.ts`, `apps/web/test/assist/scenarios.test.ts`, `apps/web/test/assist/questions.test.ts`
