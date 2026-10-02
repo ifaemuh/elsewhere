@@ -17,10 +17,20 @@ const OFFER_DEFINITIONS: { id: string; envVar: string; label: string; tags: stri
   { id: 'world-nomads', envVar: 'AFFILIATE_WORLDNOMADS_URL', label: 'World Nomads travel insurance', tags: ['travel-insurance'] },
 ];
 
+function httpsUrl(value: string | undefined): string | null {
+  if (!value) return null;
+  try {
+    const url = new URL(value.trim());
+    return url.protocol === 'https:' && url.hostname !== '' ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+
 export function configuredOffers(env: Record<string, string | undefined> = process.env): AffiliateOffer[] {
   return OFFER_DEFINITIONS.flatMap(({ envVar, ...offer }) => {
-    const href = env[envVar];
-    return href && href.startsWith('https://') ? [{ ...offer, href }] : [];
+    const href = httpsUrl(env[envVar]);
+    return href ? [{ ...offer, href }] : [];
   });
 }
 

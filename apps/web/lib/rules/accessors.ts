@@ -61,6 +61,12 @@ export function retiredRedirects(library: RulesLibrary): { source: string; desti
     if (rule.status !== 'retired') continue;
     const resolution = resolveRulePage(library, rule.id);
     if (resolution.kind === 'redirect') out.push({ source: `/rules/${rule.id}`, destination: resolution.to, permanent: true });
+    if (rule.domain === 'money') {
+      const replacement = rule.replaced_by ? findRule(library, rule.replaced_by) : null;
+      const destination =
+        replacement && isPublished(replacement) && replacement.domain === 'money' ? `/money/${replacement.id}` : `/rules/${rule.id}`;
+      out.push({ source: `/money/${rule.id}`, destination, permanent: true });
+    }
   }
   return out;
 }
@@ -82,15 +88,20 @@ export function verifiedRulesIn(library: RulesLibrary, domain: Domain): Rule[] {
   return library.rules.filter((rule) => rule.status === 'verified' && rule.domain === domain);
 }
 
-/** Slug that matches no rule; prerendered only while there are no verified money rules (renders as a 404). */
+/** Money pages stay up while a rule is being re-checked (verified + needs_review), like /rules. */
+function publishedMoneyRules(library: RulesLibrary): Rule[] {
+  return library.rules.filter((rule) => isPublished(rule) && rule.domain === 'money');
+}
+
+/** Slug that matches no rule; prerendered only while there are no published money rules (renders as a 404). */
 export const EMPTY_MONEY_PLACEHOLDER_SLUG = 'no-money-rules';
 
 /** A money page slug is a rule id. Cache Components rejects an empty generateStaticParams, hence the placeholder. */
 export function moneyRuleParams(library: RulesLibrary): { slug: string }[] {
-  const slugs = verifiedRulesIn(library, 'money').map((rule) => rule.id);
+  const slugs = publishedMoneyRules(library).map((rule) => rule.id);
   return (slugs.length > 0 ? slugs : [EMPTY_MONEY_PLACEHOLDER_SLUG]).map((slug) => ({ slug }));
 }
 
 export function findMoneyRule(library: RulesLibrary, slug: string): Rule | null {
-  return verifiedRulesIn(library, 'money').find((rule) => rule.id === slug) ?? null;
+  return publishedMoneyRules(library).find((rule) => rule.id === slug) ?? null;
 }
