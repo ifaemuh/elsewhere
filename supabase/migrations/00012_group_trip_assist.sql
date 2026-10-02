@@ -134,7 +134,9 @@ begin
 end;
 $$;
 
-create or replace function public.join_trip(p_token_hash text, p_display_name text)
+-- Takes the RAW invite token and hashes it here (built-in sha256, no extension needed), so the
+-- stored hash is never a usable credential even if it leaked.
+create or replace function public.join_trip(p_token text, p_display_name text)
 returns uuid language plpgsql security definer set search_path = public as $$
 declare v_trip uuid;
 begin
@@ -142,7 +144,8 @@ begin
     raise exception 'not authenticated' using errcode = '28000';
   end if;
   select id into v_trip from public.trips
-   where join_token_hash = p_token_hash and join_token_expires_at > now();
+   where join_token_hash = encode(sha256(convert_to(p_token, 'UTF8')), 'hex')
+     and join_token_expires_at > now();
   if v_trip is null then
     raise exception 'invalid or expired link' using errcode = 'P0002';
   end if;
@@ -151,6 +154,12 @@ begin
   on conflict (trip_id, user_id) do update set display_name = excluded.display_name;
   return v_trip;
 end;
+$$;
+
+-- inbound_code is not column-readable; planners fetch it here.
+create or replace function public.trip_inbound_code(p_trip_id uuid)
+returns text language sql stable security definer set search_path = public as $$
+  select t.inbound_code from public.trips t where t.id = p_trip_id and public.is_trip_planner(p_trip_id);
 $$;
 
 create or replace function public.trip_directory(p_trip_id uuid)
@@ -229,11 +238,14 @@ create table public.bookings (
   unique (trip_id, dedupe_key),
   unique (id, trip_id)
 );
--- Confirmation codes are readable only through booking_confirmation_code().
-revoke select on public.bookings from anon, authenticated;
+-- Confirmation codes are readable only through booking_confirmation_code(). dedupe_key is derived
+-- and written by the service role (it may embed provider identifiers), so it is not exposed either.
+-- Planners may correct only provider, booked_via, passenger_names, and confirmed_at.
+revoke select, update on public.bookings from anon, authenticated;
 grant select (id, trip_id, inbound_message_id, kind, provider, booked_via, passenger_names,
-              extraction_confidence, dedupe_key, confirmed_at, created_at)
+              extraction_confidence, confirmed_at, created_at)
   on public.bookings to authenticated;
+grant update (provider, booked_via, passenger_names, confirmed_at) on public.bookings to authenticated;
 
 create table public.booking_segments (
   id uuid primary key default gen_random_uuid(),
@@ -368,15 +380,17 @@ create table public.vote_options (
   vote_id uuid not null references public.votes(id) on delete cascade,
   label text not null,
   note text,
-  position int not null
+  position int not null,
+  unique (id, vote_id)
 );
 
 create table public.vote_responses (
   vote_id uuid not null references public.votes(id) on delete cascade,
   user_id uuid not null references public.profiles(id) on delete cascade,
-  option_id uuid not null references public.vote_options(id) on delete cascade,
+  option_id uuid not null,
   responded_at timestamptz not null default now(),
-  primary key (vote_id, user_id)
+  primary key (vote_id, user_id),
+  foreign key (option_id, vote_id) references public.vote_options(id, vote_id) on delete cascade
 );
 
 create table public.expenses (
@@ -517,7 +531,44 @@ $$;
 revoke execute on function public.attribution_summary(timestamptz) from public, anon, authenticated;
 grant execute on function public.attribution_summary(timestamptz) to service_role;
 
--- 10. Row-level security ---------------------------------------------------------
+-- 10. Indexes for RLS predicates and foreign keys ----------------------------------
+create index trip_members_user_idx on public.trip_members (user_id);
+create index inbound_messages_trip_idx on public.inbound_messages (trip_id);
+create index booking_segments_trip_idx on public.booking_segments (trip_id);
+create index booking_members_trip_idx on public.booking_members (trip_id);
+create index document_checks_trip_idx on public.document_checks (trip_id);
+create index incidents_trip_idx on public.incidents (trip_id);
+create index incidents_affected_gin on public.incidents using gin (affected_user_ids);
+create index incident_events_incident_idx on public.incident_events (incident_id);
+create index playbooks_incident_idx on public.playbooks (incident_id);
+create index action_items_assigned_gin on public.action_items using gin (assigned_user_ids);
+create index votes_trip_idx on public.votes (trip_id);
+create index vote_options_vote_idx on public.vote_options (vote_id);
+create index expenses_trip_idx on public.expenses (trip_id);
+create index settlements_trip_idx on public.settlements (trip_id);
+create index passes_trip_idx on public.passes (trip_id);
+create index notifications_user_idx on public.notifications (user_id);
+
+-- 11. Column-level grants -------------------------------------------------------------
+-- RLS policies decide which rows; these grants decide which columns authenticated users may write.
+-- Identity (trip_id, user_id, role), payment (pass_status), and provenance columns change only
+-- through security definer functions or the service role.
+revoke update on public.trips, public.trip_members, public.action_items, public.votes,
+  public.vote_responses, public.consents from anon, authenticated;
+grant update (name, destination_country, start_date, end_date) on public.trips to authenticated;
+grant update (display_name) on public.trip_members to authenticated;
+grant update (status, due_at) on public.action_items to authenticated;
+grant update (title, detail, deadline, status) on public.votes to authenticated;
+grant update (option_id, responded_at) on public.vote_responses to authenticated;
+grant update (revoked_at) on public.consents to authenticated;
+
+-- The join-token hash and inbound code are not readable by members; see trip_inbound_code().
+revoke select on public.trips from anon, authenticated;
+grant select (id, owner_id, status, start_date, end_date, created_at, updated_at, name,
+              destination_country, join_token_expires_at, pass_status, created_anonymous_id, created_utm)
+  on public.trips to authenticated;
+
+-- 12. Row-level security ---------------------------------------------------------
 alter table public.trip_members enable row level security;
 alter table public.member_documents enable row level security;
 alter table public.travel_admin_partner_routes enable row level security;
@@ -566,10 +617,9 @@ create policy "Planners update bookings" on public.bookings for update
 create policy "Members read segments" on public.booking_segments for select using (public.is_trip_member(trip_id));
 
 create policy "Members read booking members" on public.booking_members for select using (public.is_trip_member(trip_id));
-create policy "Planner or self assigns bookings" on public.booking_members for insert with check (
-  public.is_trip_planner(trip_id)
-  or exists (select 1 from public.trip_members m where m.id = member_id and m.trip_id = booking_members.trip_id and m.user_id = auth.uid())
-);
+-- Assignment decides who can read a confirmation code, so only planners (or the service role) assign.
+create policy "Planners assign bookings" on public.booking_members for insert
+  with check (public.is_trip_planner(trip_id));
 create policy "Planner or self unassigns bookings" on public.booking_members for delete using (
   public.is_trip_planner(trip_id)
   or exists (select 1 from public.trip_members m where m.id = member_id and m.user_id = auth.uid())

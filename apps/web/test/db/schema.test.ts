@@ -1,10 +1,12 @@
+import { createHash } from 'node:crypto';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { asService, asUser, createAuthUser, createTestDb, type TestDb } from './harness';
 
 const PLANNER = '00000000-0000-4000-8000-000000000001';
 const MEMBER = '00000000-0000-4000-8000-000000000002';
 const OUTSIDER = '00000000-0000-4000-8000-000000000003';
-const TOKEN_HASH = 'a'.repeat(64);
+const TOKEN = 'raw-invite-token-0123456789';
+const TOKEN_HASH = createHash('sha256').update(TOKEN).digest('hex');
 
 let db: TestDb;
 let tripId: string;
@@ -32,7 +34,7 @@ beforeAll(async () => {
   await asService(db, () =>
     db.query("update public.trips set join_token_hash = $1, join_token_expires_at = now() + interval '7 days' where id = $2", [TOKEN_HASH, tripId]),
   );
-  await asUser(db, MEMBER, () => db.query("select public.join_trip($1, 'Sam')", [TOKEN_HASH]));
+  await asUser(db, MEMBER, () => db.query("select public.join_trip($1, 'Sam')", [TOKEN]));
 
   const members = await asService(db, () => db.query<{ id: string; user_id: string }>('select id, user_id from public.trip_members where trip_id = $1', [tripId]));
   plannerMemberId = members.rows.find((m) => m.user_id === PLANNER)!.id;
@@ -41,7 +43,7 @@ beforeAll(async () => {
   bookingId = await asService(db, async () =>
     (await one<{ id: string }>(
       `insert into public.bookings (trip_id, kind, provider, confirmation_code, passenger_names, extraction_confidence, dedupe_key)
-       values ($1, 'flight', 'TAP Air Portugal', 'ABC123', '{PAT,SAM}', 0.97, 'ABC123|TP204|2026-11-03') returning id`,
+       values ($1, 'flight', 'TAP Air Portugal', 'ABC123', '{PAT,SAM}', 0.97, 'flight|TP204|2026-11-03|pat-sam') returning id`,
       [tripId],
     )).id,
   );
@@ -82,8 +84,11 @@ describe('trips and membership', () => {
 
   it('join_trip rejects an expired link', async () => {
     await asService(db, () => db.query("update public.trips set join_token_expires_at = now() - interval '1 minute' where id = $1", [tripId]));
-    await expect(asUser(db, OUTSIDER, () => db.query("select public.join_trip($1, 'Olly')", [TOKEN_HASH]))).rejects.toThrow(/invalid or expired link/);
-    await asService(db, () => db.query("update public.trips set join_token_expires_at = now() + interval '7 days' where id = $1", [tripId]));
+    try {
+      await expect(asUser(db, OUTSIDER, () => db.query("select public.join_trip($1, 'Olly')", [TOKEN]))).rejects.toThrow(/invalid or expired link/);
+    } finally {
+      await asService(db, () => db.query("update public.trips set join_token_expires_at = now() + interval '7 days' where id = $1", [tripId]));
+    }
   });
 
   it('trip_directory exposes pay handles to members only', async () => {
@@ -194,5 +199,96 @@ describe('growth tables and attribution', () => {
       { post_id: 'post-1', clicks: 1, forwarded_bookings: 0, paid_passes: 0 },
       { post_id: 'post-2', clicks: 1, forwarded_bookings: 1, paid_passes: 1 },
     ]);
+  });
+});
+
+describe('write paths are closed (non-superuser roles)', () => {
+  const rejects = (fn: () => Promise<unknown>) => expect(fn()).rejects.toThrow(/permission denied|row-level security|violates/);
+
+  it('a member cannot promote themselves or move to another trip', async () => {
+    await rejects(() => asUser(db, MEMBER, () => db.query("update public.trip_members set role = 'planner' where user_id = $1", [MEMBER])));
+    await rejects(() => asUser(db, MEMBER, () => db.query('update public.trip_members set trip_id = gen_random_uuid() where user_id = $1', [MEMBER])));
+    const ok = await asUser(db, MEMBER, () => db.query("update public.trip_members set display_name = 'Sammy' where user_id = $1", [MEMBER]));
+    expect(ok.affectedRows).toBe(1);
+    const role = await asService(db, () => one<{ role: string }>('select role from public.trip_members where user_id = $1', [MEMBER]));
+    expect(role.role).toBe('member');
+  });
+
+  it('a planner cannot set pass_status or rewrite owner, invite, or attribution columns', async () => {
+    for (const col of ["pass_status = 'active'", `owner_id = '${OUTSIDER}'`, "inbound_code = 'trip-hijack'", "join_token_hash = 'x'", "created_utm = '{}'"]) {
+      await rejects(() => asUser(db, PLANNER, () => db.query(`update public.trips set ${col} where id = $1`, [tripId])));
+    }
+    const ok = await asUser(db, PLANNER, () => db.query("update public.trips set name = 'Lisbon!' where id = $1", [tripId]));
+    expect(ok.affectedRows).toBe(1);
+    const asMember = await asUser(db, MEMBER, () => db.query("update public.trips set name = 'nope' where id = $1", [tripId]));
+    expect(asMember.affectedRows).toBe(0);
+    const trip = await asService(db, () => one<{ pass_status: string }>('select pass_status from public.trips where id = $1', [tripId]));
+    expect(trip.pass_status).toBe('none');
+  });
+
+  it('members cannot read the join hash or inbound code; the planner gets the code via the accessor', async () => {
+    await rejects(() => asUser(db, MEMBER, () => db.query('select join_token_hash from public.trips')));
+    await rejects(() => asUser(db, PLANNER, () => db.query('select inbound_code from public.trips')));
+    const planner = await asUser(db, PLANNER, () => one<{ c: string | null }>('select public.trip_inbound_code($1) as c', [tripId]));
+    const member = await asUser(db, MEMBER, () => one<{ c: string | null }>('select public.trip_inbound_code($1) as c', [tripId]));
+    expect(planner.c).toBe('trip-abc234');
+    expect(member.c).toBeNull();
+  });
+
+  it('join_trip rejects the stored hash used as a token', async () => {
+    await expect(asUser(db, OUTSIDER, () => db.query("select public.join_trip($1, 'Olly')", [TOKEN_HASH]))).rejects.toThrow(/invalid or expired link/);
+  });
+
+  it('a member cannot assign themselves to a booking; non-planner booking members see the code', async () => {
+    await rejects(() => asUser(db, MEMBER, () => db.query('insert into public.booking_members (booking_id, member_id, trip_id) values ($1, $2, $3)', [bookingId, memberMemberId, tripId])));
+    const before = await asUser(db, MEMBER, () => one<{ code: string | null }>('select public.booking_confirmation_code($1) as code', [bookingId]));
+    expect(before.code).toBeNull();
+    await asUser(db, PLANNER, () => db.query('insert into public.booking_members (booking_id, member_id, trip_id) values ($1, $2, $3)', [bookingId, memberMemberId, tripId]));
+    const after = await asUser(db, MEMBER, () => one<{ code: string | null }>('select public.booking_confirmation_code($1) as code', [bookingId]));
+    expect(after.code).toBe('ABC123');
+    const outsider = await asUser(db, OUTSIDER, () => one<{ code: string | null }>('select public.booking_confirmation_code($1) as code', [bookingId]));
+    expect(outsider.code).toBeNull();
+    await asUser(db, PLANNER, () => db.query('delete from public.booking_members where booking_id = $1 and member_id = $2', [bookingId, memberMemberId]));
+  });
+
+  it('planners cannot edit protected booking columns or read dedupe_key', async () => {
+    for (const col of ["confirmation_code = 'ZZZ999'", "dedupe_key = 'x'", 'extraction_confidence = 0.1', `trip_id = '${tripId}'`]) {
+      await rejects(() => asUser(db, PLANNER, () => db.query(`update public.bookings set ${col} where id = $1`, [bookingId])));
+    }
+    await rejects(() => asUser(db, PLANNER, () => db.query('select dedupe_key from public.bookings')));
+    const ok = await asUser(db, PLANNER, () => db.query("update public.bookings set booked_via = 'Direct' where id = $1", [bookingId]));
+    expect(ok.affectedRows).toBe(1);
+  });
+
+  it('votes and action items cannot change trip or assignees; responses cannot pick another vote option', async () => {
+    const mk = async (title: string) => {
+      const v = await asUser(db, MEMBER, () => one<{ id: string }>(
+        "insert into public.votes (trip_id, title, detail, created_by) values ($1, $2, 'd', $3) returning id", [tripId, title, MEMBER]));
+      const o = await asUser(db, MEMBER, () => one<{ id: string }>(
+        "insert into public.vote_options (vote_id, label, position) values ($1, 'A', 1) returning id", [v.id]));
+      return { vote: v.id, option: o.id };
+    };
+    const a = await mk('A');
+    const b = await mk('B');
+    await rejects(() => asUser(db, MEMBER, () => db.query('update public.votes set trip_id = gen_random_uuid() where id = $1', [a.vote])));
+    await rejects(() => asUser(db, PLANNER, () => db.query('insert into public.vote_responses (vote_id, user_id, option_id) values ($1, $2, $3)', [a.vote, PLANNER, b.option])));
+    await asUser(db, PLANNER, () => db.query('insert into public.vote_responses (vote_id, user_id, option_id) values ($1, $2, $3)', [a.vote, PLANNER, a.option]));
+    await rejects(() => asUser(db, PLANNER, () => db.query('update public.vote_responses set option_id = $1 where vote_id = $2', [b.option, a.vote])));
+
+    const item = await asService(db, () => one<{ id: string }>(
+      `insert into public.action_items (trip_id, kind, title, detail, assigned_user_ids, source_kind)
+       values ($1, 'document', 't', 'd', $2, 'document_check') returning id`, [tripId, `{${MEMBER}}`]));
+    await rejects(() => asUser(db, MEMBER, () => db.query('update public.action_items set trip_id = gen_random_uuid() where id = $1', [item.id])));
+    await rejects(() => asUser(db, MEMBER, () => db.query(`update public.action_items set assigned_user_ids = '{}' where id = $1`, [item.id])));
+    const ok = await asUser(db, MEMBER, () => db.query("update public.action_items set status = 'done' where id = $1", [item.id]));
+    expect(ok.affectedRows).toBe(1);
+  });
+
+  it('an affected non-planner reads the incident', async () => {
+    await asService(db, () => db.query('update public.incidents set affected_user_ids = $1', [`{${MEMBER}}`]));
+    const member = await asUser(db, MEMBER, () => db.query('select id from public.incidents'));
+    const outsider = await asUser(db, OUTSIDER, () => db.query('select id from public.incidents'));
+    expect(member.rows).toHaveLength(1);
+    expect(outsider.rows).toHaveLength(0);
   });
 });
