@@ -8,6 +8,7 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  actions: write   # dispatch Rules CI on the backstop branch (github.token PRs trigger no workflows)
 
 concurrency:
   group: rules-backstop
@@ -19,9 +20,9 @@ jobs:
     timeout-minutes: 20
     if: github.ref == 'refs/heads/main'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: npm
@@ -29,7 +30,7 @@ jobs:
       - run: npm ci
 
       - name: Check out versions
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: ifaemuh/elsewhere-sources-versions
           token: ${{ secrets.SOURCES_REPOS_TOKEN }}
@@ -41,7 +42,8 @@ jobs:
         run: |
           # Exit 0 = clean, 1 = quote or supports issues found (expected; --write-needs-review
           # flips verified rules whose quote is absent from fetched text, never on a missing source).
-          # Anything else (2 usage, 3 load failure, 4 crash) fails the job after the PR step.
+          # Anything else (2 usage, 3 load failure, 4 crash, 5 a flip could not be written) fails the
+          # job after the PR step; the other rules' flips are still published (except after 4 or 99).
           rc=0
           npm run -s rules:check-quotes -w @elsewhere/rules -- \
             --versions "$GITHUB_WORKSPACE/.sources-versions" --write-needs-review > "$RUNNER_TEMP/backstop.txt" || rc=$?
@@ -100,6 +102,9 @@ jobs:
           } > "$RUNNER_TEMP/body.md"
           gh pr create --base main --head "$branch" --label rules-backstop \
             --title "Rules backstop: quotes not found ($today)" --body-file "$RUNNER_TEMP/body.md"
+          # A PR opened with github.token starts no workflows, so run Rules CI on the branch by hand;
+          # its "Rules CI / rules" check attaches to the branch head and satisfies branch protection.
+          gh workflow run rules-ci.yml --ref "$branch"
 
       - name: Fail the run if the quote check itself failed
         if: ${{ !cancelled() && steps.check.outputs.failed == 'true' }}
