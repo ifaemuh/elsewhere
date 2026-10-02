@@ -3,6 +3,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound, permanentRedirect } from 'next/navigation';
 import { Character } from '@/components/character';
+import { Offer } from '@/components/offer/offer';
 import { RuleArticle } from '@/components/rules/rule-article';
 import { needsReviewSince, resolveRulePage, sourcesFor, staticRuleParams } from '@/lib/rules/accessors';
 import { getLibrary } from '@/lib/rules/library';
@@ -37,6 +38,9 @@ export default async function RulePage({ params }: { params: Params }) {
       <Suspense fallback={<p className="mt-8 text-[#4b5745]">Loading the rule…</p>}>
         <RuleContent id={id} />
       </Suspense>
+      <Suspense fallback={null}>
+        <RuleOffer params={params} />
+      </Suspense>
     </main>
   );
 }
@@ -65,4 +69,13 @@ async function RuleContent({ id }: { id: string }) {
       art={<Character character={rule.lead_character} width={180} priority />}
     />
   );
+}
+
+// The offer shows on every rule state (verified, needs_review, gone); only 404/308 have no page.
+async function RuleOffer({ params }: { params: Params }) {
+  const { id } = await params;
+  const resolution = resolveRulePage(getLibrary(), id);
+  if (resolution.kind === 'page') return <Offer ruleId={resolution.rule.id} />;
+  if (resolution.kind === 'gone') return <Offer ruleId={id} />;
+  return null;
 }
