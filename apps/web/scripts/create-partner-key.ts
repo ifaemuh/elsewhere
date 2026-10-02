@@ -10,6 +10,11 @@ async function main(): Promise<void> {
     console.error('Usage: create-partner-key.ts <partner-id: a-z0-9-> [rate-limit-rule]');
     process.exit(1);
   }
+  if (!/^rules-[a-z0-9-]{1,60}$/.test(rateLimitRule)) {
+    console.error('rate-limit-rule must match /^rules-[a-z0-9-]{1,60}$/');
+    process.exit(1);
+  }
+  console.error(`Target Supabase host: ${new URL(process.env.NEXT_PUBLIC_SUPABASE_URL ?? '').host}`);
   const key = generateKey();
   const { data, error } = await createAdminClient()
     .from('api_keys')

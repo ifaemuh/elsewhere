@@ -44,26 +44,24 @@ export async function lookupKey(key: string, now: number = Date.now()): Promise<
 
   const { data, error } = await createAdminClient()
     .from('api_keys')
-    .select('id, partner_id, rate_limit_rule, revoked_at')
+    .select('id, partner_id, rate_limit_rule')
     .eq('key_hash', hash)
+    .is('revoked_at', null)
     .maybeSingle();
   if (error) throw error;
   if (!data) return null;
 
-  // revoked_at in the past (or now) means revoked; a future value is a scheduled revocation.
-  const revokedAt = data.revoked_at ? Date.parse(data.revoked_at) : null;
-  if (revokedAt !== null && revokedAt <= now) return null;
-
   const value: KeyRecord = { keyId: data.id, partnerId: data.partner_id, rateLimitRule: data.rate_limit_rule };
-  // Misses are never cached, so new keys work at once. Hits expire no later than a scheduled revocation.
-  cache.set(hash, { value, expires: Math.min(now + CACHE_MS, revokedAt ?? Infinity) });
+  // Misses are never cached, so new keys work at once. A revocation lags by at most CACHE_MS per warm instance.
+  cache.set(hash, { value, expires: now + CACHE_MS });
   return value;
 }
 
 export async function resolveCaller(req: Request): Promise<ApiCaller | 'invalid'> {
+  // Anonymous only when no credentials were sent. Anything else that isn't a well-formed key is invalid.
+  if (!req.headers.get('authorization')?.trim()) return { tier: 'anonymous' };
   const token = bearerToken(req);
-  if (!token) return { tier: 'anonymous' };
-  if (!KEY_PATTERN.test(token)) return 'invalid';
+  if (!token || !KEY_PATTERN.test(token)) return 'invalid';
   const record = await lookupKey(token);
   return record ? { tier: 'partner', ...record } : 'invalid';
 }

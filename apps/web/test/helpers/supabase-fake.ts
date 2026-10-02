@@ -8,10 +8,12 @@ export interface KeyRow {
 
 export const fakeDb = {
   apiKeys: [] as KeyRow[],
+  apiKeyError: null as string | null,
   events: [] as Record<string, unknown>[],
   funnel: [] as { event_name: string; metadata: Record<string, unknown> }[],
   reset(): void {
     fakeDb.apiKeys = [];
+    fakeDb.apiKeyError = null;
     fakeDb.events = [];
     fakeDb.funnel = [];
   },
@@ -32,9 +34,10 @@ export const supabaseFake = {
           return query;
         },
         maybeSingle: async () => {
+          if (fakeDb.apiKeyError) return { data: null, error: new Error(fakeDb.apiKeyError) };
           const row = fakeDb.apiKeys.find((r) => filters.every((f) => f(r)));
           return {
-            data: row ? { id: row.id, partner_id: row.partner_id, rate_limit_rule: row.rate_limit_rule, revoked_at: row.revoked_at } : null,
+            data: row ? { id: row.id, partner_id: row.partner_id, rate_limit_rule: row.rate_limit_rule } : null,
             error: null,
           };
         },

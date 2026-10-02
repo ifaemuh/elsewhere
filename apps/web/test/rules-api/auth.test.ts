@@ -64,11 +64,13 @@ describe('resolveCaller', () => {
     expect(await resolveCaller(req('Bearer els_short'))).toBe('invalid');
   });
 
-  it('treats a key with a future revoked_at as active until then, even when cached', async () => {
-    const t0 = Date.parse('2026-10-01T00:00:00Z');
-    fakeDb.apiKeys.push({ id: 'key-1', partner_id: 'acme', key_hash: hashKey(KEY), rate_limit_rule: 'rules-partner', revoked_at: '2026-10-01T00:00:30Z' });
-    expect(await lookupKey(KEY, t0)).not.toBeNull();
-    expect(await lookupKey(KEY, t0 + 31_000)).toBeNull();
+  it.each([['Basic abc'], [`${KEY}`], ['Bearer '], ['Bearer']])('rejects non-key Authorization %j as invalid, never anonymous', async (header) => {
+    expect(await resolveCaller(req(header))).toBe('invalid');
+  });
+
+  it('throws on a database error, never yielding anonymous', async () => {
+    fakeDb.apiKeyError = 'boom';
+    await expect(resolveCaller(req(`Bearer ${KEY}`))).rejects.toThrow('boom');
   });
 
   it('does not cache misses, so new keys work immediately', async () => {

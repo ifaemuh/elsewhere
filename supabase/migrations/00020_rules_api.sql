@@ -4,7 +4,7 @@
 create table public.api_keys (
   id uuid primary key default gen_random_uuid(),
   partner_id text not null,
-  key_hash text not null unique,              -- sha256 hex of the full key; the key itself is never stored
+  key_hash text not null unique check (key_hash ~ '^[0-9a-f]{64}$'),             -- sha256 hex of the full key; the key itself is never stored
   rate_limit_rule text not null default 'rules-partner',  -- Vercel Firewall rate-limit rule ID
   created_at timestamptz not null default now(),
   revoked_at timestamptz
@@ -35,3 +35,5 @@ create table public.rules_api_events (
 create index rules_api_events_created_at_idx on public.rules_api_events (created_at desc);
 
 alter table public.rules_api_events enable row level security;
+
+revoke all on table public.api_keys, public.rules_api_events from anon, authenticated;

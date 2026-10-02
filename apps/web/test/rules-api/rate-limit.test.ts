@@ -19,7 +19,9 @@ describe('enforceRateLimit', () => {
   it('uses the anonymous rule for the surface', async () => {
     process.env.VERCEL = '1';
     await enforceRateLimit(request(), anon, 'mcp');
-    expect(vi.mocked(checkRateLimit).mock.calls[0][0]).toBe('rules-mcp-anon');
+    const [ruleId, options] = vi.mocked(checkRateLimit).mock.calls[0];
+    expect(ruleId).toBe('rules-mcp-anon');
+    expect(options).not.toHaveProperty('rateLimitKey');
   });
 
   it("uses the partner's rule keyed by key ID", async () => {
@@ -42,6 +44,15 @@ describe('enforceRateLimit', () => {
     process.env.VERCEL = '1';
     vi.mocked(checkRateLimit).mockResolvedValueOnce({ rateLimited: false, error: 'blocked' });
     expect((await enforceRateLimit(request(), anon, 'api'))?.status).toBe(403);
+  });
+
+  it('fails open and logs when the firewall SDK throws', async () => {
+    process.env.VERCEL = '1';
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.mocked(checkRateLimit).mockRejectedValueOnce(new Error('network down'));
+    expect(await enforceRateLimit(request(), anon, 'api')).toBeNull();
+    expect(spy).toHaveBeenCalledWith('[rules-api] rate limit check failed', { ruleId: 'rules-api-anon', message: 'network down' });
+    spy.mockRestore();
   });
 
   it('fails open when the rule is not configured', async () => {
