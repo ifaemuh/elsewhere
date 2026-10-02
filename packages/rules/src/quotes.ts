@@ -1,4 +1,3 @@
-import { join } from 'node:path';
 import type { Rule, Source } from './schema';
 
 /** NFKC, curly quotes → straight, all whitespace runs → one space, trimmed. Case-sensitive. */
@@ -9,6 +8,11 @@ export function normalizeText(text: string): string {
     .replace(/[“”„‟″]/g, '"')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+/** POSIX join without node:path, so this module stays bundle-safe. */
+function join(dir: string, ...parts: string[]): string {
+  return [dir.replace(/\/+$/, ''), ...parts].join('/');
 }
 
 /** Where a source's current text lives inside a checkout of elsewhere-sources-versions. */
