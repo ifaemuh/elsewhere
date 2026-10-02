@@ -57,8 +57,8 @@ describe('GET /api/rules/changes', () => {
     setLibrary(standardLibrary());
     const body = await (await get(changes, '/api/rules/changes?since=2026-09-01')).json();
     expect(body.data.changes).toEqual([
-      { rule_id: 'test-tarmac-delay', kind: 'needs_review', from_version: 1, from_status: 'verified', to_version: 2, status: 'needs_review', date: '2026-10-05' },
-      { rule_id: 'test-cancelled-refund', kind: 'added', from_version: null, from_status: null, to_version: 1, status: 'verified', date: '2026-10-01' },
+      { rule_id: 'test-tarmac-delay', kind: 'needs_review', from_version: 1, to_version: 2, status: 'needs_review', date: '2026-10-05' },
+      { rule_id: 'test-cancelled-refund', kind: 'added', from_version: null, to_version: 1, status: 'verified', date: '2026-10-01' },
     ]);
   });
 
@@ -200,7 +200,7 @@ describe('changes', () => {
     ];
     const out = publicChangesSince(makeLibrary(rules), '2026-01-01');
     expect(out).toEqual([
-      { rule_id: 'test-promoted', kind: 'added', from_version: null, from_status: null, to_version: 1, status: 'verified', date: '2026-09-21' },
+      { rule_id: 'test-promoted', kind: 'added', from_version: null, to_version: 1, status: 'verified', date: '2026-09-21' },
     ]);
   });
 
