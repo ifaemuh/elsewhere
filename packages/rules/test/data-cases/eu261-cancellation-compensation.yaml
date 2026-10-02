@@ -91,12 +91,24 @@ cases:
     situation: { trip.journey_departs_eu: true, flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: false, event.type: cancellation, event.cause: controllable, event.reroute_departs_early_minutes: 0, event.reroute_arrival_delay_minutes: 1440 }
     outcome: may_apply
     missing_facts: [event.notice_days]
-  - name: "departure brought forward 61 minutes, told 2 days before, no rerouting"
-    situation: { trip.journey_departs_eu: true, flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: false, event.type: schedule_change, event.cause: controllable, event.departure_moved_earlier_minutes: 61, event.notice_days: 2, event.reroute_departs_early_minutes: 0, event.reroute_arrival_delay_minutes: 1440 }
+  - name: "departure brought forward 61 minutes, told 2 days before (the changed flight is the offer)"
+    situation: { trip.journey_departs_eu: true, flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: false, event.type: schedule_change, event.cause: controllable, event.departure_moved_earlier_minutes: 61, event.notice_days: 2, event.reroute_departs_early_minutes: 61, event.reroute_arrival_delay_minutes: 0 }
     outcome: applies
   - name: "departure brought forward exactly 60 minutes (not a cancellation)"
-    situation: { trip.journey_departs_eu: true, flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: false, event.type: schedule_change, event.cause: controllable, event.departure_moved_earlier_minutes: 60, event.notice_days: 2, event.reroute_departs_early_minutes: 0, event.reroute_arrival_delay_minutes: 1440 }
+    situation: { trip.journey_departs_eu: true, flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: false, event.type: schedule_change, event.cause: controllable, event.departure_moved_earlier_minutes: 60, event.notice_days: 2, event.reroute_departs_early_minutes: 60, event.reroute_arrival_delay_minutes: 0 }
     outcome: does_not_apply
+  - name: "departure brought forward 90 minutes, told 10 days before (within the 2 hour limit)"
+    situation: { trip.journey_departs_eu: true, flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: false, event.type: schedule_change, event.cause: controllable, event.departure_moved_earlier_minutes: 90, event.notice_days: 10, event.reroute_departs_early_minutes: 90, event.reroute_arrival_delay_minutes: 0 }
+    outcome: does_not_apply
+  - name: "departure brought forward 61 minutes, told exactly 7 days before (within the 2 hour limit)"
+    situation: { trip.journey_departs_eu: true, flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: false, event.type: schedule_change, event.cause: controllable, event.departure_moved_earlier_minutes: 61, event.notice_days: 7, event.reroute_departs_early_minutes: 61, event.reroute_arrival_delay_minutes: 0 }
+    outcome: does_not_apply
+  - name: "departure brought forward 120 minutes, told 10 days before (exactly the limit)"
+    situation: { trip.journey_departs_eu: true, flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: false, event.type: schedule_change, event.cause: controllable, event.departure_moved_earlier_minutes: 120, event.notice_days: 10, event.reroute_departs_early_minutes: 120, event.reroute_arrival_delay_minutes: 0 }
+    outcome: does_not_apply
+  - name: "departure brought forward 121 minutes, told 10 days before"
+    situation: { trip.journey_departs_eu: true, flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: false, event.type: schedule_change, event.cause: controllable, event.departure_moved_earlier_minutes: 121, event.notice_days: 10, event.reroute_departs_early_minutes: 121, event.reroute_arrival_delay_minutes: 0 }
+    outcome: applies
   - name: "schedule change, how much earlier not known yet"
     situation: { trip.journey_departs_eu: true, flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: false, event.type: schedule_change, event.cause: controllable, event.notice_days: 2, event.reroute_departs_early_minutes: 0, event.reroute_arrival_delay_minutes: 1440 }
     outcome: may_apply
@@ -107,4 +119,7 @@ cases:
   - name: "flight scope not known yet"
     situation: { event.type: cancellation, event.cause: controllable, event.notice_days: 2, event.reroute_departs_early_minutes: 0, event.reroute_arrival_delay_minutes: 1440 }
     outcome: may_apply
-    missing_facts: [trip.journey_departs_eu, flight.departs_eu, flight.departs_iceland_norway_switzerland, trip.journey_arrives_eu, flight.carrier_is_eu]
+    missing_facts: [trip.journey_departs_eu, flight.departs_eu, flight.departs_iceland_norway_switzerland, trip.journey_arrives_eu, flight.carrier_is_eu, flight.arrives_eu]
+  - name: "JFK-CDG leg on Air France of a JFK-CDG-DXB booking, told 2 days before"
+    situation: { trip.journey_departs_eu: false, flight.departs_eu: false, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: false, flight.arrives_eu: true, flight.carrier_is_eu: true, event.type: cancellation, event.cause: controllable, event.notice_days: 2, event.reroute_departs_early_minutes: 0, event.reroute_arrival_delay_minutes: 1440 }
+    outcome: applies

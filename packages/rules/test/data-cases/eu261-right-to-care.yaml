@@ -111,7 +111,10 @@ cases:
   - name: "flight scope not known yet"
     situation: { event.type: cancellation }
     outcome: may_apply
-    missing_facts: [trip.journey_departs_eu, flight.departs_eu, flight.departs_iceland_norway_switzerland, trip.journey_arrives_eu, flight.carrier_is_eu]
+    missing_facts: [trip.journey_departs_eu, flight.departs_eu, flight.departs_iceland_norway_switzerland, trip.journey_arrives_eu, flight.carrier_is_eu, flight.arrives_eu]
   - name: "another kind of event is not covered"
     situation: { trip.journey_departs_eu: true, flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: false, event.type: bag_delayed }
     outcome: does_not_apply
+  - name: "JFK-CDG leg on Air France of a JFK-CDG-DXB booking, delayed 4 hours"
+    situation: { trip.journey_departs_eu: false, flight.departs_eu: false, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: false, flight.arrives_eu: true, flight.carrier_is_eu: true, event.type: delay, event.departure_delay_minutes: 240 }
+    outcome: applies

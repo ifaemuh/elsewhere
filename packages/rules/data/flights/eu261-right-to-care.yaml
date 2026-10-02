@@ -22,6 +22,11 @@ applies_when:
               eq: true
             - fact: flight.carrier_is_eu
               eq: true
+        - all:
+            - fact: flight.arrives_eu
+              eq: true
+            - fact: flight.carrier_is_eu
+              eq: true
     - any:
         - fact: event.type
           in: [cancellation]
@@ -71,13 +76,13 @@ how_to_claim:
 exceptions:
   - "The airline may limit or decline care if providing it would itself cause further delay to passengers waiting for an alternative or a delayed flight."
   - "You only have the right to care for as long as you have to wait for rerouting, under comparable transport conditions, to your final destination at the earliest opportunity, or for a return flight."
-  - "For delays, the time limits count from the flight's scheduled departure time, as the airline expects it, not from your arrival. The limits are 2 hours for flights of 1500 km or less, 3 hours for EU flights of more than 1500 km and for other flights between 1500 and 3500 km, and 4 hours for all other flights."
+  - "For delays, the time limits count from the flight's scheduled departure time, as the airline expects it, not from your arrival. The limits are 2 hours for flights of 1500 km or less, 3 hours for EU flights of more than 1500 km and for other flights between 1500 and 3500 km, and 4 hours for all other flights. The European Commission's guidance lists the middle band as ending at 3,000 km; the Regulation's 3500 km governs."
   - "People with reduced mobility and anyone accompanying them, and unaccompanied children, have the right to care as soon as possible on cancellations and on delays of any length, without these time limits."
   - "Only applies if you had a confirmed reservation and, unless the airline set another time in advance and in writing, checked in at least 45 minutes before the published departure time. You do not have to check in for a cancelled flight. It also applies if the airline moved you from a flight you had booked to another one."
   - "Not owed for free tickets or tickets at a reduced fare not available directly or indirectly to the public. Tickets issued under a frequent flyer or other commercial programme are covered."
   - "Only covers passengers carried by motorised fixed wing aircraft."
   - "Does not apply if a package tour is cancelled for reasons other than cancellation of the flight."
-  - "A flight arriving in the EU from outside the EU is covered only if the operating airline is licensed in an EU member state (an EU airline). A flight leaving the EU is covered whatever the airline."
+  - "A flight arriving in the EU from outside the EU is covered only if the operating airline is licensed in an EU member state (an EU airline). A flight leaving the EU is covered whatever the airline. A journey that starts in the EU is covered on every flight of it, whatever the airline."
   - "If your flight came into the EU from outside it, these rules don't apply if, in that non-EU country, you already received benefits or compensation and were also given assistance."
   - "Your outbound and return flights count separately, even if they are on one booking. Each direction is its own journey."
   - "EU here means the 27 EU countries, including Guadeloupe, French Guiana, Martinique, Mayotte, Reunion, Saint Barthelemy, Saint-Martin, the Azores, Madeira and the Canary Islands, but not the Faeroe Islands. The European Commission's guidance says the rules also apply to flights to and from Iceland, Norway and Switzerland; this rule covers flights leaving them."
@@ -167,9 +172,19 @@ sources:
       - text: "departs from the EU"
         supports: [applies_when]
       - text: "you have not already received benefits"
-        supports: [applies_when, exceptions]
+        supports: [exceptions]
       - text: "The outbound and return flights are always considered as two separate flights even if they were booked as part of one reservation."
         supports: [applies_when, exceptions]
+      - text: "If you miss a connecting flight travelling within the EU or outside the EU on a flight originating from an EU country, you should be entitled to compensation, if you arrive at your final destination"
+        supports: [applies_when]
+      - text: "It is not relevant if the carrier operating the connecting flight is an EU or non-EU airline."
+        supports: [applies_when]
+      - text: "If you depart from a non-EU country to your final destination in an EU country, with connecting flights operated successively by non-EU and EU airlines or by EU airlines only,"
+        supports: [applies_when]
+      - text: "only the flights operated by EU airlines"
+        supports: [applies_when]
+      - text: "in case of a long delay on arrival at the final destination."
+        supports: [applies_when]
       - text: "and is operated either"
         supports: [applies_when]
       - text: "from outside the EU and is operated"
@@ -192,6 +207,8 @@ sources:
         supports: [summary, applies_when]
       - text: "a delay of two hours or more for flights of 1,500km or less"
         supports: [summary, applies_when, entitlement.timing]
+      - text: "a delay of three hours or more for intra-EU flights of more than 1,500km and for all other flights between 1,500 and 3,000km"
+        supports: [exceptions]
       - text: "a delay of four hours or more for all other flights"
         supports: [summary, applies_when, entitlement.timing]
       - text: "Where the new expected departure time is at least the day after the initially scheduled departure time, you are entitled to"

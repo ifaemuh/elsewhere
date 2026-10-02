@@ -146,9 +146,9 @@ export const FACTS: {
   'event.delay_minutes': FactDef;        // number
   'event.notice_days': FactDef;          // number
   'event.cause': FactDef;                // enum: controllable, uncontrollable, unknown
-  'event.reroute_departs_early_minutes': FactDef;     // number — cancellation: minutes before the cancelled departure that the offered re-routing leaves (0 if at/after, or none offered)
-  'event.reroute_arrival_delay_minutes': FactDef;     // number — cancellation: minutes after the original arrival that the offered re-routing arrives (none offered = 1440+)
-  'event.departure_delay_minutes': FactDef;           // number — delay: minutes after scheduled departure that the disrupted flight leaves or is expected to leave (that flight only)
+  'event.reroute_departs_early_minutes': FactDef;     // number — cancellation/schedule_change: minutes before the scheduled departure that the offered re-routing leaves (0 if at/after, or none offered; a schedule change is its own offer)
+  'event.reroute_arrival_delay_minutes': FactDef;     // number — cancellation/schedule_change: minutes after the original arrival that the offered re-routing arrives (0 if earlier; none offered = 1440+)
+  'event.departure_delay_minutes': FactDef;           // number — delay: minutes after scheduled departure that the disrupted flight leaves or is expected to leave (that flight only; if expected and actual differ, report the longer)
   'event.departure_moved_earlier_minutes': FactDef;   // number — schedule_change: minutes earlier than scheduled that the flight now departs (0 if not earlier)
   'event.at_us_airport': FactDef;        // boolean — the disruption happened at a US airport (incl. territories); tarmac_delay: where the aircraft was held
   'flight.carrier_iata': FactDef;        // string
@@ -162,7 +162,7 @@ export const FACTS: {
   'flight.distance_km': FactDef;         // number
   'flight.single_ticket': FactDef;       // boolean
   'flight.leg_distance_km': FactDef;     // number — great-circle km between the disrupted flight's own departure and arrival airports
-  'flight.departs_iceland_norway_switzerland': FactDef; // boolean
+  'flight.departs_iceland_norway_switzerland': FactDef; // boolean — the disrupted flight departs Iceland, Norway or Switzerland
   'flight.departs_us': FactDef;          // boolean
   'passenger.accepted_alternative': FactDef;            // boolean
   'passenger.volunteered': FactDef;                     // boolean — gave up a seat by answering the airline's call for volunteers (14 CFR 250.2b)
@@ -192,7 +192,8 @@ export type FactName = keyof typeof FACTS;
 // trip.journey_arrives_eu. Descriptions: flight.* facts describe the disrupted flight (missed_connection: the flight
 // whose delay caused the miss); flight.distance_km runs from the journey's first departure to its final destination;
 // flight.departs_eu/arrives_eu use the Commission's definition of the EU; cancellation includes dropping the booked
-// flight for a different one; event.notice_days may be fractional and is not rounded up.
+// flight for a different one (not operated; same flight at another time = schedule_change; only this passenger kept off = denied_boarding); event.notice_days may be fractional and is not rounded up. Round 2: event.reroute_* also cover schedule_change
+// (the changed flight is its own offer); event.departure_delay_minutes reports the longer of expected and actual.
 
 // Amendment (2026-10-02, Track A Task 20 legal review): descriptions in src/facts.ts also define
 // event.type `denied_boarding` (oversold flight, confirmed reservation; not documents/conduct/
