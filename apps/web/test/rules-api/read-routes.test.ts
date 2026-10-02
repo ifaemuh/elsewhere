@@ -6,7 +6,7 @@ import { GET as getRuleRoute } from '@/app/api/rules/[id]/route';
 import { GET as getFacts } from '@/app/api/rules/facts/route';
 import * as auth from '@/lib/rules-api/auth';
 import { setLibrary } from '../helpers/library-holder';
-import { standardLibrary } from '../helpers/fixture-library';
+import { makeLibrary, makeRule, standardLibrary, standardRules } from '../helpers/fixture-library';
 
 const url = (path: string) => `https://elsewhere.test${path}`;
 const getRule = (req: Request, id: string) => getRuleRoute(req, { params: Promise.resolve({ id }) });
@@ -31,6 +31,50 @@ describe('GET /api/rules.json', () => {
     expect(body.changes.map((c: { rule_id: string }) => c.rule_id)).not.toContain('test-draft-rule');
     expect(body.sources).toHaveProperty('test-source');
     expect(body.attribution.required).toBe(true);
+    expect(body.sources).not.toHaveProperty('draft-only-source');
+    expect(JSON.stringify(body)).not.toContain('draft-only-source');
+  });
+
+  it('drops replaced_by when it points at a draft, and keeps it when public', async () => {
+    const rules = [
+      ...standardRules(),
+      makeRule({ id: 'test-retired-to-draft', status: 'retired', replaced_by: 'test-draft-rule', history: [{ version: 1, status: 'retired', date: '2026-08-15' }] }),
+    ];
+    setLibrary(makeLibrary(rules));
+    const body = await (await getArtifact(new Request(url('/api/rules.json')))).json();
+    const byId = (id: string) => body.rules.find((r: { id: string }) => r.id === id);
+    expect(byId('test-retired-to-draft')).not.toHaveProperty('replaced_by');
+    expect(byId('test-old-voucher-rule').replaced_by).toBe('test-cancelled-refund');
+    const one = await (await getRule(ruleReq('test-retired-to-draft'), 'test-retired-to-draft')).json();
+    expect(one.data.rule).not.toHaveProperty('replaced_by');
+  });
+
+  it('keeps a verified change for a rule that began as a draft but not the draft entry', async () => {
+    const rules = [
+      ...standardRules(),
+      makeRule({
+        id: 'test-was-draft',
+        version: 1,
+        history: [
+          { version: 1, status: 'draft', date: '2026-09-01' },
+          { version: 1, status: 'verified', date: '2026-09-10' },
+        ],
+      }),
+    ];
+    setLibrary(makeLibrary(rules));
+    const body = await (await getArtifact(new Request(url('/api/rules.json')))).json();
+    const mine = body.changes.filter((c: { rule_id: string }) => c.rule_id === 'test-was-draft');
+    expect(mine.length).toBeGreaterThan(0);
+    expect(mine.map((c: { to_status: string }) => c.to_status)).toContain('verified');
+    expect(mine.map((c: { to_status: string }) => c.to_status)).not.toContain('draft');
+  });
+
+  it('answers 304 on facts and single-rule reads too', async () => {
+    const lib = standardLibrary();
+    setLibrary(lib);
+    const headers = { 'if-none-match': `"${lib.library_version}"` };
+    expect((await getFacts(new Request(url('/api/rules/facts'), { headers }))).status).toBe(304);
+    expect((await getRule(ruleReq('test-cancelled-refund', { headers }), 'test-cancelled-refund')).status).toBe(304);
   });
 
   it('answers 304 to a matching If-None-Match', async () => {
@@ -87,6 +131,14 @@ describe('GET /api/rules/:id', () => {
     setLibrary(standardLibrary());
     const res = await getRule(ruleReq('test-cancelled-refund', { headers: { authorization: 'Bearer nope' } }), 'test-cancelled-refund');
     expect(res.status).toBe(401);
+  });
+
+  it('rethrows Next control-flow errors from the key lookup instead of answering 503', async () => {
+    setLibrary(standardLibrary());
+    const flow = Object.assign(new Error('Dynamic server usage'), { digest: 'DYNAMIC_SERVER_USAGE' });
+    vi.spyOn(auth, 'resolveCaller').mockRejectedValueOnce(flow);
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    await expect(getRule(ruleReq('test-cancelled-refund', { headers: { authorization: 'Bearer x' } }), 'test-cancelled-refund')).rejects.toBe(flow);
   });
 
   it('rate-limits an invalid key as anonymous before answering 401', async () => {

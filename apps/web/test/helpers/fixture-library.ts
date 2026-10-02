@@ -97,6 +97,7 @@ export function standardRules(): Rule[] {
       title: 'Secret draft rule',
       summary: 'Draft summary that must never leak.',
       tags: ['draft'],
+      sources: [{ id: 's1', source: 'draft-only-source', quotes: [{ text: 'secret basis', supports: ['summary'] }] }],
       last_verified: null,
       verified_by: null,
       review_by: null,

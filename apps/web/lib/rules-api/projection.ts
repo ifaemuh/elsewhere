@@ -7,6 +7,20 @@ export function isPublic(rule: Rule): boolean {
   return rule.status !== 'draft';
 }
 
+/** The schema only requires replaced_by to name an existing rule, which may still be a draft. */
+function replacementIsPublic(rule: Rule, library: RulesLibrary): boolean {
+  return library.rules.some((r) => r.id === rule.replaced_by && isPublic(r));
+}
+
+/** Public rules for the artifact shape: a replaced_by that points at a draft is dropped. */
+export function publicArtifactRules(library: RulesLibrary): Rule[] {
+  return library.rules.filter(isPublic).map((rule) => {
+    if (rule.replaced_by === undefined || replacementIsPublic(rule, library)) return rule;
+    const { replaced_by: _dropped, ...rest } = rule;
+    return rest as Rule;
+  });
+}
+
 export function citationsFor(rule: Rule, library: RulesLibrary): Citation[] {
   return rule.sources.flatMap((ref) => {
     const source = library.sources[ref.source];
@@ -36,7 +50,7 @@ export function toPublicRule(rule: Rule, library: RulesLibrary, attribution: Lin
   if (rule.status === 'needs_review') {
     pub.notice = `Being re-checked since ${(needsReviewSince(rule) ?? 'recently')} after a source change.`;
   }
-  if (rule.status === 'retired' && rule.replaced_by) {
+  if (rule.status === 'retired' && rule.replaced_by && replacementIsPublic(rule, library)) {
     pub.replaced_by = rule.replaced_by;
   }
   return pub;

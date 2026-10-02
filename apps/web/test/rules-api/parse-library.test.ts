@@ -43,7 +43,7 @@ describe('library fakes pass the real loader', () => {
 
   it('makeLibrary includes a source entry for every cited source', () => {
     const lib = makeLibrary(standardRules());
-    expect(Object.keys(lib.sources)).toEqual(['test-source']);
+    expect(Object.keys(lib.sources)).toEqual(['draft-only-source', 'test-source']);
   });
 
   it('loads the shared golden cases and fixture rules', () => {
