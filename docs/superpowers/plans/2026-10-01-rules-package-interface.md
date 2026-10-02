@@ -156,6 +156,7 @@ export const FACTS: {
   'flight.departs_uk': FactDef;          // boolean
   'flight.distance_km': FactDef;         // number
   'flight.single_ticket': FactDef;       // boolean
+  'flight.departs_us': FactDef;          // boolean
   'passenger.accepted_alternative': FactDef;            // boolean
   'passenger.nationality': FactDef;                     // string (ISO 3166 alpha-2)
   'passenger.passport_months_valid_after_return': FactDef; // number
@@ -165,6 +166,8 @@ export const FACTS: {
   'trip.booked_via': FactDef;            // enum: direct, ota
   'trip.hours_since_booking': FactDef;   // number
   'trip.days_until_departure': FactDef;  // number
+  'trip.itinerary_domestic_us': FactDef;  // boolean — every flight on the ticket is within the US (14 CFR 260 "domestic itinerary")
+  'trip.us_foreign_nonstop_minutes': FactDef; // number — scheduled minutes of the ticket's nonstop flight between the US and a foreign point
   'lodging.kind': FactDef;               // enum: hotel, short_term_rental
   'lodging.booked_via': FactDef;         // enum: direct, ota
 };
