@@ -81,3 +81,16 @@ export function sourcesFor(library: RulesLibrary, rule: Rule): { ref: RuleSource
 export function verifiedRulesIn(library: RulesLibrary, domain: Domain): Rule[] {
   return library.rules.filter((rule) => rule.status === 'verified' && rule.domain === domain);
 }
+
+/** Slug that matches no rule; prerendered only while there are no verified money rules (renders as a 404). */
+export const EMPTY_MONEY_PLACEHOLDER_SLUG = 'no-money-rules';
+
+/** A money page slug is a rule id. Cache Components rejects an empty generateStaticParams, hence the placeholder. */
+export function moneyRuleParams(library: RulesLibrary): { slug: string }[] {
+  const slugs = verifiedRulesIn(library, 'money').map((rule) => rule.id);
+  return (slugs.length > 0 ? slugs : [EMPTY_MONEY_PLACEHOLDER_SLUG]).map((slug) => ({ slug }));
+}
+
+export function findMoneyRule(library: RulesLibrary, slug: string): Rule | null {
+  return verifiedRulesIn(library, 'money').find((rule) => rule.id === slug) ?? null;
+}
