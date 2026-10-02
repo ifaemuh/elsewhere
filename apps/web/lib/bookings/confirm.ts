@@ -16,6 +16,19 @@ import { createAdminClient } from '@/lib/supabase/admin';
  */
 export async function onBookingsConfirmed(tripId: string, bookingIds: string[]): Promise<{ monitorSegmentIds: string[] }> {
   if (bookingIds.length === 0) return { monitorSegmentIds: [] };
+  try {
+    return await resolveConfirmedSegments(tripId, bookingIds);
+  } finally {
+    // Bookings changed, so passengers and flights may have too. Runs on every exit, and never masks the flight result or error.
+    try {
+      await runDocumentChecks(tripId);
+    } catch (e) {
+      console.error('confirm: document checks failed', e instanceof Error ? e.message : 'unknown');
+    }
+  }
+}
+
+async function resolveConfirmedSegments(tripId: string, bookingIds: string[]): Promise<{ monitorSegmentIds: string[] }> {
   const admin = createAdminClient();
   const { data: found, error } = await admin
     .from('booking_segments')
@@ -84,7 +97,6 @@ export async function onBookingsConfirmed(tripId: string, bookingIds: string[]):
       .is('scheduled_out', null);
     if (updateError) throw new Error(updateError.message);
   }
-  await runDocumentChecks(tripId);
   if (firstFailure) throw firstFailure;
   return { monitorSegmentIds: [] };
 }

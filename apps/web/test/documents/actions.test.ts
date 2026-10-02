@@ -2,16 +2,24 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const upserts: { table: string; rows: Record<string, unknown>[] }[] = [];
 const inserts: { table: string; row: Record<string, unknown> }[] = [];
+const rpc = vi.fn(async (_name: string, _args: Record<string, unknown>) => ({ data: true as boolean | null, error: null as { message: string } | null }));
+let existingConsent = false;
+let consentInsertError: { message: string } | null = null;
 vi.mock('@/lib/supabase/server', () => ({
   createClient: async () => ({
+    rpc,
     from: (table: string) => ({
+      select: () => {
+        const q = { eq: () => q, is: () => q, limit: async () => ({ data: table === 'consents' && existingConsent ? [{ id: 'c1' }] : [], error: null }) };
+        return q;
+      },
       upsert: async (rows: Record<string, unknown>[]) => {
         upserts.push({ table, rows });
         return { error: null };
       },
       insert: async (row: Record<string, unknown>) => {
         inserts.push({ table, row });
-        return { error: null };
+        return { error: consentInsertError };
       },
     }),
   }),
@@ -34,6 +42,10 @@ beforeEach(() => {
   upserts.length = 0;
   inserts.length = 0;
   runDocumentChecks.mockClear();
+  rpc.mockClear();
+  rpc.mockResolvedValue({ data: true, error: null });
+  existingConsent = false;
+  consentInsertError = null;
 });
 
 describe('saveDocuments', () => {
@@ -69,5 +81,39 @@ describe('saveDocuments', () => {
     expect((await saveDocuments(TRIP, { error: null, saved: false }, form({ passportCountry: 'USA' }))).saved).toBe(false);
     expect((await saveDocuments(TRIP, { error: null, saved: false }, form({ passportExpires: 'next year' }))).saved).toBe(false);
     expect(upserts).toHaveLength(0);
+  });
+
+  it('refuses a caller who is not a member of the trip, before any write or re-check', async () => {
+    rpc.mockResolvedValue({ data: false, error: null });
+    const state = await saveDocuments(TRIP, { error: null, saved: false }, form({}));
+    expect(rpc).toHaveBeenCalledWith('is_trip_member', { p_trip_id: TRIP });
+    expect(state.saved).toBe(false);
+    expect(state.error).toBeTruthy();
+    expect(upserts).toHaveLength(0);
+    expect(inserts).toHaveLength(0);
+    expect(runDocumentChecks).not.toHaveBeenCalled();
+  });
+
+  it('refuses when membership cannot be confirmed', async () => {
+    rpc.mockResolvedValue({ data: null, error: { message: 'down' } });
+    expect((await saveDocuments(TRIP, { error: null, saved: false }, form({}))).saved).toBe(false);
+    expect(upserts).toHaveLength(0);
+    expect(runDocumentChecks).not.toHaveBeenCalled();
+  });
+
+  it('records the documents consent once, not on every save', async () => {
+    await saveDocuments(TRIP, { error: null, saved: false }, form({}));
+    expect(inserts.filter((i) => i.table === 'consents')).toHaveLength(1);
+    inserts.length = 0;
+    existingConsent = true;
+    await saveDocuments(TRIP, { error: null, saved: false }, form({}));
+    expect(inserts.filter((i) => i.table === 'consents')).toHaveLength(0);
+  });
+
+  it('reports a failed consent insert and does not re-check', async () => {
+    consentInsertError = { message: 'nope' };
+    const state = await saveDocuments(TRIP, { error: null, saved: false }, form({}));
+    expect(state.saved).toBe(false);
+    expect(runDocumentChecks).not.toHaveBeenCalled();
   });
 });

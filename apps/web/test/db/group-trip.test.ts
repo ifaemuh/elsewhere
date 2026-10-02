@@ -286,3 +286,28 @@ describe('document facts and checks (Task 7)', () => {
     expect(updated.rows).toHaveLength(0);
   });
 });
+
+describe('replace_document_checks (Task 7 fix round)', () => {
+  const row = (result: string, detail: string) => ({ member_id: memberMemberId, user_id: MEMBER, rule_id: null, rule_version: null, result, detail });
+  const replace = (rows: unknown[]) => asService(db, () => db.query('select public.replace_document_checks($1, $2::jsonb)', [tripId, JSON.stringify(rows)]));
+  const count = () => asService(db, async () => (await one<{ n: number }>('select count(*)::int as n from public.document_checks where trip_id = $1', [tripId])).n);
+
+  it('replaces the trip’s checks in one step', async () => {
+    await replace([row('unknown', 'a'), row('ok', 'b')]);
+    expect(await count()).toBe(2);
+    await replace([row('ok', 'c')]);
+    expect(await count()).toBe(1);
+  });
+
+  it('keeps the existing checks when a row is invalid', async () => {
+    await replace([row('ok', 'keep me')]);
+    await expect(replace([row('ok', 'fine'), row('bogus', 'bad')])).rejects.toThrow();
+    expect(await count()).toBe(1);
+    expect((await asService(db, () => one<{ detail: string }>('select detail from public.document_checks where trip_id = $1', [tripId]))).detail).toBe('keep me');
+  });
+
+  it('is closed to members, the planner and anon', async () => {
+    await rejects(() => asUser(db, PLANNER, () => db.query('select public.replace_document_checks($1, $2::jsonb)', [tripId, '[]'])), /permission denied/);
+    await rejects(() => asUser(db, MEMBER, () => db.query('select public.replace_document_checks($1, $2::jsonb)', [tripId, '[]'])), /permission denied/);
+  });
+});

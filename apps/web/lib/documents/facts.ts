@@ -1,11 +1,16 @@
 import type { Situation } from '@elsewhere/rules/core';
 
+/**
+ * Whole months from `from` to `to`, rounded toward zero; an expiry before `from` is always negative.
+ * Month-end is conservative: Jan 31 to Feb 28 is 0 whole months.
+ */
 export function monthsBetween(fromIso: string, toIso: string): number {
   const from = new Date(`${fromIso.slice(0, 10)}T00:00:00Z`);
   const to = new Date(`${toIso.slice(0, 10)}T00:00:00Z`);
   let months = (to.getUTCFullYear() - from.getUTCFullYear()) * 12 + (to.getUTCMonth() - from.getUTCMonth());
   if (months > 0 && to.getUTCDate() < from.getUTCDate()) months -= 1;
   if (months < 0 && to.getUTCDate() > from.getUTCDate()) months += 1;
+  if (to < from && months >= 0) months = -1;
   return months;
 }
 

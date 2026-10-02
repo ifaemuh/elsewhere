@@ -14,3 +14,10 @@ describe('documents form', () => {
     expect(source).not.toMatch(/Character/);
   });
 });
+
+describe('documents form state', () => {
+  it('pre-checks "keep for my next trip" from the saved value', () => {
+    const source = readFileSync(path.join(dir, 'documents-form.tsx'), 'utf8');
+    expect(source).toMatch(/name="keepOnProfile" defaultChecked=\{keepOnProfile\}/);
+  });
+});

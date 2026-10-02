@@ -2,14 +2,13 @@ import { Suspense } from 'react';
 import { notFound } from 'next/navigation';
 import { Character } from '@/components/character';
 import { requireUser } from '@/lib/auth/user';
-import { requiredMonths } from '@/lib/documents/check';
-import { passportSentence, renewalAdvice, type RenewalRoute } from '@/lib/documents/deadlines';
+import { renewalAdvice, type RenewalRoute } from '@/lib/documents/deadlines';
+import { affiliateOffer, groupStatus, renewalSentenceFor } from '@/lib/documents/present';
 import { getLibrary } from '@/lib/rules/library';
 import { createClient } from '@/lib/supabase/server';
 import { DocumentsForm } from './documents-form';
 
 type Params = Promise<{ id: string }>;
-const regionName = new Intl.DisplayNames(['en'], { type: 'region' });
 
 export default function DocumentsPage({ params }: { params: Params }) {
   return (
@@ -29,7 +28,7 @@ async function DocumentsContent({ params }: { params: Params }) {
   const { data: trip } = await supabase.from('trips').select('id, name, destination_country, start_date, end_date').eq('id', id).maybeSingle();
   if (!trip) notFound();
   const { data: isPlanner } = await supabase.rpc('is_trip_planner', { p_trip_id: id });
-  const { data: mine } = await supabase.from('member_documents').select('kind, issuing_country, expires_on, real_id_compliant');
+  const { data: mine } = await supabase.from('member_documents').select('kind, issuing_country, expires_on, real_id_compliant, keep_on_profile');
   const { data: checks } = await supabase.from('document_checks').select('member_id, user_id, rule_id, result, detail').eq('trip_id', id);
   const { data: routes } = await supabase.from('travel_admin_partner_routes').select('*');
   const { data: directory } = await supabase.rpc('trip_directory', { p_trip_id: id });
@@ -45,6 +44,21 @@ async function DocumentsContent({ params }: { params: Params }) {
 
       {myChecks.map((check) => {
         const rule = rules.find((r) => r.id === check.rule_id) ?? null;
+        if (check.result === 'unknown' && check.rule_id === null) {
+          return (
+            <section key="no-coverage" className="mt-6 rounded-xl border border-[#e4dfd0] bg-white p-5">
+              <p className="font-medium">Elsewhere has no verified entry rules for this destination yet.</p>
+              <p className="mt-2 text-sm text-[#4b5745]">Check your destination’s official government site before you go, and make sure your passport is valid for your whole stay.</p>
+              {passportRoute ? (
+                <p className="mt-2 text-sm">
+                  <a href={passportRoute.official_url} className="underline" rel="noopener">
+                    {passportRoute.official_label}
+                  </a>
+                </p>
+              ) : null}
+            </section>
+          );
+        }
         if (check.result === 'ok') {
           return (
             <section key="ok" className="mt-6 flex items-center gap-4 rounded-xl border border-[#cfe3c8] bg-[#f1f8ee] p-5">
@@ -53,17 +67,14 @@ async function DocumentsContent({ params }: { params: Params }) {
             </section>
           );
         }
-        const months = rule ? requiredMonths(rule) : null;
-        const advice = passportRoute && rule?.tags.includes('passport') && trip.start_date ? renewalAdvice(trip.start_date, passportRoute, new Date()) : null;
-        const sentence =
-          rule && months && passport?.expires_on && trip.end_date && advice && trip.destination_country
-            ? passportSentence({ expiresOn: passport.expires_on, tripEnd: trip.end_date, requiredMonths: months, countryName: regionName.of(trip.destination_country) ?? trip.destination_country, advice })
-            : check.detail;
+        const sentence = renewalSentenceFor({ check, rule, passport, trip, route: passportRoute, today: new Date() });
+        const advice = check.result === 'action_needed' && passportRoute && rule?.tags.includes('passport') && trip.start_date ? renewalAdvice(trip.start_date, passportRoute, new Date()) : null;
+        const affiliate = advice?.kind === 'urgent' && passportRoute ? affiliateOffer(passportRoute) : null;
         return (
           <section key={check.rule_id ?? check.detail} className="mt-6 flex items-start gap-4 rounded-xl border border-[#e7c37a] bg-[#fdf3dc] p-5">
             <Character character="owl" variant="avatar" width={48} />
             <div>
-              <p className="font-medium">{sentence}</p>
+              <p className="font-medium">{sentence ?? check.detail}</p>
               {passportRoute && rule?.tags.includes('passport') ? (
                 <p className="mt-2 text-sm">
                   <a href={passportRoute.official_url} className="underline" rel="noopener">
@@ -72,12 +83,12 @@ async function DocumentsContent({ params }: { params: Params }) {
                   {passportRoute.official_note ? ` — ${passportRoute.official_note}` : ''}
                 </p>
               ) : null}
-              {advice?.kind === 'urgent' && passportRoute?.affiliate_url ? (
+              {affiliate ? (
                 <p className="mt-2 text-sm">
-                  <a href={passportRoute.affiliate_url} rel="sponsored noopener" className="underline">
-                    {passportRoute.affiliate_label}
+                  <a href={affiliate.url} rel="sponsored noopener" className="underline">
+                    {affiliate.label}
                   </a>
-                  <span className="block text-xs text-[#4b5745]">{passportRoute.affiliate_disclosure}</span>
+                  <span className="block text-xs text-[#4b5745]">{affiliate.disclosure}</span>
                 </p>
               ) : null}
               {rule ? (
@@ -90,15 +101,14 @@ async function DocumentsContent({ params }: { params: Params }) {
         );
       })}
 
-      <DocumentsForm tripId={id} passportCountry={passport?.issuing_country ?? ''} passportExpires={passport?.expires_on ?? ''} />
+      <DocumentsForm tripId={id} passportCountry={passport?.issuing_country ?? ''} passportExpires={passport?.expires_on ?? ''} keepOnProfile={mine?.some((d) => d.keep_on_profile) ?? false} />
 
       {isPlanner === true ? (
         <section className="mt-10">
           <h2 className="text-xl font-semibold">The group</h2>
           <ul className="mt-3 divide-y divide-[#e4dfd0] rounded-xl border border-[#e4dfd0] bg-white">
             {(directory ?? []).map((member: { member_id: string; display_name: string }) => {
-              const theirs = (checks ?? []).filter((c) => c.member_id === member.member_id);
-              const status = theirs.some((c) => c.result === 'action_needed') ? 'Needs attention' : theirs.some((c) => c.result === 'unknown') ? 'Hasn’t confirmed yet' : 'All clear';
+              const status = groupStatus((checks ?? []).filter((c) => c.member_id === member.member_id));
               return (
                 <li key={member.member_id} className="flex justify-between px-4 py-3">
                   <span>{member.display_name}</span>

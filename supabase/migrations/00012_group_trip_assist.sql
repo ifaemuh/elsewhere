@@ -399,6 +399,22 @@ create table public.action_items (
   unique (trip_id, source_kind, related_entity_id, title)
 );
 
+-- Replaces a trip's document checks in one transaction. The trip row lock serializes concurrent runs,
+-- and a bad row raises, which rolls the delete back so the trip is never left with no checks.
+create or replace function public.replace_document_checks(p_trip_id uuid, p_rows jsonb)
+returns void
+language plpgsql security definer set search_path = public, pg_temp as $$
+begin
+  perform 1 from public.trips where id = p_trip_id for update;
+  delete from public.document_checks where trip_id = p_trip_id;
+  insert into public.document_checks (trip_id, member_id, user_id, rule_id, rule_version, result, detail)
+  select p_trip_id, r.member_id, r.user_id, r.rule_id, r.rule_version, r.result::check_result, r.detail
+  from jsonb_to_recordset(p_rows) as r(member_id uuid, user_id uuid, rule_id text, rule_version int, result text, detail text);
+end;
+$$;
+revoke execute on function public.replace_document_checks(uuid, jsonb) from public, anon, authenticated;
+grant execute on function public.replace_document_checks(uuid, jsonb) to service_role;
+
 -- 7. Votes and money ------------------------------------------------------------
 create table public.votes (
   id uuid primary key default gen_random_uuid(),

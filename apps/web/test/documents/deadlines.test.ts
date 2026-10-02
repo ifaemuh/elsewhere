@@ -26,4 +26,10 @@ describe('passportSentence', () => {
       passportSentence({ expiresOn: '2027-01-15', tripEnd: '2026-11-10', requiredMonths: 3, countryName: 'Portugal', advice: { kind: 'routine', renewBy: '2026-09-08' } }),
     ).toBe('Your passport expires 2 months after the trip; Portugal needs 3. Renew online by Sep 8, 2026 to make routine processing.');
   });
+
+  it('says expired, never "0 months after", when the passport lapses before the return', () => {
+    const sentence = passportSentence({ expiresOn: '2026-11-05', tripEnd: '2026-11-10', requiredMonths: 3, countryName: 'Portugal', advice: { kind: 'urgent' } });
+    expect(sentence).toMatch(/expires before the trip ends/);
+    expect(sentence).not.toMatch(/0 months after/);
+  });
 });

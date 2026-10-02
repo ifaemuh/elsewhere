@@ -27,3 +27,14 @@ export function requiredMonths(rule: Rule): number | null {
   const value = rule.entitlement.amount?.min_months_valid_after_return;
   return typeof value === 'number' ? value : null;
 }
+
+/** Stored as an `unknown` check with no rule, so neither the member nor the planner sees "All clear" for a trip nothing was checked against. */
+export const NO_COVERAGE_DETAIL = 'Elsewhere has no verified entry rules for this trip yet.';
+
+/**
+ * True when at least one verified document rule fits the trip itself (destination, domestic or not),
+ * whatever any member has entered. An empty library, or one that covers only other destinations, is false.
+ */
+export function documentRulesCover(rules: Rule[], tripSituation: Situation): boolean {
+  return matchRules(rules.filter((rule) => rule.domain === 'documents'), tripSituation, { statuses: ['verified'] }).length > 0;
+}

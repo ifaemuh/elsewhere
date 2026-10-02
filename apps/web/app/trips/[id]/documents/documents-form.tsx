@@ -6,7 +6,7 @@ import { saveDocuments, type DocumentsState } from './actions';
 
 const inputClass = 'mt-1 w-full rounded-md border border-[#d9d3c2] bg-white px-3 py-2';
 
-export function DocumentsForm({ tripId, passportCountry, passportExpires }: { tripId: string; passportCountry: string; passportExpires: string }) {
+export function DocumentsForm({ tripId, passportCountry, passportExpires, keepOnProfile }: { tripId: string; passportCountry: string; passportExpires: string; keepOnProfile: boolean }) {
   const [state, formAction, pending] = useActionState<DocumentsState, FormData>(saveDocuments.bind(null, tripId), { error: null, saved: false });
   return (
     <form action={formAction} className="mt-10 space-y-4 rounded-xl border border-[#e4dfd0] bg-white p-6">
@@ -32,7 +32,7 @@ export function DocumentsForm({ tripId, passportCountry, passportExpires }: { tr
         </div>
       </fieldset>
       <label className="flex items-start gap-2 text-sm">
-        <input type="checkbox" name="keepOnProfile" className="mt-1" /> Keep these for my next trip (otherwise we delete them 30 days after this one).
+        <input type="checkbox" name="keepOnProfile" defaultChecked={keepOnProfile} className="mt-1" /> Keep these for my next trip (otherwise we delete them 30 days after this one).
       </label>
       <label className="flex items-start gap-2 text-sm">
         <input type="checkbox" name="consent" required className="mt-1" /> Store my passport’s issuing country and expiry date to check this trip’s entry rules.

@@ -28,3 +28,23 @@ describe('checkMember', () => {
     expect(requiredMonths(rules.find((r) => r.id === 'fixture-passport-validity-pt')!)).toBe(3);
   });
 });
+
+import { documentRulesCover } from '@/lib/documents/check';
+
+describe('documentRulesCover', () => {
+  it('is false for an empty library', () => {
+    expect(documentRulesCover([], { 'trip.destination_country': 'PT', 'flight.is_domestic_us': false })).toBe(false);
+  });
+  it('is false when only other destinations are covered', () => {
+    expect(documentRulesCover(rules, { 'trip.destination_country': 'JP', 'flight.is_domestic_us': false })).toBe(false);
+  });
+  it('is true when a verified document rule fits the destination', () => {
+    expect(documentRulesCover(rules, { 'trip.destination_country': 'PT', 'flight.is_domestic_us': false })).toBe(true);
+  });
+  it('is true for a domestic trip, which REAL ID covers', () => {
+    expect(documentRulesCover(rules, { 'flight.is_domestic_us': true })).toBe(true);
+  });
+  it('counts a rule that may apply because facts are missing', () => {
+    expect(documentRulesCover(rules, { 'trip.destination_country': 'PT' })).toBe(true);
+  });
+});

@@ -149,4 +149,36 @@ describe('onBookingsConfirmed', () => {
     expect(state.updates[0].filters).toContainEqual(['eq', ['id', 's2']]);
     expect(state.upserts).toHaveLength(0);
   });
+
+  describe('document re-check', () => {
+    it('still runs when there are no unresolved segments (early return)', async () => {
+      state.segments = [];
+      expect(await onBookingsConfirmed('t1', ['b1'])).toEqual({ monitorSegmentIds: [] });
+      expect(runDocumentChecks).toHaveBeenCalledWith('t1');
+    });
+
+    it('still runs when every segment is already flagged', async () => {
+      state.existingItems = [{ related_entity_id: 's1' }];
+      await onBookingsConfirmed('t1', ['b1']);
+      expect(runDocumentChecks).toHaveBeenCalledWith('t1');
+    });
+
+    it('still runs when the flight part throws, and that error still propagates', async () => {
+      state.upsertError = 'db down';
+      await expect(onBookingsConfirmed('t1', ['b1'])).rejects.toThrow('db down');
+      expect(runDocumentChecks).toHaveBeenCalledWith('t1');
+    });
+
+    it('never makes onBookingsConfirmed throw when the document check fails', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      runDocumentChecks.mockRejectedValueOnce(new Error('checks down'));
+      state.scheduled = [tp204];
+      await expect(onBookingsConfirmed('t1', ['b1'])).resolves.toEqual({ monitorSegmentIds: [] });
+    });
+
+    it('does not run for an empty confirmation', async () => {
+      await onBookingsConfirmed('t1', []);
+      expect(runDocumentChecks).not.toHaveBeenCalled();
+    });
+  });
 });

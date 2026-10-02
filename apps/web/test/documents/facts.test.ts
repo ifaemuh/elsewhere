@@ -8,6 +8,16 @@ describe('monthsBetween', () => {
     expect(monthsBetween('2026-11-10', '2027-02-09')).toBe(2);
     expect(monthsBetween('2026-11-10', '2026-10-01')).toBe(-1);
   });
+
+  it('treats an expiry before the return date as expired, even inside the same month', () => {
+    expect(monthsBetween('2026-11-10', '2026-11-05')).toBe(-1);
+    expect(monthsBetween('2026-11-10', '2026-10-15')).toBe(-1);
+    expect(monthsBetween('2026-11-10', '2026-11-10')).toBe(0);
+  });
+
+  it('rounds month-end conservatively: Jan 31 to Feb 28 is zero whole months', () => {
+    expect(monthsBetween('2026-01-31', '2026-02-28')).toBe(0);
+  });
 });
 
 describe('documentSituation', () => {

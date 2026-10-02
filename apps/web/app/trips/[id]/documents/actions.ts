@@ -21,6 +21,10 @@ const DocumentsInput = z.object({
 
 export async function saveDocuments(tripId: string, _prev: DocumentsState, form: FormData): Promise<DocumentsState> {
   const user = await requireUser(`/trips/${tripId}/documents`);
+  const supabase = await createClient();
+  // tripId comes from the client, and the re-check runs with the service role: confirm membership before any write.
+  const { data: isMember, error: memberError } = await supabase.rpc('is_trip_member', { p_trip_id: tripId });
+  if (memberError || isMember !== true) return { error: 'You are not on this trip.', saved: false };
   const parsed = DocumentsInput.safeParse({
     passportCountry: form.get('passportCountry') ?? '',
     passportExpires: form.get('passportExpires') ?? '',
@@ -30,7 +34,13 @@ export async function saveDocuments(tripId: string, _prev: DocumentsState, form:
   });
   if (!parsed.success) return { error: parsed.error.issues[0].message, saved: false };
 
-  const supabase = await createClient();
+  const { data: granted, error: grantedError } = await supabase.from('consents').select('id').eq('user_id', user.id).eq('kind', 'documents').is('revoked_at', null).limit(1);
+  if (grantedError) return { error: 'We could not save that. Try again.', saved: false };
+  if (!granted || granted.length === 0) {
+    const { error: consentError } = await supabase.from('consents').insert({ user_id: user.id, kind: 'documents', policy_version: 'documents-2026-10' });
+    if (consentError) return { error: 'We could not save that. Try again.', saved: false };
+  }
+
   const now = new Date().toISOString();
   const upserts = [
     ...(parsed.data.passportCountry || parsed.data.passportExpires
@@ -44,7 +54,6 @@ export async function saveDocuments(tripId: string, _prev: DocumentsState, form:
     const { error } = await supabase.from('member_documents').upsert(upserts, { onConflict: 'user_id,kind' });
     if (error) return { error: 'We could not save that. Try again.', saved: false };
   }
-  await supabase.from('consents').insert({ user_id: user.id, kind: 'documents', policy_version: 'documents-2026-10' });
   await runDocumentChecks(tripId);
   revalidatePath(`/trips/${tripId}/documents`);
   return { error: null, saved: true };
