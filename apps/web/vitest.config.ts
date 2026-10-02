@@ -14,7 +14,26 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
-    include: ['test/**/*.test.ts', 'test/**/*.test.tsx'],
-    exclude: ['test/**/*.integration.test.ts', 'e2e/**', 'node_modules/**'],
+    projects: [
+      {
+        extends: true,
+        test: {
+          name: 'app',
+          include: ['test/**/*.test.ts', 'test/**/*.test.tsx'],
+          exclude: ['test/**/*.integration.test.ts', 'test/rules-api/**', 'test/mcp/**', 'e2e/**', 'node_modules/**'],
+        },
+      },
+      {
+        // Track D (public Rules API + MCP): global mocks live in its own setup file so they
+        // never change what the app project's tests run against.
+        extends: true,
+        test: {
+          name: 'rules-api',
+          include: ['test/rules-api/**/*.test.ts', 'test/mcp/**/*.test.ts'],
+          setupFiles: ['./test/rules-api/setup.ts'],
+          clearMocks: true,
+        },
+      },
+    ],
   },
 });
