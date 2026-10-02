@@ -3,10 +3,11 @@ import { signStandardWebhook, TEST_WEBHOOK_SECRET } from '../helpers/webhooks';
 
 const started: unknown[] = [];
 const inserted: { table: string; row: Record<string, unknown> }[] = [];
-const state: { insertError: { code: string; message: string } | null; existing: { id: string; status: string } | null; startFails: boolean } = {
+const state: { insertError: { code: string; message: string } | null; existing: { id: string; status: string } | null; startFails: boolean; itemError: boolean } = {
   insertError: null,
   existing: null,
   startFails: false,
+  itemError: false,
 };
 
 vi.mock('workflow/api', () => ({
@@ -31,6 +32,10 @@ vi.mock('@/lib/supabase/admin', () => ({
                 }),
               },
       }),
+      upsert: async (row: Record<string, unknown>, options: Record<string, unknown>) => {
+        inserted.push({ table, row: { ...row, __options: options } });
+        return { error: state.itemError ? { message: 'db down' } : null };
+      },
       insert: (row: Record<string, unknown>) => {
         inserted.push({ table, row });
         const result = table === 'inbound_messages' && state.insertError ? { data: null, error: state.insertError } : { data: { id: 'msg-1' }, error: null };
@@ -51,6 +56,7 @@ beforeEach(() => {
   state.insertError = null;
   state.existing = null;
   state.startFails = false;
+  state.itemError = false;
   vi.spyOn(console, 'error').mockImplementation(() => {});
 });
 
@@ -172,5 +178,22 @@ describe('POST /api/webhooks/inbound-email', () => {
     const res = await post(payload, signStandardWebhook(payload, TEST_WEBHOOK_SECRET));
     expect(await res.json()).toEqual({ duplicate: 'em_1' });
     expect(started).toEqual([]);
+  });
+
+  it('answers 500 when the planner item cannot be saved, and a retry saves it without re-storing', async () => {
+    const payload = event('Mallory <mallory@example.test>');
+    state.itemError = true;
+    expect((await post(payload, signStandardWebhook(payload, TEST_WEBHOOK_SECRET))).status).toBe(500);
+    state.itemError = false;
+    state.insertError = { code: '23505', message: 'duplicate key value' };
+    state.existing = { id: 'msg-1', status: 'quarantined' };
+    inserted.length = 0;
+    expect((await post(payload, signStandardWebhook(payload, TEST_WEBHOOK_SECRET))).status).toBe(200);
+    expect(started).toEqual([]);
+    expect(inserted.find((i) => i.table === 'action_items')?.row).toMatchObject({
+      source_kind: 'inbound_quarantine',
+      related_entity_id: 'msg-1',
+      __options: { onConflict: 'trip_id,source_kind,related_entity_id,title', ignoreDuplicates: true },
+    });
   });
 });

@@ -247,6 +247,7 @@ create table public.inbound_messages (
   storage_path text,
   status inbound_status not null default 'received',
   error text,
+  claimed_by text,
   received_at timestamptz not null default now()
 );
 

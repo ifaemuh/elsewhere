@@ -23,9 +23,13 @@ function must<T>(result: { data: T; error: { message: string } | null }): NonNul
 export function liveIntakeDeps(): IntakeDeps {
   const admin = createAdminClient();
   return {
-    async claimMessage(id) {
-      // One conditional UPDATE is the lock: only the run that flips received -> processing gets a row back.
-      const { data, error } = await admin.from('inbound_messages').update({ status: 'processing' }).eq('id', id).eq('status', 'received').select('id');
+    async claimMessage(id, runId) {
+      // One conditional UPDATE is the lock: the run that flips received -> processing gets a row back, and so does
+      // the same run if a step retry claims again after the first claim committed but its result was lost.
+      const { data, error } = await admin.from('inbound_messages').update({ status: 'processing', claimed_by: runId })
+        .eq('id', id)
+        .or(`status.eq.received,and(status.eq.processing,claimed_by.eq.${runId})`)
+        .select('id');
       if (error) throw new Error(error.message);
       return (data ?? []).length > 0;
     },

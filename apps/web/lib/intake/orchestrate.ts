@@ -18,18 +18,18 @@ function reasonFor(error: unknown): string {
 }
 
 /**
- * Claim, then extract, persist, confirm. The claim makes a second start of the same message a no-op, so a
- * redelivery or concurrent start never pays for a second extraction. A claimed message ends as parsed,
- * needs_confirmation or failed; only an explicit planner or admin action sets a failed one back to received.
- * Extract, persist, confirm. Each is its own step, and a step's result is replayed from the event log, so
- * a retry of a later step never reruns the paid extraction. Whatever still fails after retries ends as a
- * failed message with a planner-facing item, never a message stuck in "received".
+ * Claim, extract, persist, confirm. The claim makes a second run for the same message a no-op, so a
+ * redelivery or concurrent start never pays for a second extraction (the same run re-claims its own message
+ * when a step retries). Each later phase is its own step and its result is replayed from the event log, so a
+ * retry never reruns the paid extraction. A claimed message ends as parsed, needs_confirmation or failed,
+ * never stuck; only an explicit planner or admin action sets a failed one back to received.
  */
 export async function runIntake(messageId: string, steps: IntakeSteps): Promise<IntakeResult> {
   let extraction: ReadyExtraction | null = null;
-  let stage: FailureKind = 'unreadable';
+  let stage: FailureKind = 'claim';
   try {
     if (!(await steps.claim(messageId))) return { status: 'claimed_elsewhere' };
+    stage = 'unreadable';
     const extracted = await steps.extract(messageId);
     if (extracted.status === 'missing') return extracted;
     extraction = extracted;
@@ -41,7 +41,7 @@ export async function runIntake(messageId: string, steps: IntakeSteps): Promise<
     stage = 'lookup';
     return await steps.confirm(extraction, persisted);
   } catch (error) {
-    const reason = stage === 'lookup' ? 'flight lookup did not finish' : reasonFor(error);
+    const reason = stage === 'lookup' ? 'flight lookup did not finish' : stage === 'claim' ? 'could not start processing' : reasonFor(error);
     return steps.markFailed(messageId, reason, extraction?.problems ?? [], stage, extraction?.storagePath ?? null);
   }
 }

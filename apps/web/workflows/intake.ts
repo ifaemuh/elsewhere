@@ -1,4 +1,4 @@
-import { FatalError } from 'workflow';
+import { FatalError, getWorkflowMetadata } from 'workflow';
 import { start } from 'workflow/api';
 import { runIntake } from '../lib/intake/orchestrate';
 import type { ExtractOutcome, FailureKind, IntakeResult, PersistOutcome, ReadyExtraction } from '../lib/intake/process';
@@ -32,7 +32,7 @@ async function liveDeps() {
 // Step 0 takes the message; a second run for the same message finds it taken and exits.
 async function claimStep(messageId: string): Promise<boolean> {
   'use step';
-  return (await import('../lib/intake/process')).claimPhase(messageId, await liveDeps());
+  return (await import('../lib/intake/process')).claimPhase(messageId, getWorkflowMetadata().workflowRunId, await liveDeps());
 }
 
 // Step A fetches, archives and reads the message; its small result is all later steps see.

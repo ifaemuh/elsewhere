@@ -23,8 +23,8 @@ export interface NewActionItem {
 }
 
 export interface IntakeDeps {
-  /** Atomic received -> processing. True only for the one caller that made the change. */
-  claimMessage(id: string): Promise<boolean>;
+  /** Atomic received -> processing for this run. True for the first claimer, and for the same run claiming again after a retry. */
+  claimMessage(id: string, runId: string): Promise<boolean>;
   loadMessage(id: string): Promise<IntakeMessage | null>;
   loadEmail(providerMessageId: string): Promise<InboundEmail>;
   storeEmail(message: IntakeMessage, email: InboundEmail): Promise<string>;
@@ -47,7 +47,7 @@ export interface IntakeDeps {
 /** A failure retrying cannot fix. The workflow turns it into a FatalError. The message is fixed text, never email content. */
 export class PermanentIntakeError extends Error {}
 
-export type FailureKind = 'unreadable' | 'save' | 'lookup';
+export type FailureKind = 'claim' | 'unreadable' | 'save' | 'lookup';
 
 export type IntakeResult =
   | { status: 'missing' }
@@ -73,8 +73,8 @@ async function plannerIds(deps: IntakeDeps, tripId: string): Promise<string[]> {
 }
 
 /** Step 0: take the message so no other run processes it. */
-export async function claimPhase(messageId: string, deps: IntakeDeps): Promise<boolean> {
-  return deps.claimMessage(messageId);
+export async function claimPhase(messageId: string, runId: string, deps: IntakeDeps): Promise<boolean> {
+  return deps.claimMessage(messageId, runId);
 }
 
 /** Step A: fetch and archive the message, then read it. The paid, nondeterministic part: it must not rerun on a later retry. */
@@ -186,7 +186,9 @@ export async function failPhase(
   const subject = message.subject ?? 'a forwarded message';
   const note = problems.length > 0 ? ` ${problems.join('; ')}.` : '';
   const item =
-    kind === 'lookup'
+    kind === 'claim'
+      ? { title: 'We couldn’t start processing a forwarded email', detail: `We couldn’t start processing “${subject}”. You can add the booking by hand on the bookings page.` }
+      : kind === 'lookup'
       ? { title: 'We couldn’t start flight tracking', detail: 'We saved your booking but couldn’t start flight tracking yet. We’ll retry; check the flight details.' }
       : kind === 'save'
         ? { title: 'We couldn’t finish saving a booking', detail: `We couldn’t finish saving the bookings from “${subject}”. Some may be saved; check the bookings page.${note}` }

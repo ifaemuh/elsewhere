@@ -83,4 +83,28 @@ describe('runIntake', () => {
     expect(s.claim).toHaveBeenCalledTimes(1);
     expect(s.markFailed).toHaveBeenCalledTimes(1);
   });
+
+  it('lets the same run re-claim its own message after a lost step result, then proceeds to extraction', async () => {
+    const owner = { current: null as string | null };
+    const claimFor = (run: string) => async () => {
+      if (owner.current === null || owner.current === run) {
+        owner.current = run;
+        return true;
+      }
+      return false;
+    };
+    await claimFor('run-1')(); // the first claim committed, but its result was lost
+    const retry = steps({ claim: claimFor('run-1') });
+    await runIntake('m', retry);
+    expect(retry.extract).toHaveBeenCalledTimes(1);
+    const other = steps({ claim: claimFor('run-2') });
+    expect(await runIntake('m', other)).toEqual({ status: 'claimed_elsewhere' });
+  });
+
+  it('marks a message failed with a neutral reason when the claim itself fails', async () => {
+    const s = steps({ claim: vi.fn(async () => { throw new Error('db down for Pat Doe'); }) });
+    await runIntake('m', s);
+    expect(s.markFailed).toHaveBeenCalledWith('m', 'could not start processing', [], 'claim', null);
+    expect(s.extract).not.toHaveBeenCalled();
+  });
 });

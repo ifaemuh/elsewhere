@@ -14,6 +14,6 @@ export function inboundAddress(code: string, inboundDomain: string): string {
 }
 
 export function inboundCodeFromAddress(address: string, inboundDomain: string): string | null {
-  const match = address.toLowerCase().match(/(trip-[a-z0-9]{12})@([a-z0-9.-]+)/);
+  const match = address.toLowerCase().match(/(?:^|[<\s,])(trip-[a-z0-9]{12})@([a-z0-9.-]+)/);
   return match && match[2] === inboundDomain.toLowerCase() ? match[1] : null;
 }

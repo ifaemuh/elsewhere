@@ -58,19 +58,25 @@ export async function POST(request: Request): Promise<Response> {
     .select('id')
     .single();
   let messageId: string;
+  let status = permitted ? 'received' : 'quarantined';
   if (error) {
     if (error.code !== '23505') return new Response('could not store message', { status: 500 });
     // provider_message_id is unique: Resend retried a delivery we already stored. A row still `received`
     // means intake never started (the last start threw, and we answered 500 so Resend would retry).
+    // A row still `quarantined` may be missing its planner item (that insert failed and we answered 500).
     const { data: existing } = await admin.from('inbound_messages').select('id, status').eq('provider_message_id', data.email_id).maybeSingle();
-    if (existing?.status !== 'received') return Response.json({ duplicate: data.email_id });
+    if (existing?.status !== 'received' && existing?.status !== 'quarantined') return Response.json({ duplicate: data.email_id });
     messageId = existing.id;
+    status = existing.status;
   } else {
     messageId = inserted.id;
-    if (!permitted) {
-      const planner = members.find((member) => member.role === 'planner');
-      if (planner) {
-        await admin.from('action_items').insert({
+  }
+
+  if (status === 'quarantined') {
+    const planner = members.find((member) => member.role === 'planner');
+    if (planner) {
+      const { error: itemError } = await admin.from('action_items').upsert(
+        {
           trip_id: trip.id,
           kind: 'approval',
           title: 'Approve a forwarded email',
@@ -78,10 +84,13 @@ export async function POST(request: Request): Promise<Response> {
           assigned_user_ids: [planner.userId],
           source_kind: 'inbound_quarantine',
           related_entity_id: messageId,
-        });
-      }
-      return Response.json({ quarantined: messageId });
+        },
+        { onConflict: 'trip_id,source_kind,related_entity_id,title', ignoreDuplicates: true },
+      );
+      // The message is stored but the planner was not told: fail so Resend retries (the upsert is idempotent).
+      if (itemError) return new Response('could not notify planner', { status: 500 });
     }
+    return Response.json({ quarantined: messageId });
   }
 
   try {
