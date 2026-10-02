@@ -34,7 +34,7 @@ describe('httpAeroApi', () => {
 
   it('creates an alert and reads its id from Location', async () => {
     const { fetchImpl, calls } = fakeFetch({ '/alerts': { status: 201, headers: { location: '/alerts/987' } } });
-    const id = await httpAeroApi('k', fetchImpl).createAlert({ ident: 'TP204', origin: 'EWR', destination: 'LIS', date: '2026-11-03', targetUrl: 'https://x.test/api/webhooks/aeroapi/s' });
+    const id = await httpAeroApi('k', fetchImpl, { appOrigin: 'https://x.test' }).createAlert({ ident: 'TP204', origin: 'EWR', destination: 'LIS', date: '2026-11-03', targetUrl: 'https://x.test/api/webhooks/aeroapi/s' });
     expect(id).toBe('987');
     const body = JSON.parse(String(calls[0].init?.body));
     expect(body).toMatchObject({ ident: 'TP204', start: '2026-11-03', end: '2026-11-03', target_url: 'https://x.test/api/webhooks/aeroapi/s' });
@@ -86,9 +86,41 @@ describe('httpAeroApi', () => {
     expect(flights[0]).toMatchObject({ fa_flight_id: 'f1', cancelled: true, scheduled_out: null, estimated_in: null, origin: null, arrival_delay: null });
   });
 
+  it('refuses alert targets outside our own https origin, without calling AeroAPI', async () => {
+    const { fetchImpl, calls } = fakeFetch({ '/alerts': { status: 201, headers: { location: '/alerts/1' } } });
+    const input = { ident: 'TP204', origin: 'EWR', destination: 'LIS', date: '2026-11-03' };
+    const api = httpAeroApi('k', fetchImpl, { appOrigin: 'https://x.test' });
+    for (const targetUrl of ['https://evil.test/h', 'https://x.test.evil.test/h', 'http://x.test/h', 'not a url']) {
+      const err = await api.createAlert({ ...input, targetUrl }).catch((e) => e);
+      expect(err).toBeInstanceOf(AeroApiError);
+      expect(err.retryable).toBe(false);
+    }
+    expect(calls).toHaveLength(0);
+  });
+
+  it('allows an http localhost target when it is our origin', async () => {
+    const { fetchImpl } = fakeFetch({ '/alerts': { status: 201, headers: { location: '/alerts/5' } } });
+    const api = httpAeroApi('k', fetchImpl, { appOrigin: 'http://localhost:3000' });
+    expect(await api.createAlert({ ident: 'TP204', origin: 'EWR', destination: 'LIS', date: '2026-11-03', targetUrl: 'http://localhost:3000/api/webhooks/aeroapi/s' })).toBe('5');
+  });
+
+  it('defaults the allowed origin to the app URL', async () => {
+    const saved = process.env.NEXT_PUBLIC_APP_URL;
+    process.env.NEXT_PUBLIC_APP_URL = 'https://app.test/';
+    try {
+      const { fetchImpl } = fakeFetch({ '/alerts': { status: 201, headers: { location: '/alerts/6' } } });
+      const api = httpAeroApi('k', fetchImpl);
+      expect(await api.createAlert({ ident: 'TP204', origin: 'EWR', destination: 'LIS', date: '2026-11-03', targetUrl: 'https://app.test/h' })).toBe('6');
+      await expect(api.createAlert({ ident: 'TP204', origin: 'EWR', destination: 'LIS', date: '2026-11-03', targetUrl: 'https://x.test/h' })).rejects.toBeInstanceOf(AeroApiError);
+    } finally {
+      if (saved === undefined) delete process.env.NEXT_PUBLIC_APP_URL;
+      else process.env.NEXT_PUBLIC_APP_URL = saved;
+    }
+  });
+
   it('fails alert creation with a typed error', async () => {
     const { fetchImpl } = fakeFetch({ '/alerts': { status: 502 } });
-    const err = await httpAeroApi('k', fetchImpl).createAlert({ ident: 'TP204', origin: 'EWR', destination: 'LIS', date: '2026-11-03', targetUrl: 'https://x.test/h' }).catch((e) => e);
+    const err = await httpAeroApi('k', fetchImpl, { appOrigin: 'https://x.test' }).createAlert({ ident: 'TP204', origin: 'EWR', destination: 'LIS', date: '2026-11-03', targetUrl: 'https://x.test/h' }).catch((e) => e);
     expect(err).toBeInstanceOf(AeroApiError);
     expect(err.retryable).toBe(true);
   });

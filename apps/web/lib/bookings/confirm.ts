@@ -7,8 +7,9 @@ import { createAdminClient } from '@/lib/supabase/admin';
  * Runs whenever bookings become confirmed: by the planner, by high-confidence intake, or by manual entry.
  * Returns the segment ids the caller should start monitoring (Task 9 fills this in).
  *
- * AeroAPI bills per call, so a segment is looked up at most once: resolved segments (scheduled_out set)
- * are skipped, and so are segments that already have a flight-not-found item still waiting on the planner.
+ * AeroAPI bills per call: resolved segments (scheduled_out set) are skipped, and so are segments whose
+ * flight-not-found item is still open or snoozed. That is at most one lookup per planner action; marking
+ * the item done without fixing the flight triggers one more lookup, which reopens it.
  * If AeroAPI fails with a retryable error, the other segments are still processed and the first error is
  * rethrown afterwards for the caller to retry; only the failed segments are looked up again.
  */
@@ -51,21 +52,25 @@ export async function onBookingsConfirmed(tripId: string, bookingIds: string[]):
       continue;
     }
     if (resolution.kind === 'not_found') {
-      await admin.from('action_items').upsert(
+      // Reopens a done item, so a planner who dismisses it without fixing the flight sees it again.
+      const { error: itemError } = await admin.from('action_items').upsert(
         {
           trip_id: tripId,
           kind: 'booking',
           title: 'Check this flight number',
           detail: `We couldn’t find ${segment.carrier_iata} ${segment.flight_number} from ${segment.origin_iata} on ${segment.departure_local.slice(0, 10)}. Check the flight number and date.`,
           assigned_user_ids: planner ? [planner.user_id] : [],
+          status: 'open',
           source_kind: 'flight_not_found',
           related_entity_id: segment.id,
         },
-        { onConflict: 'trip_id,source_kind,related_entity_id,title', ignoreDuplicates: true },
+        { onConflict: 'trip_id,source_kind,related_entity_id,title' },
       );
+      if (itemError) throw new Error(itemError.message);
       continue;
     }
-    await admin
+    // Guarded so overlapping runs cannot overwrite a segment another run already resolved.
+    const { error: updateError } = await admin
       .from('booking_segments')
       .update({
         scheduled_out: resolution.scheduledOut,
@@ -74,7 +79,9 @@ export async function onBookingsConfirmed(tripId: string, bookingIds: string[]):
         destination_country: resolution.destinationCountry,
         distance_km: resolution.distanceKm,
       })
-      .eq('id', segment.id);
+      .eq('id', segment.id)
+      .is('scheduled_out', null);
+    if (updateError) throw new Error(updateError.message);
   }
   if (firstFailure) throw firstFailure;
   return { monitorSegmentIds: [] };

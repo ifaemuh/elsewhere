@@ -1,4 +1,4 @@
-import { assertTestSeamAllowed, requireEnv } from '@/lib/env';
+import { appUrl, assertTestSeamAllowed, requireEnv } from '@/lib/env';
 
 const BASE = 'https://aeroapi.flightaware.com/aeroapi';
 const TIMEOUT_MS = 10_000;
@@ -106,7 +106,21 @@ function parseAirport(v: unknown): AeroAirport | null {
 
 const list = <T>(v: unknown, parse: (x: unknown) => T | null): T[] => (Array.isArray(v) ? v.map(parse).filter((x): x is T => x !== null) : []);
 
-export function httpAeroApi(key: string, fetchImpl: typeof fetch = fetch): AeroApi {
+/** Alerts may only call back to our own origin: https, or http on localhost for development. */
+function assertOwnOrigin(targetUrl: string, appOrigin: string): void {
+  let url: URL;
+  try {
+    url = new URL(targetUrl);
+  } catch {
+    throw new AeroApiError('AeroAPI alert target is not a valid URL', null, false);
+  }
+  const local = url.hostname === 'localhost' || url.hostname === '127.0.0.1';
+  if (url.origin !== appOrigin || (url.protocol !== 'https:' && !local)) {
+    throw new AeroApiError('AeroAPI alert target must be our own https origin', null, false);
+  }
+}
+
+export function httpAeroApi(key: string, fetchImpl: typeof fetch = fetch, options: { appOrigin?: string } = {}): AeroApi {
   const headers = { 'x-apikey': key, accept: 'application/json' };
 
   async function request(path: string, init: RequestInit & { query?: Record<string, string> } = {}): Promise<Response> {
@@ -152,6 +166,7 @@ export function httpAeroApi(key: string, fetchImpl: typeof fetch = fetch): AeroA
       return list(body?.flights, parseFlight);
     },
     async createAlert({ ident, origin, destination, date, targetUrl }) {
+      assertOwnOrigin(targetUrl, options.appOrigin ?? new URL(appUrl()).origin);
       const response = await request('/alerts', {
         method: 'POST',
         headers: { 'content-type': 'application/json; charset=UTF-8' },
