@@ -1,5 +1,6 @@
 import { withRulesApi } from '@/lib/rules-api/handle';
 import { jsonOk } from '@/lib/rules-api/envelope';
+import { publicChanges } from '@/lib/rules-api/changes';
 import { publicArtifactRules } from '@/lib/rules-api/projection';
 import { ATTRIBUTION } from '@/lib/rules-api/types';
 
@@ -7,7 +8,6 @@ import { ATTRIBUTION } from '@/lib/rules-api/types';
 // Foundry reads this with RULES_SOURCE=url:.
 export const GET = withRulesApi('rules.json', ({ req, library, caller }) => {
   const rules = publicArtifactRules(library);
-  const publicIds = new Set(rules.map((r) => r.id));
   // Only sources cited by a returned rule: a draft-only source would reveal what an unpublished rule is about.
   const citedSources = new Set(rules.flatMap((r) => r.sources.map((ref) => ref.source)));
   const sources = Object.fromEntries(Object.entries(library.sources).filter(([key]) => citedSources.has(key)));
@@ -18,7 +18,7 @@ export const GET = withRulesApi('rules.json', ({ req, library, caller }) => {
     library_version: library.library_version,
     generated_at: library.generated_at,
     rules,
-    changes: library.changes.filter((c) => publicIds.has(c.rule_id) && c.to_status !== 'draft'),
+    changes: publicChanges(library),
     sources,
     attribution: ATTRIBUTION,
   };
