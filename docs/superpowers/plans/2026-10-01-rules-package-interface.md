@@ -156,6 +156,8 @@ export const FACTS: {
   'flight.departs_uk': FactDef;          // boolean
   'flight.distance_km': FactDef;         // number
   'flight.single_ticket': FactDef;       // boolean
+  'flight.departs_us': FactDef;          // boolean
+  'flight.scheduled_duration_minutes': FactDef; // number
   'passenger.accepted_alternative': FactDef;            // boolean
   'passenger.nationality': FactDef;                     // string (ISO 3166 alpha-2)
   'passenger.passport_months_valid_after_return': FactDef; // number

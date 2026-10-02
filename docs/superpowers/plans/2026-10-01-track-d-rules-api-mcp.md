@@ -179,6 +179,16 @@ Claude-Session: https://claude.ai/code/session_01CZeaGyqM4LkMDPkaein2Sc"
 
 ### Task 2: Web app test harness and library loader
 
+> **Controller note (2026-10-02):** C1 already built `apps/web/lib/rules/library.ts` and
+> `lib/rules/parse-library.ts`, and the founder approved a change: `parseLibrary` validates
+> every rule with `RuleSchema` and every source with `SourceSchema`, imported from
+> `@elsewhere/rules/core`. **Reuse C1's files as they are. Don't overwrite them with the code
+> below.** Keep only the parts of this task C1 lacks: the test harness, helpers, and fakes.
+> Make `makeRule` and `makeLibrary` produce schema-valid rules (complete `history`,
+> `sources`, `entitlement`, and so on), or the loader will reject them. App code imports
+> `@elsewhere/rules/core`, never the bare package. `apps/web/test/rules/import-boundary.test.ts`
+> enforces this.
+
 **Files:**
 - Modify: `apps/web/package.json`
 - Create (if absent): `apps/web/vitest.config.ts`
@@ -242,7 +252,7 @@ export default defineConfig({
 
 Create `apps/web/test/helpers/library-holder.ts`:
 ```ts
-import type { RulesLibrary } from '@elsewhere/rules';
+import type { RulesLibrary } from '@elsewhere/rules/core';
 
 export class LibraryLoadError extends Error {
   constructor(message: string) {
@@ -336,7 +346,7 @@ import {
   type RulesLibrary,
   type Situation,
   type Source,
-} from '@elsewhere/rules';
+} from '@elsewhere/rules/core';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const RULES_FIXTURES = path.resolve(HERE, '../../../../packages/rules/test/fixtures');
@@ -533,7 +543,7 @@ Expected: FAIL — `Cannot find module '@/lib/rules/parse-library'`.
 
 Create `apps/web/lib/rules/parse-library.ts`:
 ```ts
-import type { RulesLibrary } from '@elsewhere/rules';
+import type { RulesLibrary } from '@elsewhere/rules/core';
 
 export class LibraryLoadError extends Error {
   constructor(message: string) {
@@ -561,7 +571,7 @@ export function parseLibrary(raw: unknown): RulesLibrary {
 
 Create `apps/web/lib/rules/library.ts` (skip if Step 1 found C1's version and you adapted it):
 ```ts
-import type { RulesLibrary } from '@elsewhere/rules';
+import type { RulesLibrary } from '@elsewhere/rules/core';
 import raw from '../../../../packages/rules/dist/rules.json';
 import { parseLibrary } from './parse-library';
 
@@ -698,7 +708,7 @@ Expected: FAIL — `Cannot find module '@/lib/rules-api/links'`.
 
 Create `apps/web/lib/rules-api/types.ts`:
 ```ts
-import type { Domain, FactName, Rule, RuleStatus } from '@elsewhere/rules';
+import type { Domain, FactName, Rule, RuleStatus } from '@elsewhere/rules/core';
 
 export interface LinkAttribution {
   source: 'api' | 'mcp';
@@ -798,7 +808,7 @@ export function rulePageUrl(ruleId: string, attribution: LinkAttribution): strin
 
 Create `apps/web/lib/rules-api/projection.ts`:
 ```ts
-import type { Rule, RuleChange, RulesLibrary } from '@elsewhere/rules';
+import type { Rule, RuleChange, RulesLibrary } from '@elsewhere/rules/core';
 import { rulePageUrl } from './links';
 import type { Citation, LinkAttribution, PublicRule, PublicStatus, RuleSummary } from './types';
 
@@ -970,7 +980,7 @@ Expected: FAIL — `Cannot find module '@/lib/rules-api/envelope'`.
 
 Create `apps/web/lib/rules-api/envelope.ts`:
 ```ts
-import type { RulesLibrary } from '@elsewhere/rules';
+import type { RulesLibrary } from '@elsewhere/rules/core';
 import { ATTRIBUTION, type ApiCaller, type Envelope } from './types';
 
 export function envelope<T>(library: RulesLibrary, data: T): Envelope<T> {
@@ -1671,7 +1681,7 @@ Expected: FAIL — `Cannot find module '@/app/api/rules.json/route'`.
 
 Create `apps/web/lib/rules-api/handle.ts`:
 ```ts
-import type { RulesLibrary } from '@elsewhere/rules';
+import type { RulesLibrary } from '@elsewhere/rules/core';
 import { getLibrary, LibraryLoadError } from '@/lib/rules/library';
 import { scheduleEvent, type RulesApiEvent } from './analytics';
 import { resolveCaller } from './auth';
@@ -1749,7 +1759,7 @@ export function withRulesApi(
 
 Create `apps/web/lib/rules-api/facts-vocabulary.ts`:
 ```ts
-import { FACTS, type FactName } from '@elsewhere/rules';
+import { FACTS, type FactName } from '@elsewhere/rules/core';
 
 export interface FactEntry {
   name: FactName;
@@ -1949,7 +1959,7 @@ Expected: FAIL — `Cannot find module '@/app/api/rules/route'`.
 
 Create `apps/web/lib/rules-api/search.ts`:
 ```ts
-import { DOMAINS, RULE_STATUSES, type Domain, type Rule, type RuleStatus, type RulesLibrary } from '@elsewhere/rules';
+import { DOMAINS, RULE_STATUSES, type Domain, type Rule, type RuleStatus, type RulesLibrary } from '@elsewhere/rules/core';
 import { isPublic } from './projection';
 
 const STOPWORDS = new Set([
@@ -2049,7 +2059,7 @@ export function parseSearchParams(url: URL): { ok: true; params: SearchParams } 
 
 Create `apps/web/lib/rules-api/changes.ts`:
 ```ts
-import type { RuleChange, RuleStatus, RulesLibrary } from '@elsewhere/rules';
+import type { RuleChange, RuleStatus, RulesLibrary } from '@elsewhere/rules/core';
 
 export type ChangeKind = 'added' | 'changed' | 'needs_review' | 'retired';
 
@@ -2288,7 +2298,7 @@ Expected: FAIL — `Cannot find module '@/app/api/rules/match/route'`.
 
 Create `apps/web/lib/rules-api/situation.ts`:
 ```ts
-import { FACTS, validateSituation, type FactName, type Primitive, type Situation } from '@elsewhere/rules';
+import { FACTS, validateSituation, type FactName, type Primitive, type Situation } from '@elsewhere/rules/core';
 
 export interface FactError {
   fact: string;
@@ -2340,7 +2350,7 @@ export function knownFactNames(input: unknown): FactName[] {
 
 Create `apps/web/lib/rules-api/match-situation.ts`:
 ```ts
-import { matchRules, type RuleStatus, type RulesLibrary, type Situation } from '@elsewhere/rules';
+import { matchRules, type RuleStatus, type RulesLibrary, type Situation } from '@elsewhere/rules/core';
 import { toPublicRule } from './projection';
 import type { LinkAttribution, MatchedRule, MatchResponse, PublicRule } from './types';
 
@@ -2714,7 +2724,7 @@ Create `apps/web/lib/mcp/tools.ts`:
 ```ts
 import { z } from 'zod';
 import type { CallToolResult, McpServer, ServerContext } from '@modelcontextprotocol/server';
-import { DOMAINS, type RulesLibrary } from '@elsewhere/rules';
+import { DOMAINS, type RulesLibrary } from '@elsewhere/rules/core';
 import { getLibrary } from '@/lib/rules/library';
 import { scheduleEvent, type RulesApiEvent } from '@/lib/rules-api/analytics';
 import { isIsoDate, publicChangesSince } from '@/lib/rules-api/changes';
