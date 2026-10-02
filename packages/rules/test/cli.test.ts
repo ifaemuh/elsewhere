@@ -5,6 +5,8 @@ import { cpSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parse, parseDocument } from 'yaml';
+import { appendHistory } from '../src/history';
 import { FIXTURES } from './helpers';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
@@ -64,19 +66,69 @@ test('rules:check-quotes passes when every quote is present', () => {
   assert.match(result.stdout, /All quotes found in 5 rule\(s\)/);
 });
 
-test('rules:check-quotes --write-needs-review flips only failing verified rules', () => {
+test('rules:check-quotes --write-needs-review flips failing verified rules and preserves the rest of the file', () => {
   const dataDir = fixtureData();
   const versions = fixtureVersions();
   const coc = join(versions, 'Example Air/Conditions of Carriage.md');
   writeFileSync(coc, readFileSync(coc, 'utf8').replace('no extra charge', 'a $75 fee'));
+  const refunds = join(versions, 'eCFR/title-14-part-260.md');
+  writeFileSync(refunds, readFileSync(refunds, 'utf8').replace('prompt refund', 'delayed credit'));
 
-  const result = run('check-quotes.ts', [...fixtureArgs(dataDir), '--versions', versions, '--write-needs-review']);
+  const flippedFile = join(dataDir, 'flights/fx-missed-connection-single-ticket.yaml');
+  const draftFile = join(dataDir, 'flights/fx-draft-cancellation-note.yaml');
+  const original = readFileSync(flippedFile, 'utf8');
+  const withComment = `# keep this comment\n${original}# trailing comment\n`;
+  writeFileSync(flippedFile, withComment);
+  const draftBefore = readFileSync(draftFile, 'utf8');
+  const longQuote = /^ {6}- text: "Example Air will rebook a passenger who misses a connection on the same ticket on the next available flight at no extra charge\."$/m;
+  assert.match(withComment, longQuote);
+
+  const today = new Date().toISOString().slice(0, 10);
+  const args = [...fixtureArgs(dataDir), '--versions', versions, '--write-needs-review'];
+  const result = run('check-quotes.ts', args);
   assert.equal(result.status, 1);
   assert.match(result.stdout, /fx-missed-connection-single-ticket: not_found in fx-carrier-coc/);
-  const flipped = readFileSync(join(dataDir, 'flights/fx-missed-connection-single-ticket.yaml'), 'utf8');
-  assert.match(flipped, /^status: needs_review$/m);
-  assert.match(flipped, /status: needs_review[\s\S]*note: quote not found in fx-carrier-coc/);
-  assert.match(readFileSync(join(dataDir, 'flights/fx-us-refund-cancelled-flight.yaml'), 'utf8'), /^status: verified$/m);
+
+  const after = readFileSync(flippedFile, 'utf8');
+  const doc = parse(after);
+  assert.equal(doc.status, 'needs_review');
+  const before = parse(withComment);
+  assert.equal(doc.history.length, before.history.length + 1);
+  assert.deepEqual(doc.history.slice(0, -1), before.history);
+  const added = doc.history.at(-1);
+  assert.equal(added.version, before.version);
+  assert.equal(added.status, 'needs_review');
+  assert.equal(String(added.date instanceof Date ? added.date.toISOString().slice(0, 10) : added.date), today);
+  assert.equal(added.note, 'quote not found in fx-carrier-coc');
+  // appended entry is one flow-map line; comments and long scalars untouched
+  assert.match(after, /^ {2}- \{ version: 1, status: needs_review, date: [^\n]*note: [^\n]*\}$/m);
+  assert.ok(after.startsWith('# keep this comment\n'));
+  assert.ok(after.includes('# trailing comment'));
+  assert.match(after, longQuote);
+  assert.ok(after.includes('summary: >-\n  Miss a connection on the same ticket and the airline rebooks you on the next available\n  flight at no charge.'));
+
+  // verified rule citing the broken refund text flips; the draft rule is untouched
+  assert.match(readFileSync(join(dataDir, 'flights/fx-us-refund-cancelled-flight.yaml'), 'utf8'), /^status: needs_review$/m);
+  assert.equal(readFileSync(draftFile, 'utf8'), draftBefore);
+  assert.match(readFileSync(join(dataDir, 'flights/fx-24h-free-cancellation.yaml'), 'utf8'), /^status: verified$/m);
+
+  // idempotent: needs_review rules are no longer verified, so a second run appends nothing
+  const snapshot = readFileSync(flippedFile, 'utf8');
+  run('check-quotes.ts', args);
+  assert.equal(readFileSync(flippedFile, 'utf8'), snapshot);
+});
+
+test('appendHistory always writes a one-line flow map, even with a long note', () => {
+  const doc = parseDocument('id: x\nhistory:\n  - { version: 1, status: draft, date: 2026-10-01 }\n');
+  appendHistory(doc, {
+    version: 1,
+    status: 'needs_review',
+    date: '2026-10-07',
+    note: `quote not found in ${Array.from({ length: 8 }, (_, i) => `fx-long-source-key-${i}`).join(', ')}`,
+  });
+  const lines = doc.toString({ lineWidth: 0 }).trimEnd().split('\n');
+  assert.equal(lines.length, 4);
+  assert.match(lines[3]!, /^ {2}- \{ version: 1, status: needs_review, date: .*fx-long-source-key-7.* \}$/);
 });
 
 test('rules:check-quotes reports sources with no tracked text', () => {

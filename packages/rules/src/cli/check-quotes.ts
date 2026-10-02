@@ -1,8 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { parseArgs } from 'node:util';
-import { parseDocument } from 'yaml';
 import { DEFAULT_DATA_DIR, DEFAULT_SOURCES_FILE, loadRuleFiles, loadSources, RulesValidationError } from '../load';
-import { appendHistory } from '../history';
+import { markNeedsReview } from '../history';
 import { checkQuotes, checkSupports, sourceTextPath } from '../quotes';
 
 const { values } = parseArgs({
@@ -51,15 +50,13 @@ if (values['write-needs-review']) {
   for (const { rule, file } of entries) {
     const failingSources = [...new Set(quoteIssues.filter((i) => i.rule_id === rule.id).map((i) => i.source_key))];
     if (rule.status !== 'verified' || failingSources.length === 0) continue;
-    const doc = parseDocument(readFileSync(file, 'utf8'));
-    doc.set('status', 'needs_review');
-    appendHistory(doc, {
+    const updated = markNeedsReview(readFileSync(file, 'utf8'), {
       version: rule.version,
       status: 'needs_review',
       date: today,
       note: `quote not found in ${failingSources.join(', ')}`,
     });
-    writeFileSync(file, String(doc));
+    writeFileSync(file, updated);
     console.log(`${rule.id}: status set to needs_review`);
   }
 }
