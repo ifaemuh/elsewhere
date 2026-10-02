@@ -4,7 +4,7 @@ import { getLibrary, LibraryLoadError } from '@/lib/rules/library';
 import { scheduleEvent, type RulesApiEvent } from './analytics';
 import { resolveCaller } from './auth';
 import { jsonError } from './envelope';
-import { enforceRateLimit } from './rate-limit';
+import { enforceRateLimit, limitUncachedKey } from './rate-limit';
 import type { ApiCaller, LinkAttribution } from './types';
 
 export interface RulesApiContext {
@@ -38,6 +38,10 @@ export function withRulesApi(
   return async function handler(req: Request, route?: RouteContext): Promise<Response> {
     const started = Date.now();
 
+    // A key that isn't in the positive cache costs a database lookup, so limit it before the lookup.
+    const preLimited = await limitUncachedKey(req, 'api');
+    if (preLimited) return preLimited;
+
     let caller: ApiCaller | 'invalid';
     try {
       caller = await resolveCaller(req);
@@ -50,31 +54,42 @@ export function withRulesApi(
     }
 
     if (caller === 'invalid') {
-      // Failed lookups are never cached, so limit them as anonymous before answering.
-      const limited = await enforceRateLimit(req, { tier: 'anonymous' }, 'api');
-      if (limited) return limited;
-      return jsonError(401, 'invalid_key', 'The API key is invalid or revoked.');
+      // An invalid key is never cached, so limitUncachedKey already counted it as anonymous.
+      return jsonError(401, 'invalid_key', 'The API key is invalid or revoked.', {
+        headers: { 'WWW-Authenticate': 'Bearer realm="elsewhere-rules"' },
+      });
     }
 
     const limited = await enforceRateLimit(req, caller, 'api');
     if (limited) return limited;
 
-    let library: RulesLibrary;
+    let library: RulesLibrary | null = null;
+    let response: Response;
+    let event: EventFields = {};
     try {
-      library = getLibrary();
-    } catch (error) {
-      if (error instanceof LibraryLoadError) {
-        return jsonError(503, 'library_unavailable', 'The rules library is unavailable.');
+      try {
+        library = getLibrary();
+      } catch (error) {
+        if (error instanceof LibraryLoadError) {
+          return jsonError(503, 'library_unavailable', 'The rules library is unavailable.');
+        }
+        throw error;
       }
-      throw error;
-    }
 
-    const attribution: LinkAttribution = {
-      source: 'api',
-      medium: caller.tier === 'partner' ? caller.partnerId : 'anonymous',
-    };
-    const params = route ? await route.params : {};
-    const { response, event = {} } = await run({ req, library, caller, attribution, params });
+      const attribution: LinkAttribution = {
+        source: 'api',
+        medium: caller.tier === 'partner' ? caller.partnerId : 'anonymous',
+      };
+      const params = route ? await route.params : {};
+      ({ response, event = {} } = await run({ req, library, caller, attribution, params }));
+    } catch (error) {
+      // Next control-flow errors (prerender bail-outs, redirects) must propagate untouched.
+      unstable_rethrow(error);
+      // Message only: never log request data.
+      console.error(`[rules-api] ${endpoint} failed:`, error instanceof Error ? error.message : 'unknown error');
+      response = jsonError(500, 'internal_error', 'Something went wrong on our side.');
+      event = {};
+    }
 
     scheduleEvent({
       surface: 'api',
@@ -91,7 +106,7 @@ export function withRulesApi(
       query: null,
       result_count: 0,
       ...event,
-      library_version: library.library_version,
+      library_version: library?.library_version ?? null,
       latency_ms: Date.now() - started,
     });
     return response;

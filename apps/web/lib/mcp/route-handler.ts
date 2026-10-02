@@ -2,7 +2,7 @@ import { unstable_rethrow } from 'next/navigation';
 import { createMcpHandler, withMcpAuth } from 'mcp-handler';
 import { bearerToken, resolveCaller } from '@/lib/rules-api/auth';
 import { jsonError } from '@/lib/rules-api/envelope';
-import { enforceRateLimit } from '@/lib/rules-api/rate-limit';
+import { enforceRateLimit, limitUncachedKey } from '@/lib/rules-api/rate-limit';
 import { getLibrary, LibraryLoadError } from '@/lib/rules/library';
 import type { ApiCaller } from '@/lib/rules-api/types';
 import { requestContext } from './client-info';
@@ -36,7 +36,41 @@ const authedHandler = withMcpAuth(
   { required: false },
 );
 
+const MAX_BODY_BYTES = 64 * 1024;
+
+function tooLarge(): Response {
+  return Response.json(
+    { jsonrpc: '2.0', id: null, error: { code: -32600, message: 'Request body too large (64 KB maximum).' } },
+    { status: 413, headers: { 'Cache-Control': 'no-store' } },
+  );
+}
+
+/** Reads at most MAX_BODY_BYTES (whatever Content-Length claims). Returns null when the body is over the cap. */
+async function readBoundedBody(req: Request): Promise<string | null> {
+  const declared = Number(req.headers.get('content-length'));
+  if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) return null;
+  if (!req.body) return '';
+  const reader = req.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > MAX_BODY_BYTES) {
+      await reader.cancel();
+      return null;
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
+
 export async function handleMcp(req: Request): Promise<Response> {
+  // A key that isn't in the positive cache costs a database lookup, so limit it before the lookup.
+  const preLimited = await limitUncachedKey(req, 'mcp');
+  if (preLimited) return preLimited;
+
   let caller: ApiCaller | 'invalid';
   try {
     caller = await resolveCaller(req);
@@ -49,9 +83,6 @@ export async function handleMcp(req: Request): Promise<Response> {
   }
 
   if (caller === 'invalid') {
-    // Failed lookups are never cached, so limit them as anonymous before answering.
-    const limited = await enforceRateLimit(req, { tier: 'anonymous' }, 'mcp');
-    if (limited) return limited;
     // An invalid key is a 401 here, not a silent downgrade to anonymous.
     return jsonError(401, 'invalid_key', 'The API key is invalid or revoked.', {
       headers: { 'WWW-Authenticate': 'Bearer error="invalid_token"' },
@@ -70,6 +101,13 @@ export async function handleMcp(req: Request): Promise<Response> {
     throw error;
   }
 
-  resolvedCallers.set(req, caller);
-  return requestContext.run({ userAgent: req.headers.get('user-agent') }, () => authedHandler(req));
+  let bounded = req;
+  if (req.method === 'POST') {
+    const body = await readBoundedBody(req);
+    if (body === null) return tooLarge();
+    bounded = new Request(req.url, { method: req.method, headers: req.headers, body });
+  }
+
+  resolvedCallers.set(bounded, caller);
+  return requestContext.run({ userAgent: req.headers.get('user-agent') }, () => authedHandler(bounded));
 }

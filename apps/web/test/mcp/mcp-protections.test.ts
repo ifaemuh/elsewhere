@@ -60,7 +60,10 @@ describe('MCP route protections', () => {
     vi.mocked(checkRateLimit).mockClear();
     fakeDb.apiKeys.push({ id: 'key-1', partner_id: 'acme', key_hash: hashKey(KEY), rate_limit_rule: 'rules-gold', revoked_at: null });
     await (await connect({ authorization: `Bearer ${KEY}` })).listTools();
-    const [rule, options] = vi.mocked(checkRateLimit).mock.calls[0];
+    // First request with this key: an anonymous pre-check before the lookup, then the key's own rule.
+    const calls = vi.mocked(checkRateLimit).mock.calls;
+    expect(calls[0][0]).toBe('rules-mcp-anon');
+    const [rule, options] = calls[1];
     expect(rule).toBe('rules-gold');
     expect(options).toMatchObject({ rateLimitKey: 'key-1' });
   });

@@ -36,6 +36,12 @@ export function clearKeyCache(): void {
   cache.clear();
 }
 
+/** True when a warm positive-cache entry exists, so resolving this key costs no database lookup. */
+export function isKeyCached(key: string, now: number = Date.now()): boolean {
+  const hit = cache.get(hashKey(key));
+  return !!hit && hit.expires > now;
+}
+
 export async function lookupKey(key: string, now: number = Date.now()): Promise<KeyRecord | null> {
   const hash = hashKey(key);
   const hit = cache.get(hash);

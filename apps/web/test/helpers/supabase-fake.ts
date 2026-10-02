@@ -9,11 +9,13 @@ export interface KeyRow {
 export const fakeDb = {
   apiKeys: [] as KeyRow[],
   apiKeyError: null as string | null,
+  apiKeyLookups: 0,
   events: [] as Record<string, unknown>[],
   funnel: [] as { event_name: string; metadata: Record<string, unknown> }[],
   reset(): void {
     fakeDb.apiKeys = [];
     fakeDb.apiKeyError = null;
+    fakeDb.apiKeyLookups = 0;
     fakeDb.events = [];
     fakeDb.funnel = [];
   },
@@ -34,6 +36,7 @@ export const supabaseFake = {
           return query;
         },
         maybeSingle: async () => {
+          fakeDb.apiKeyLookups += 1;
           if (fakeDb.apiKeyError) return { data: null, error: new Error(fakeDb.apiKeyError) };
           const row = fakeDb.apiKeys.find((r) => filters.every((f) => f(r)));
           return {
