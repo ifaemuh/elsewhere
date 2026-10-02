@@ -48,3 +48,51 @@ test('fetchEcfrPart surfaces HTTP errors', async () => {
   const fake: FetchLike = async () => ({ ok: false, status: 503, text: async () => '', json: async () => ({}) });
   await assert.rejects(fetchEcfrPart({ title: 14, part: 260 }, fake), /eCFR 503/);
 });
+
+test('ecfrXmlToText keeps table cells and rows apart', () => {
+  const table =
+    '<DIV5><HEAD>PART 1</HEAD><TABLE><CAPTION>Fees</CAPTION><TR><TH>Fee</TH><TH>Amount</TH></TR><TR><TD>Bag</TD><TD>$30</TD></TR></TABLE></DIV5>';
+  assert.equal(ecfrXmlToText(table), '## PART 1\n\nFees\n\nFee Amount\nBag $30');
+});
+
+test('ecfrXmlToText drops footnote markers without fusing words, keeps footnote text', () => {
+  const doc =
+    '<DIV5><HEAD>PART 1</HEAD><P>A misleading word<SU>1</SU> here<FTREF/> again.</P><FTNT><P><SU>1</SU> The footnote text.</P></FTNT></DIV5>';
+  assert.equal(ecfrXmlToText(doc), '## PART 1\n\nA misleading word here again.\n\nThe footnote text.');
+});
+
+test('ecfrXmlToText treats non-breaking spaces as ordinary spaces', () => {
+  assert.equal(ecfrXmlToText('<DIV5><HEAD>H</HEAD><P>a&#xA0;&#xA0;b</P></DIV5>'), '## H\n\na b');
+});
+
+function respond(overrides: { versions?: unknown; xml?: string; versionsStatus?: number; xmlStatus?: number }): FetchLike {
+  return async (url) => {
+    const isXml = url.includes('/full/');
+    const isVersions = url.includes('/versions/');
+    const status = isXml ? (overrides.xmlStatus ?? 200) : isVersions ? (overrides.versionsStatus ?? 200) : 200;
+    const body: unknown = url.endsWith('/titles.json')
+      ? { titles: [{ number: 14, up_to_date_as_of: '2026-09-30' }] }
+      : isVersions
+        ? (overrides.versions ?? { meta: { latest_amendment_date: '2024-08-12' } })
+        : (overrides.xml ?? xml);
+    return { ok: status < 400, status, text: async () => body as string, json: async () => body };
+  };
+}
+
+const ref = { title: 14, part: 260 };
+
+test('fetchEcfrPart rejects bad 200 bodies instead of returning them', async () => {
+  await assert.rejects(fetchEcfrPart(ref, respond({ xml: '<html><body>Maintenance</body></html>' })), /no regulation text/);
+  await assert.rejects(fetchEcfrPart(ref, respond({ xml: '' })), /no regulation text/);
+});
+
+test('fetchEcfrPart rejects a versions response without latest_amendment_date', async () => {
+  await assert.rejects(fetchEcfrPart(ref, respond({ versions: {} })), /latest_amendment_date/);
+  await assert.rejects(fetchEcfrPart(ref, respond({ versions: { meta: {} } })), /latest_amendment_date/);
+});
+
+test('fetchEcfrPart surfaces non-OK versions and XML responses', async () => {
+  await assert.rejects(fetchEcfrPart(ref, respond({ versionsStatus: 500 })), /eCFR 500/);
+  await assert.rejects(fetchEcfrPart(ref, respond({ xmlStatus: 406 })), /eCFR 406/);
+  await assert.rejects(fetchEcfrPart(ref, respond({ xmlStatus: 503 })), /eCFR 503/);
+});

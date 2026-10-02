@@ -21,13 +21,19 @@ export function ecfrXmlToText(xml: string): string {
   const stripped = xml
     .replace(/<\?xml[^>]*\?>/g, '')
     .replace(/<(CITA|AUTH|SOURCE|EDNOTE|SECAUTH)\b[^>]*>[\s\S]*?<\/\1>/g, '')
+    .replace(/<SU\b[^>]*>[\s\S]*?<\/SU>/g, '')
+    .replace(/<FTREF\b[^>]*\/>|<FTREF\b[^>]*>[\s\S]*?<\/FTREF>/g, '')
     .replace(/<HEAD>/g, '\n\n## ')
     .replace(/<\/HEAD>/g, '\n\n')
+    .replace(/<\/?(CAPTION|HD\d)\b[^>]*>/g, '\n\n')
+    .replace(/<\/?(DIV\d*|TABLE|THEAD|TBODY|TFOOT)\b[^>]*>/g, '\n')
+    .replace(/<\/TR>/g, '\n')
+    .replace(/<(TD|TH)\b[^>]*>/g, ' ')
     .replace(/<(P|FP)\b[^>]*>/g, '\n\n')
     .replace(/<[^>]+>/g, '');
   return decodeEntities(stripped)
     .split('\n')
-    .map((line) => line.replace(/[ \t]+/g, ' ').trim())
+    .map((line) => line.replace(/[ \t\u00a0]+/g, ' ').trim())
     .join('\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
@@ -51,7 +57,7 @@ export async function fetchEcfrPart(ref: { title: number; part: number }, fetchI
   const asOf = titles.titles.find((t) => t.number === ref.title)?.up_to_date_as_of;
   if (!asOf) throw new Error(`eCFR has no title ${ref.title}`);
 
-  const versions = await getJson<{ meta: { latest_amendment_date: string } }>(
+  const versions = await getJson<{ meta?: { latest_amendment_date?: string } }>(
     fetchImpl,
     `${API}/versions/title-${ref.title}.json?part=${ref.part}`,
   );
@@ -59,7 +65,9 @@ export async function fetchEcfrPart(ref: { title: number; part: number }, fetchI
   const url = `${API}/full/${asOf}/title-${ref.title}.xml?part=${ref.part}`;
   const response = await fetchImpl(url, { headers: { 'Accept-Encoding': 'gzip' } });
   if (!response.ok) throw new Error(`eCFR ${response.status} for ${url}`);
-  const amendedOn = versions.meta.latest_amendment_date;
+  const amendedOn = versions.meta?.latest_amendment_date;
+  if (!amendedOn) throw new Error(`eCFR versions response for title ${ref.title} part ${ref.part} has no latest_amendment_date`);
   const body = ecfrXmlToText(await response.text());
+  if (!body.includes('## ')) throw new Error(`eCFR returned no regulation text for title ${ref.title} part ${ref.part}`);
   return { text: `# ${ref.title} CFR Part ${ref.part} (amended ${amendedOn})\n\n${body}\n`, amendedOn, asOf };
 }
