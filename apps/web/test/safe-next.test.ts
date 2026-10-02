@@ -13,4 +13,10 @@ describe('safeNext', () => {
     expect(safeNext(null)).toBe('/trips');
     expect(safeNext('', '/start')).toBe('/start');
   });
+
+  it('falls back for control-character and backslash bypasses', () => {
+    for (const v of ['/\t/evil.test', '/\n/evil.test', '/\r/evil.test', '/\t\\evil.test', '/\\evil.test', '/ok\n', '\t//evil.test']) {
+      expect(safeNext(v)).toBe('/trips');
+    }
+  });
 });
