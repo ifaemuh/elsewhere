@@ -48,7 +48,7 @@ describe('toPublicRule', () => {
 
   it('adds a notice to a needs_review rule using the date it changed', () => {
     const { lib, rule: r } = rule('test-tarmac-delay');
-    expect(toPublicRule(r, lib, API).notice).toBe('Being re-checked since 2026-10-07 after a source change.');
+    expect(toPublicRule(r, lib, API).notice).toBe('Being re-checked since 2026-10-05 after a source change.');
   });
 
   it('adds replaced_by to a retired rule', () => {

@@ -31,13 +31,7 @@ type HistoryEntry = Rule['history'][number];
 export function makeRule(overrides: Partial<Rule> = {}): Rule {
   const version = overrides.version ?? 1;
   const status = overrides.status ?? 'verified';
-  const history: HistoryEntry[] =
-    status === 'draft'
-      ? [{ version, status, date: '2026-10-01' }]
-      : [
-          { version, status: 'draft', date: '2026-10-01' },
-          { version, status, date: '2026-10-06' },
-        ];
+  const history: HistoryEntry[] = [{ version, status, date: '2026-10-01' }];
   return RuleSchema.parse({
     id: 'test-cancelled-refund',
     version,
@@ -81,9 +75,8 @@ export function standardRules(): Rule[] {
       tags: ['tarmac', 'delay'],
       lead_character: 'raccoon',
       history: [
-        { version: 1, status: 'draft', date: '2026-09-20' },
-        { version: 1, status: 'verified', date: '2026-09-25' },
-        { version: 2, status: 'needs_review', date: '2026-10-07' },
+        { version: 1, status: 'verified', date: '2026-08-25' },
+        { version: 2, status: 'needs_review', date: '2026-10-05' },
       ],
     }),
     makeRule({
@@ -93,6 +86,10 @@ export function standardRules(): Rule[] {
       title: 'Old voucher guidance',
       summary: 'Superseded guidance about vouchers.',
       tags: ['voucher'],
+      history: [
+        { version: 1, status: 'verified', date: '2026-06-01' },
+        { version: 1, status: 'retired', date: '2026-08-15' },
+      ],
     }),
     makeRule({
       id: 'test-draft-rule',
@@ -103,6 +100,7 @@ export function standardRules(): Rule[] {
       last_verified: null,
       verified_by: null,
       review_by: null,
+      history: [{ version: 1, status: 'draft', date: '2026-10-04' }],
     }),
   ];
 }

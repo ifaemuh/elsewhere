@@ -13,6 +13,17 @@ describe('library fakes pass the real loader', () => {
     expect(parseLibrary(JSON.parse(JSON.stringify(lib)))).toEqual(lib);
   });
 
+  it('derives exactly the planned recent change set', () => {
+    const recent = standardChanges()
+      .filter((c) => c.date >= '2026-09-01')
+      .map((c) => ({ rule_id: c.rule_id, from_version: c.from_version, to_version: c.to_version, to_status: c.to_status, date: c.date }));
+    expect(recent).toEqual([
+      { rule_id: 'test-tarmac-delay', from_version: 1, to_version: 2, to_status: 'needs_review', date: '2026-10-05' },
+      { rule_id: 'test-draft-rule', from_version: null, to_version: 1, to_status: 'draft', date: '2026-10-04' },
+      { rule_id: 'test-cancelled-refund', from_version: null, to_version: 1, to_status: 'verified', date: '2026-10-01' },
+    ]);
+  });
+
   it('keeps one rule per status, including draft and retired', () => {
     expect(standardLibrary().rules.map((r) => r.status).sort()).toEqual(['draft', 'needs_review', 'retired', 'verified']);
   });
