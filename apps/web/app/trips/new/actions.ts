@@ -6,6 +6,7 @@ import { requireUser } from '@/lib/auth/user';
 import { ANONYMOUS_ID_COOKIE, isAnonymousId } from '@/lib/funnel/anonymous-id';
 import { recordEvent } from '@/lib/funnel/events';
 import { parseUtmCookie, UTM_COOKIE } from '@/lib/funnel/utm';
+import { RATE_LIMIT_RULES, rateLimited } from '@/lib/rate-limit';
 import { createClient } from '@/lib/supabase/server';
 import { newInboundCode } from '@/lib/trips/inbound-code';
 import { parseNewTrip } from '@/lib/trips/new-trip';
@@ -20,6 +21,7 @@ export async function createTrip(_prev: NewTripState, form: FormData): Promise<N
   const user = await requireUser('/trips/new');
   const parsed = parseNewTrip(form);
   if (!parsed.success) return { error: parsed.error };
+  if (await rateLimited(RATE_LIMIT_RULES.tripCreate)) return { error: 'Too many new trips from here. Wait a minute, then try again.' };
 
   const store = await cookies();
   const anonymousId = store.get(ANONYMOUS_ID_COOKIE)?.value;

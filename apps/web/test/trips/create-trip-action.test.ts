@@ -14,6 +14,8 @@ vi.mock('@/lib/supabase/server', () => ({ createClient: async () => ({ rpc }) })
 vi.mock('@/lib/auth/user', () => ({ requireUser: async () => ({ id: 'user-1', email: 'pat@example.test', phone: null }) }));
 const recordEvent = vi.fn();
 vi.mock('@/lib/funnel/events', () => ({ recordEvent: (...args: unknown[]) => recordEvent(...args) }));
+const { rateLimited } = vi.hoisted(() => ({ rateLimited: vi.fn() }));
+vi.mock('@/lib/rate-limit', () => ({ RATE_LIMIT_RULES: { codeSend: 'auth-code-send', tripCreate: 'trips-create' }, rateLimited }));
 
 import { createTrip } from '@/app/trips/new/actions';
 
@@ -31,6 +33,7 @@ beforeEach(() => {
   process.env.TRIPS_OPEN = 'true';
   rpc.mockReset().mockResolvedValue({ data: TRIP_ID, error: null });
   recordEvent.mockReset().mockResolvedValue(undefined);
+  rateLimited.mockReset().mockResolvedValue(false);
 });
 afterEach(() => {
   delete process.env.TRIPS_OPEN;
@@ -78,6 +81,13 @@ describe('createTrip', () => {
     await expect(createTrip({ error: null }, form({ ...valid, endDate: '2026-11-01' }))).resolves.toEqual({
       error: 'The trip has to end on or after it starts.',
     });
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it('refuses while the visitor is over the trip-creation limit', async () => {
+    rateLimited.mockResolvedValue(true);
+    await expect(createTrip({ error: null }, form(valid))).resolves.toEqual({ error: 'Too many new trips from here. Wait a minute, then try again.' });
+    expect(rateLimited).toHaveBeenCalledWith('trips-create');
     expect(rpc).not.toHaveBeenCalled();
   });
 });

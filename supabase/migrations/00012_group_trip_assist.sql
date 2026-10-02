@@ -162,6 +162,27 @@ returns text language sql stable security definer set search_path = public as $$
   select t.inbound_code from public.trips t where t.id = p_trip_id and public.is_trip_planner(p_trip_id);
 $$;
 
+-- Planners set or rotate the invite link here, because join_token_hash is not column-writable
+-- (section 11). The app derives the raw token; only its hash is stored, hashed exactly as join_trip
+-- hashes the token a visitor presents.
+create or replace function public.set_join_token(p_trip_id uuid, p_token text, p_expires_at timestamptz)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  if not public.is_trip_planner(p_trip_id) then
+    raise exception 'only the planner can invite' using errcode = '42501';
+  end if;
+  if length(coalesce(p_token, '')) < 16 or p_expires_at is null or p_expires_at <= now() then
+    raise exception 'invalid invite token' using errcode = '22023';
+  end if;
+  update public.trips
+     set join_token_hash = encode(sha256(convert_to(p_token, 'UTF8')), 'hex'),
+         join_token_expires_at = p_expires_at
+   where id = p_trip_id;
+end;
+$$;
+revoke execute on function public.set_join_token(uuid, text, timestamptz) from public, anon;
+grant execute on function public.set_join_token(uuid, text, timestamptz) to authenticated;
+
 create or replace function public.trip_directory(p_trip_id uuid)
 returns table (member_id uuid, user_id uuid, display_name text, role member_role, venmo_username text, cashtag text)
 language sql stable security definer set search_path = public as $$

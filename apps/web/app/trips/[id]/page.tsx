@@ -7,7 +7,7 @@ import { ANONYMOUS_ID_COOKIE, isAnonymousId } from '@/lib/funnel/anonymous-id';
 import { assignVariant, variantPriceLabel } from '@/lib/funnel/variant';
 import { createClient } from '@/lib/supabase/server';
 import { inboundAddress } from '@/lib/trips/inbound-code';
-import { startPassCheckout } from './actions';
+import { createJoinLink, currentJoinLink, startPassCheckout } from './actions';
 
 type Params = Promise<{ id: string }>;
 type SearchParams = Promise<{ pass?: string }>;
@@ -61,6 +61,7 @@ async function TripContent({ params, searchParams }: { params: Params; searchPar
           We couldn’t load your forwarding address. Refresh the page to try again.
         </p>
       ) : null}
+      <InviteSection tripId={trip.id} />
       <PassSection tripId={trip.id} passStatus={trip.pass_status} justPaid={pass === 'success'} isPlanner={isPlanner === true} />
     </>
   );
@@ -110,6 +111,34 @@ async function PassSection({
       </p>
       <form action={startPassCheckout.bind(null, tripId)} className="mt-4">
         <Button type="submit">Get the trip pass — {price}</Button>
+      </form>
+    </section>
+  );
+}
+
+async function InviteSection({ tripId }: { tripId: string }) {
+  const supabase = await createClient();
+  const { data: isPlanner } = await supabase.rpc('is_trip_planner', { p_trip_id: tripId });
+  if (isPlanner !== true) return null;
+  const link = await currentJoinLink(tripId);
+  return (
+    <section className="mt-6 rounded-xl border border-[#e4dfd0] bg-white p-6">
+      <h2 className="font-semibold">Invite the group</h2>
+      {link ? (
+        <p className="mt-2 break-all font-mono text-sm">{link}</p>
+      ) : (
+        <p className="mt-2 text-sm text-[#4b5745]">Create a link and drop it in the group chat. Anyone with it can join until a week after the trip.</p>
+      )}
+      <form
+        action={async () => {
+          'use server';
+          await createJoinLink(tripId);
+        }}
+        className="mt-3"
+      >
+        <Button type="submit" variant="outline">
+          {link ? 'Reset the link' : 'Create invite link'}
+        </Button>
       </form>
     </section>
   );

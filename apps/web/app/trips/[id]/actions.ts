@@ -1,10 +1,11 @@
 'use server';
 
 import { cookies } from 'next/headers';
+import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { z } from 'zod';
 import { requireUser } from '@/lib/auth/user';
-import { appUrl } from '@/lib/env';
+import { appUrl, requireEnv } from '@/lib/env';
 import { ANONYMOUS_ID_COOKIE, isAnonymousId } from '@/lib/funnel/anonymous-id';
 import { recordEvent } from '@/lib/funnel/events';
 import { parseUtmCookie, UTM_COOKIE } from '@/lib/funnel/utm';
@@ -12,6 +13,7 @@ import { assignVariant, VARIANT_PRICE_CENTS } from '@/lib/funnel/variant';
 import { priceIdFor, stripe } from '@/lib/payments/stripe';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { createClient } from '@/lib/supabase/server';
+import { joinExpiry, joinToken } from '@/lib/trips/join-token';
 
 export async function startPassCheckout(rawTripId: string): Promise<void> {
   const tripId = z.string().uuid().parse(rawTripId);
@@ -73,4 +75,33 @@ export async function startPassCheckout(rawTripId: string): Promise<void> {
   }
   if (!session.url) throw new Error('Stripe did not return a checkout URL.');
   redirect(session.url);
+}
+
+async function requirePlanner(tripId: string) {
+  await requireUser(`/trips/${tripId}`);
+  const supabase = await createClient();
+  const { data: isPlanner } = await supabase.rpc('is_trip_planner', { p_trip_id: tripId });
+  if (isPlanner !== true) throw new Error('Only the planner can do that.');
+  return supabase;
+}
+
+export async function createJoinLink(tripId: string): Promise<string> {
+  const supabase = await requirePlanner(tripId);
+  const { data: trip, error } = await supabase.from('trips').select('end_date').eq('id', tripId).single();
+  if (error || !trip?.end_date) throw new Error('Set the trip dates before inviting the group.');
+  const expiresAt = joinExpiry(trip.end_date);
+  const token = joinToken(requireEnv('JOIN_LINK_SECRET'), tripId, expiresAt);
+  // join_token_hash is not column-writable. set_join_token checks the planner again and stores only the hash.
+  const { error: setError } = await supabase.rpc('set_join_token', { p_trip_id: tripId, p_token: token, p_expires_at: expiresAt });
+  if (setError) throw new Error(setError.message);
+  // The trip page shows the link; re-render it.
+  revalidatePath(`/trips/${tripId}`);
+  return `${appUrl()}/join/${token}`;
+}
+
+export async function currentJoinLink(tripId: string): Promise<string | null> {
+  const supabase = await requirePlanner(tripId);
+  const { data: trip } = await supabase.from('trips').select('join_token_expires_at').eq('id', tripId).single();
+  if (!trip?.join_token_expires_at || new Date(trip.join_token_expires_at) < new Date()) return null;
+  return `${appUrl()}/join/${joinToken(requireEnv('JOIN_LINK_SECRET'), tripId, trip.join_token_expires_at)}`;
 }
