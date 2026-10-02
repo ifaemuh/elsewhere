@@ -496,6 +496,12 @@ create table public.attribution_touchpoints (
 );
 create index attribution_touchpoints_aid_idx on public.attribution_touchpoints (anonymous_id, created_at desc);
 create index funnel_events_created_idx on public.funnel_telemetry_events (created_at);
+-- One rule_page_view per visitor, rule and UTC day: refreshes and revisits must not inflate the
+-- denominator. The funnel bar counts DISTINCT anonymous_id; this index is a write-time guard so
+-- the raw rows stay sane too. recordEvent treats the unique violation (23505) as a no-op.
+create unique index funnel_page_view_daily_idx on public.funnel_telemetry_events
+  (anonymous_id, rule_id, ((created_at at time zone 'utc')::date))
+  where event_name = 'rule_page_view';
 
 create or replace function public.attribution_summary(p_since timestamptz)
 returns table (post_id text, clicks bigint, forwarded_bookings bigint, paid_passes bigint)

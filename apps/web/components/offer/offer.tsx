@@ -7,6 +7,8 @@ import { OfferCard } from './offer-card';
 /** Reads the visitor cookie, so render it inside <Suspense>. */
 export async function Offer({ ruleId }: { ruleId: string }) {
   const anonymousId = (await cookies()).get(ANONYMOUS_ID_COOKIE)?.value;
+  // Unreachable once the proxy has set the cookie. Fallback shows the higher price and is NOT recorded:
+  // the beacon's server action drops events without a valid cookie, so no assignment is made up.
   const variant = isAnonymousId(anonymousId) ? assignVariant(anonymousId) : 'p19';
   return (
     <>

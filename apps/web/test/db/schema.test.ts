@@ -174,6 +174,17 @@ describe('growth tables and attribution', () => {
     await expect(asUser(db, PLANNER, () => db.query("select * from public.attribution_summary(now() - interval '1 day')"))).rejects.toThrow(/permission denied/);
   });
 
+  it('dedupes rule_page_view per visitor, rule and UTC day', async () => {
+    const aid = 'aid0000000000000000000000000000b';
+    const view = (rule: string) =>
+      asService(db, () =>
+        db.query("insert into public.funnel_telemetry_events (anonymous_id, event_name, rule_id) values ($1, 'rule_page_view', $2)", [aid, rule]),
+      );
+    await view('r1');
+    await expect(view('r1')).rejects.toThrow(/funnel_page_view_daily_idx/);
+    await expect(view('r2')).resolves.toBeDefined();
+  });
+
   it('attributes conversions to the last touch before them', async () => {
     const aid = 'aid0000000000000000000000000000a';
     await asService(db, async () => {

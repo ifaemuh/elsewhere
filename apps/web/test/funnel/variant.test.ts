@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { newAnonymousId } from '@/lib/funnel/anonymous-id';
-import { assignVariant, variantPriceLabel } from '@/lib/funnel/variant';
+import { assignVariant, VARIANT_PRICE_CENTS, variantPriceLabel } from '@/lib/funnel/variant';
 
 describe('assignVariant', () => {
   it('is stable for a visitor', () => {
@@ -18,5 +18,17 @@ describe('assignVariant', () => {
   it('labels prices in dollars', () => {
     expect(variantPriceLabel('p9')).toBe('$9');
     expect(variantPriceLabel('p19')).toBe('$19');
+  });
+});
+
+describe('pinned values', () => {
+  it('keeps the salt stable: golden vectors', () => {
+    expect(assignVariant('0'.repeat(32))).toBe('p9');
+    expect(assignVariant('1'.repeat(32))).toBe('p19');
+    expect(assignVariant('2'.repeat(32))).toBe('p9');
+  });
+
+  it('prices are integer cents', () => {
+    expect(VARIANT_PRICE_CENTS).toEqual({ p9: 900, p19: 1900 });
   });
 });

@@ -1,5 +1,4 @@
-import Link from 'next/link';
-import { Button } from '@/components/ui/button';
+import { OfferCta } from './offer-cta';
 
 export function OfferCard({ ruleId, priceLabel }: { ruleId: string; priceLabel: string }) {
   return (
@@ -14,9 +13,7 @@ export function OfferCard({ ruleId, priceLabel }: { ruleId: string; priceLabel: 
         Trip pass, {priceLabel} for the whole group: we watch every flight and tell the affected people what they’re owed, with the rule
         cited. We draft the messages; you send them.
       </p>
-      <Button asChild className="mt-4">
-        <Link href={`/start?rule=${encodeURIComponent(ruleId)}`}>Start a trip</Link>
-      </Button>
+      <OfferCta ruleId={ruleId} />
     </section>
   );
 }

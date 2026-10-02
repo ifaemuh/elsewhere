@@ -54,14 +54,18 @@ export async function recordEvent(input: FunnelEventInput): Promise<void> {
   try {
     const admin = createAdminClient();
     const { error } = await admin.from('funnel_telemetry_events').insert(toEventRow(input));
-    if (error) console.error('funnel event failed', error.message);
+    // 23505 on a page view is the daily dedupe index doing its job, not a failure.
+    if (error && !(input.event === 'rule_page_view' && error.code === '23505')) {
+      console.error('funnel event failed', error.message);
+    }
     if (input.event === 'rule_page_view' && input.variant) {
-      await admin
+      const { error: assignError } = await admin
         .from('experiment_assignments')
         .upsert(
           { anonymous_id: input.anonymousId, flag_key: PRICE_EXPERIMENT_KEY, variant: input.variant, user_id: input.userId ?? null },
           { onConflict: 'anonymous_id,flag_key', ignoreDuplicates: true },
         );
+      if (assignError) console.error('experiment assignment failed', assignError.message);
     }
   } catch (error) {
     console.error('funnel event failed', error);
