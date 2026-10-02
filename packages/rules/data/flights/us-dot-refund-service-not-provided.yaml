@@ -24,13 +24,15 @@ entitlement:
 how_to_claim:
   steps:
     - "Tell the airline that operated the flight which paid service you did not get."
-    - "If the refund doesn't arrive on its own, ask the airline for a refund of that fee in writing. If you booked through a ticket agent, ask the agent."
+    - "If the refund doesn't arrive on its own, ask the airline that operated the flight for a refund of that fee in writing, even if you paid a travel agent."
     - "Check that the money returns to your original form of payment, within 7 business days for a credit card or 20 calendar days for other payments."
   templates: [airline_refund_request]
 exceptions:
   - "Only for a service that was not provided through no fault of the consumer."
   - "When the service failed for you or a few passengers rather than everyone who paid for it, the airline's duty to refund begins when you notify the operating airline and it confirms that the service was not provided. Your notice counts as a refund request."
   - "When the service was unavailable to all passengers who paid for it, the airline's duty to refund begins when it knows the service is unavailable."
+  - "When the airline that charged you is not the airline that operated the flight, the operating airline must notify the airline that charged you that the service was not provided. That notification is necessary for the refund obligation to apply."
+  - "Covers scheduled passenger service only."
   - "Checked bag fees follow a separate rule: the bag must be lost or significantly delayed and you must file a Mishandled Baggage Report."
   - "The regulation puts the duty on the covered carrier that is the merchant of record, or, when a ticket agent is the merchant of record, on the carrier that operated the flight and failed to provide the service. Rules matching does not check who the merchant of record is."
 sources:
@@ -44,13 +46,17 @@ sources:
       - text: "any optional service related to air travel that a covered carrier provides for a fee, beyond passenger air transportation. Such services may include, but are not limited to, transport of checked or carry-on baggage, advance seat selection, access to in-flight entertainment programs or Wi-Fi, in-flight beverages, snacks, meals, pillows and blankets, seat upgrades, and lounge access."
         supports: [summary, applies_when]
       - text: "Covered carrier means an air carrier or a foreign air carrier operating to, from, or within the United States, conducting scheduled passenger service."
-        supports: [applies_when]
-      - text: "a carrier's obligation under paragraph (a) of this section to provide a prompt and automatic refund begins when the information about the unavailability of the service is known by the carrier that failed to provide the service"
+        supports: [applies_when, exceptions]
+      - text: "a carrier's obligation under paragraph (a) of this section to provide a prompt and automatic refund begins when the information about the unavailability of the service is known by the carrier that failed to provide the service, and, if applicable, relayed as provided in paragraph (d) of this section to the carrier responsible for providing a prompt refund as specified in paragraph (a) of this section."
         supports: [exceptions]
-      - text: "a carrier's obligation under paragraph (a) of this section to provide a prompt and automatic refund begins when the consumer affected by the service failure notifies the operating carrier that failed to provide the ancillary service about the unavailability of the service and that information has been confirmed"
+      - text: "a carrier's obligation under paragraph (a) of this section to provide a prompt and automatic refund begins when the consumer affected by the service failure notifies the operating carrier that failed to provide the ancillary service about the unavailability of the service and that information has been confirmed and, if applicable, relayed as provided in paragraph (d) of this section to the carrier responsible for providing a prompt refund as specified in paragraph (a) of this section."
         supports: [exceptions, how_to_claim.steps.0]
       - text: "Notification of the unavailability of the ancillary service by a consumer is considered a request for a refund."
         supports: [exceptions, how_to_claim.steps.0]
+      - text: "the operating carrier that failed to provide the ancillary service must timely notify the carrier that is the merchant of record about the unavailability of the ancillary service."
+        supports: [exceptions]
+      - text: "Notification by the operating carrier as set forth in this paragraph is necessary for the obligation to provide a prompt refund of ancillary service fees in paragraphs (b) and (c) of this section to apply."
+        supports: [exceptions]
       - text: "Prompt refund means refunds made within 7 business days after the earliest date the refund was requested as set forth in § 260.6(a)(2) as required by 14 CFR 374.3 for credit card purchases and within 20 calendar days after the earliest date the refund was requested as set forth in § 260.6(a)(2) for cash, check, debit card, or other forms of purchases."
         supports: [entitlement.timing, how_to_claim.steps.2]
       - text: "the refund must be issued promptly in the original form of payment (i.e., money is returned to an individual using whatever payment method the individual used to make the original payment, such as a check, credit card, debit card, cash, or airline miles) unless the consumer agrees to receive the refunds in a different form of payment that is a cash equivalent as defined in § 260.2."
