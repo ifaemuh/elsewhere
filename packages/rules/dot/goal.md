@@ -26,11 +26,18 @@ whenever you are unsure. Its "Changing a verified rule" section is the rule for 
    - `eCFR/title-<T>-part-<P>.md` is the source whose `detector.ecfr` is
      `{ title: T, part: P }`.
 2. Find every rule in `packages/rules/data/**/*.yaml` whose `sources[].source` is that
-   key. Skip rules with `status: retired`. If none remain, stop and do nothing.
+   key. Skip rules with `status: draft` (they have no verification fields, so they cannot
+   become `needs_review`) and `status: retired`. If none remain, stop and do nothing.
 3. Read the diff of that file (previous version to this one) and each affected rule.
+   **Outage check, before classifying anything.** If the file was deleted or is empty, has
+   lost most of its content, or the new version looks like a tracker error page, bot check,
+   CAPTCHA, or placeholder rather than the real document, change NO rule. Instead comment
+   on the versions commit, or open an issue in `ifaemuh/elsewhere` labelled `rules-watch`,
+   describing the probable outage for the founder. An outage never changes a rule, the same
+   way the nightly backstop never acts on a missing source.
 4. Classify each affected rule:
-   - **no-impact.** Every quote still appears word for word (ignoring whitespace and
-     curly vs straight quotes), and nothing the rule says changed. Do nothing.
+   - **no-impact.** Every quote still appears word for word (matching is case-sensitive
+     and NFKC-normalized, ignoring whitespace runs and curly vs straight quotes), and nothing the rule says changed. Do nothing.
    - **quote-moved.** The meaning is unchanged, but a quote's wording or punctuation
      changed so it no longer matches. Replace only that quote's `text` with the new exact
      wording. Change nothing else: no `version`, `status`, or `history` change.
@@ -39,13 +46,17 @@ whenever you are unsure. Its "Changing a verified rule" section is the rule for 
      affected fields and quotes from the new text. Increment `version` by 1, set
      `status: needs_review`, and append one entry to the end of `history`:
      `- { version: <new version>, status: needs_review, date: <today>, note: "<what changed, one line>" }`.
+     The note is at most 200 characters.
+   - **Already `needs_review`.** You may update quotes and fields and append a history
+     entry, but the status stays `needs_review` (the entry's status is `needs_review`).
+     Say what you did in the PR body.
    - If you are unsure whether a change is substantive, treat it as substantive.
 5. If any rule is quote-moved or substantive, open ONE pull request:
    - Branch `rules/refresh-<source key>-<YYYY-MM-DD>` from `main`.
    - Title: `Rules refresh: <source key> changed on <date>`.
    - Body: a link to the versions commit, then for each rule its classification, the old
      and new source text, what you changed, and anything you are unsure about.
-6. CI (the "Rules CI" check) must pass. It runs the tests, the typecheck, the build, and
+6. CI (the `Rules CI / rules` status check) must pass. It runs the tests, the typecheck, the build, and
    `rules:check-quotes` against the tracked source text. If it fails, read the log, fix
    the rule files, and push to the same branch. After two failed attempts, comment on the
    PR asking the founder, and stop.
@@ -73,11 +84,13 @@ It flips a verified rule to `needs_review` only when a quote is not found in the
 text (`not_found`). It never flips a rule because the source text is missing
 (`source_missing`, a tracker outage). It opens its own PR on a `rules/backstop-*` branch
 labelled `rules-backstop`. That is not your work: do not touch those PRs or branches. If a
-refresh would overlap a rule in an open backstop PR, say so in your PR body.
+refresh overlaps a rule in an open backstop PR, still open your refresh PR and note the
+conflict in its body.
 
 ## Never
 
-- Merge, push to `main`, or touch any other repository.
+- Merge, push to `main`, force-push, enable auto-merge, approve pull requests, or write to
+  any other repository (reading `elsewhere-sources-versions` is required).
 - Open pull requests from any branch not named `rules/refresh-*`.
 - Change `verified_by`, `last_verified`, `review_by`, or a rule's `id`. Approval is the
   founder's `rules:verify` run after merge; you never run or imitate it.
@@ -87,6 +100,11 @@ refresh would overlap a rule in an open backstop PR, say so in your PR body.
 - Quote anything that is not in the tracked text.
 
 ## Weekly Federal Register watch (Mondays)
+
+The window is the previous Monday up to this Monday: from `<this Monday minus 7 days>`
+through `<this Monday minus 1 day>` by publication date. Use the previous Monday's date as
+`<7 days ago>`. If a run was missed, widen `gte` back to the last Monday you ran, so no week
+is skipped, and title the issue with each week covered.
 
 Fetch:
 
