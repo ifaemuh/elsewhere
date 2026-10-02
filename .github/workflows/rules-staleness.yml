@@ -1,0 +1,74 @@
+name: Rules staleness
+
+on:
+  schedule:
+    - cron: '0 13 * * 1'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: rules-staleness
+  cancel-in-progress: false
+
+jobs:
+  staleness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: List rules due within 14 days
+        run: |
+          # Fail the job on any error; an empty file means nothing is due.
+          npm run -s rules:stale -w @elsewhere/rules -- --within 14 > "$RUNNER_TEMP/stale.md"
+          if [ -s "$RUNNER_TEMP/stale.md" ]; then
+            echo "Rules due: $(wc -l < "$RUNNER_TEMP/stale.md" | tr -d ' ')"
+          else
+            echo "::notice::No rules are due for review within 14 days."
+          fi
+
+      - name: Open, update or close the staleness issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh label create rules-staleness --force --color FBCA04 --description "Rules due for re-verification"
+          # One issue at a time: update the oldest open one; close any extras as duplicates.
+          mapfile -t open < <(gh issue list --label rules-staleness --state open --json number --jq 'sort_by(.number) | .[].number')
+          existing="${open[0]:-}"
+          if [ ! -s "$RUNNER_TEMP/stale.md" ]; then
+            for n in "${open[@]}"; do
+              gh issue close "$n" --comment "Nothing is due in the next 14 days."
+            done
+            if [ -z "$existing" ]; then
+              echo "::notice::Nothing is due and no staleness issue is open; nothing to do."
+            fi
+            exit 0
+          fi
+          {
+            echo "These rules reach their review_by date within 14 days."
+            echo "Re-verify each one with packages/rules/RESEARCH.md, then run rules:verify."
+            echo
+            cat "$RUNNER_TEMP/stale.md"
+          } > "$RUNNER_TEMP/body.md"
+          if [ -n "$existing" ]; then
+            gh issue edit "$existing" --body-file "$RUNNER_TEMP/body.md"
+            echo "::notice::Updated open staleness issue #$existing instead of opening a new one."
+            for n in "${open[@]:1}"; do
+              gh issue close "$n" --comment "Duplicate of #$existing."
+            done
+          else
+            gh issue create --title "Rules due for re-verification" --label rules-staleness --body-file "$RUNNER_TEMP/body.md"
+          fi
