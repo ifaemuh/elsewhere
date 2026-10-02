@@ -10,9 +10,13 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "predev": "npm run rules:build -w @elsewhere/rules",
+    "prebuild": "npm run rules:build -w @elsewhere/rules",
+    "pretypecheck": "npm run rules:build -w @elsewhere/rules"
   },
   "dependencies": {
+    "@elsewhere/rules": "^0.0.1",
     "@radix-ui/react-slot": "^1.1.2",
     "@supabase/ssr": "0.12.7",
     "@supabase/supabase-js": "^2.117.2",
