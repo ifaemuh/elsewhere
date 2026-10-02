@@ -28,6 +28,7 @@ entitlement:
     international_400_percent: "at least 400 percent of the fare to the passenger's destination or first stopover, or $2,150, whichever is lower, if the carrier does not offer alternate transportation that, at the time the arrangement is made, is planned to arrive at the airport of the passenger's first stopover, or if not, the airport of the passenger's final destination less than four hours after the planned arrival time of the passenger's original flight"
     award_and_voucher_tickets: "The requirements of this section apply to passengers with “zero fare tickets.”"
     fare_for_zero_fare_tickets: "the lowest cash, check, or credit card payment charged for a ticket in the same class of service on that flight"
+    ancillary_fees_for_alternate_transportation: "The carrier is not required to refund the ancillary fees for services that are provided with respect to the passenger's alternate transportation."
     form: "cash or an immediately negotiable check for the appropriate amount of compensation"
     unused_ancillary_fees: "a carrier shall refund all unused ancillary fees for optional services paid by a passenger who is voluntarily or involuntarily denied boarding"
   timing: "The carrier that denied you boarding must pay on the day and at the place the denied boarding occurs. If it arranges alternate transportation that departs before the payment can be prepared, it must pay by mail or other means within 24 hours after the denied boarding occurs."
@@ -36,8 +37,8 @@ how_to_claim:
     - "If the airline asks for volunteers, it must tell you, no later than when it asks you, whether you are in danger of being denied boarding involuntarily and what it must pay if you are. If it doesn't, ask before you give up your seat. A volunteer who accepts the airline's offer is not paid under this rule."
     - "If you are denied boarding against your will, the airline must give you a written statement of your rights and its boarding priorities immediately after. If it doesn't, ask for it."
     - "Ask what time the replacement transportation is planned to arrive at your destination, or at your first stopover if you have one, compared with your original flight's planned arrival. The planned times when the airline arranges the replacement are what count, not when you actually land. 400% starts at 2 hours late on a domestic trip, or 4 hours on a ticket that goes abroad."
-    - "The airline must offer the payment without waiting for you to ask, in cash or an immediately negotiable check, on the day and at the place it denies you boarding. If it offers a free or discounted flight instead, you can insist on the cash or check."
-    - "The airline must refund any unused extras you paid for, such as a seat selection or a checked bag. If it doesn't, ask."
+    - "The airline must offer the payment without waiting for you to ask, in cash or an immediately negotiable check, on the day and at the place it denies you boarding. If it offers a free or discounted flight instead, you can insist on the cash or check. Tickets bought with miles or vouchers are covered too."
+    - "The airline must refund any unused extras you paid for, such as a seat selection or a checked bag, except for services provided on your replacement transportation. If it doesn't, ask."
     - "If you are not paid, write to the airline that denied you boarding and ask for the compensation. Keep the written statement, your boarding pass and the times of the replacement flight."
   templates: [denied_boarding_claim]
 exceptions:
@@ -109,7 +110,9 @@ sources:
       - text: "Fare means the price paid for air transportation including all mandatory taxes and fees. It does not include ancillary fees for optional services."
         supports: [entitlement.amount, exceptions]
       - text: "The requirements of this section apply to passengers with “zero fare tickets.”"
-        supports: [entitlement.amount]
+        supports: [entitlement.amount, how_to_claim.steps.3]
+      - text: "Zero fare ticket means a ticket acquired without a substantial monetary payment such as by using frequent flyer miles or vouchers, or a consolidator ticket obtained after a monetary payment that does not show a fare amount on the ticket. A zero fare ticket does not include free or reduced rate air transportation provided to airline employees and guests."
+        supports: [entitlement.amount, how_to_claim.steps.3]
       - text: "The fare paid by these passengers for purposes of calculating denied boarding compensation shall be the lowest cash, check, or credit card payment charged for a ticket in the same class of service on that flight."
         supports: [entitlement.amount]
       - text: "With few exceptions, including failure to comply with the carrier's check-in deadline (carrier shall insert either “of _ minutes prior to each flight segment” or “(which are available upon request from the air carrier)” here), persons denied boarding involuntarily are entitled to compensation."

@@ -24,7 +24,7 @@ export const FACTS = {
     values: EVENT_TYPES,
     description:
       'What happened to the trip. denied_boarding: The airline did not let the passenger board a flight they held a confirmed reservation on ' +
-      'because more passengers held confirmed reservations than there were seats. Not for refusals over documents, conduct or safety, or a cancelled flight.',
+      'because more passengers held confirmed reservations than there were seats. Not for refusals over documents, or over the passenger\'s own conduct, safety, security or health risk, or a cancelled flight.',
   },
   'event.delay_minutes': {
     type: 'number',
@@ -35,7 +35,7 @@ export const FACTS = {
       'For bag_delayed: minutes since the flight arrived without the bag. ' +
       'For denied_boarding: minutes between when the original flight(s) were planned to arrive and when the replacement the airline offers is planned ' +
       '(when arranged) to arrive, at the first stopover (a planned stop over 4 hours) or else the final destination. Planned times, not actual. ' +
-      'No replacement offered = 240 or more.',
+      'The replacement must be a confirmed reservation at no extra charge. A standby offer, or a seat the passenger pays for, counts as no replacement. No replacement offered = 240 or more.',
   },
   'event.at_us_airport': {
     type: 'boolean',
@@ -50,7 +50,7 @@ export const FACTS = {
   },
   'flight.carrier_iata': { type: 'string', description: 'Two-character IATA code of the operating carrier.' },
   'flight.carrier_is_us': { type: 'boolean', description: 'The operating carrier is a US airline.' },
-  'flight.touches_us': { type: 'boolean', description: 'The flight departs from or arrives at a US airport (including territories and possessions).' },
+  'flight.touches_us': { type: 'boolean', description: 'The flight departs from or arrives at a US airport (including territories and possessions), as scheduled; a diversion does not count.' },
   'flight.is_domestic_us': { type: 'boolean', description: 'Both airports are in the United States (including territories and possessions).' },
   'flight.departs_eu': { type: 'boolean', description: 'The flight departs from an airport in an EU member state.' },
   'flight.arrives_eu': { type: 'boolean', description: 'The flight arrives at an airport in an EU member state.' },
@@ -94,7 +94,7 @@ export const FACTS = {
   },
   'trip.us_foreign_nonstop_minutes': {
     type: 'number',
-    description: "Scheduled minutes of the ticket's nonstop flight between the United States and a foreign point, on the same journey as the event.",
+    description: "Scheduled minutes of the ticket's nonstop flight between the United States (including territories and possessions) and a foreign point, on the same journey as the event.",
   },
   'lodging.kind': { type: 'enum', values: ['hotel', 'short_term_rental'], description: 'Kind of lodging.' },
   'lodging.booked_via': { type: 'enum', values: ['direct', 'ota'], description: 'Booked with the property directly, or through an online travel agency.' },
