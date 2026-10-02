@@ -1,0 +1,49 @@
+name: Rules CI
+
+on:
+  pull_request:
+    paths:
+      - 'packages/rules/**'
+      - '.github/workflows/rules-*.yml'
+      - '.github/workflows/sources-track.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'packages/rules/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rules-ci-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  rules:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npm test -w @elsewhere/rules
+      - run: npm run typecheck -w @elsewhere/rules
+      - run: npm run rules:build -w @elsewhere/rules
+
+      - name: Check out versions
+        uses: actions/checkout@v4
+        with:
+          repository: ifaemuh/elsewhere-sources-versions
+          token: ${{ secrets.SOURCES_REPOS_TOKEN }}
+          path: .sources-versions
+          persist-credentials: false
+
+      - name: Every quote must be in its source's tracked text
+        run: npm run rules:check-quotes -w @elsewhere/rules -- --versions "$GITHUB_WORKSPACE/.sources-versions"

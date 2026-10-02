@@ -31,3 +31,8 @@ test('validateSituation rejects wrong primitive types', () => {
   assert.throws(() => validateSituation({ 'flight.touches_us': 'yes' }), /expects a boolean/);
   assert.throws(() => validateSituation({ 'event.delay_minutes': Number.NaN }), /expects a number/);
 });
+
+test('the departure and duration facts exist', () => {
+  validateSituation({ 'flight.departs_us': true, 'trip.us_foreign_nonstop_minutes': 780 });
+  assert.throws(() => validateSituation({ 'trip.us_foreign_nonstop_minutes': '13h' }), /expects a number/);
+});
