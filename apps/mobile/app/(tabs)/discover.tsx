@@ -4,6 +4,7 @@ import {
   Animated,
   Easing,
   FlatList,
+  Linking,
   PanResponder,
   Pressable,
   ScrollView,
@@ -20,11 +21,13 @@ import { useEvent } from 'expo';
 import { useRouter } from 'expo-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Image } from 'expo-image';
-import * as MediaLibrary from 'expo-media-library';
 import { VideoView, useVideoPlayer } from 'expo-video';
+import { AppBottomSheet } from '@/components/AppBottomSheet';
 import { SOCIAL_POP } from '@/components/AppHeader';
 import { useHorizontalTabSwipe } from '@/hooks/useHorizontalTabSwipe';
+import { usePhotoMemoryTrips } from '@/hooks/usePhotoMemoryTrips';
 import { api } from '@/services/api';
+import { usePlansStore, type SavedPlanCard, type SavedPlanReason } from '@/stores/plans';
 import { useCalendarSignals } from '@/hooks/useCalendarSignals';
 import { useLocalDiscoveryContext } from '@/hooks/useLocalDiscoveryContext';
 import { useReferencePhotos } from '@/hooks/useReferencePhotos';
@@ -34,15 +37,21 @@ import type {
   DiscoverContentSource,
   DiscoverFeedItem,
   DiscoverFeedItemKind,
+  DiscoverGeneratedVideo,
+  DiscoverHeroMedia,
   DiscoverInteractivePrompt,
+  DiscoverLearnSection,
   DiscoverMediaMode,
   DiscoverMusicAttribution,
   DiscoverParticipant,
+  DiscoverPostFamily,
   DiscoverRightsStatus,
+  DiscoverSourceHighlight,
   DiscoverTripProposal,
   DiscoverTripValue,
   EditorialShort,
   PhotoMemoryCandidate,
+  PhotoMemoryTrip,
   SoundtrackRecommendation,
   SocialTripInviteCard,
   TravelDealSignal,
@@ -79,6 +88,8 @@ interface PersonalizedDiscoveryCard {
   people: string[];
   mediaUrl?: string;
   mediaPosterUrl?: string;
+  postFamily?: DiscoverPostFamily;
+  heroMediaGallery?: DiscoverHeroMedia[];
   fallbackAllowed?: boolean;
   mediaAlt: string;
   size: PersonalizedCardSize;
@@ -99,10 +110,13 @@ interface PersonalizedDiscoveryCard {
   primaryValueLabel?: string;
   priceBadgeLabel?: string;
   relevanceReason?: string;
+  dealAttachedToPlan?: boolean;
+  sourceTripId?: string;
   contentTopics?: string[];
   interactionStats?: DiscoverFeedItem['interactionStats'];
   textTreatment?: DiscoverFeedItem['textTreatment'];
   captionBeats?: DiscoverFeedItem['captionBeats'];
+  captionSegments?: DiscoverFeedItem['captionSegments'];
   narration?: DiscoverFeedItem['narration'];
   audioMix?: DiscoverFeedItem['audioMix'];
   mediaMode?: DiscoverMediaMode;
@@ -110,8 +124,13 @@ interface PersonalizedDiscoveryCard {
   music?: DiscoverMusicAttribution;
   participants?: DiscoverParticipant[];
   contentSources?: DiscoverContentSource[];
+  articleSource?: DiscoverFeedItem['articleSource'];
+  sourceHighlights?: DiscoverSourceHighlight[];
+  generatedVideo?: DiscoverGeneratedVideo;
+  learnSections?: DiscoverLearnSection[];
   tripValue?: DiscoverTripValue;
   tripProposal?: DiscoverTripProposal;
+  planProposal?: DiscoverTripProposal;
   assistWatchItems?: string[];
   interactivePrompt?: DiscoverInteractivePrompt;
   adminAction?: DiscoverAdminAction;
@@ -251,7 +270,7 @@ function orderDiscoverCards<T extends BasePersonalizedDiscoveryCard>(cards: T[])
 }
 
 function assetUrl(path: string): string {
-  if (path.startsWith('http')) return path;
+  if (path.startsWith('http') || path.startsWith('file:') || path.startsWith('ph:') || path.startsWith('assets-library:')) return path;
   const separator = path.includes('?') ? '&' : '?';
   return `${api.baseUrl}${path}${separator}v=${MEDIA_CACHE_VERSION}`;
 }
@@ -353,28 +372,53 @@ function layoutVariantForCard(card: PersonalizedDiscoveryCard): DiscoverLayoutVa
 function cleanLocationName(...values: Array<string | undefined | null>): string {
   const joined = values.filter(Boolean).join(' ').toLowerCase();
   const knownPlaces = [
-    ['anaheim', 'Anaheim'],
-    ['southern california', 'Southern California'],
-    ['los angeles', 'Los Angeles'],
-    ['mexico city', 'Mexico City'],
-    ['santorini', 'Santorini'],
-    ['marrakech', 'Marrakech'],
-    ['iceland', 'Iceland'],
-    ['kyoto', 'Kyoto'],
-    ['tokyo', 'Tokyo'],
-    ['paris', 'Paris'],
-    ['bali', 'Bali'],
-    ['lisbon', 'Lisbon'],
-    ['seoul', 'Seoul'],
-    ['amalfi', 'Amalfi Coast'],
-    ['peru', 'Peru'],
+    ['anaheim', 'Anaheim, California'],
+    ['southern california', 'Anaheim, California'],
+    ['los angeles', 'Los Angeles, California'],
+    ['new york', 'New York, New York'],
+    ['japan', 'Tokyo, Japan'],
+    ['france', 'Paris, France'],
+    ['greece', 'Santorini, Greece'],
+    ['indonesia', 'Bali, Indonesia'],
+    ['portugal', 'Lisbon, Portugal'],
+    ['south korea', 'Seoul, South Korea'],
+    ['korea', 'Seoul, South Korea'],
+    ['morocco', 'Marrakech, Morocco'],
+    ['italy', 'Amalfi Coast, Italy'],
+    ['mexico', 'Mexico City, Mexico'],
+    ['mexico city', 'Mexico City, Mexico'],
+    ['santorini', 'Santorini, Greece'],
+    ['marrakech', 'Marrakech, Morocco'],
+    ['iceland', 'Reykjavik, Iceland'],
+    ['kyoto', 'Kyoto, Japan'],
+    ['hakone', 'Hakone, Japan'],
+    ['tokyo', 'Tokyo, Japan'],
+    ['paris', 'Paris, France'],
+    ['bali', 'Bali, Indonesia'],
+    ['lisbon', 'Lisbon, Portugal'],
+    ['seoul', 'Seoul, South Korea'],
+    ['amalfi', 'Amalfi Coast, Italy'],
+    ['peru', 'Cusco, Peru'],
+    ['sacred valley', 'Cusco, Peru'],
   ] as const;
 
-  return knownPlaces.find(([token]) => joined.includes(token))?.[1] ?? values.find(Boolean) ?? 'Elsewhere';
+  const known = knownPlaces.find(([token]) => joined.includes(token))?.[1];
+  if (known) return known;
+  const fallback = values.find((value) => {
+    const raw = value?.trim();
+    const normalized = raw?.toLowerCase();
+    return Boolean(raw && normalized) &&
+      raw!.length <= 34 &&
+      !/[?!.]/.test(raw!) &&
+      !['world', 'elsewhere', 'photo trip', 'global', 'unknown', 'passport', 'global entry', 'tsa precheck', 'visa', 'document'].includes(normalized!);
+  });
+  return fallback ?? 'Los Angeles, California';
 }
 
 function locationLabel(card: Pick<PersonalizedDiscoveryCard, 'destination' | 'title' | 'deal' | 'locationOverride'>): string {
-  if (card.locationOverride) return card.locationOverride;
+  if (card.locationOverride && !['world', 'elsewhere', 'photo trip', 'global', 'unknown'].includes(card.locationOverride.trim().toLowerCase())) {
+    return cleanLocationName(card.locationOverride);
+  }
   return cleanLocationName(card.title, card.deal?.destination, card.destination?.name, card.destination?.country);
 }
 
@@ -422,6 +466,62 @@ function compactPriceLabel(label: string): string {
     .trim();
 }
 
+function musicLine(card: Pick<PersonalizedDiscoveryCard, 'music' | 'audioMix'>): string {
+  if (card.music?.title) {
+    const vibe = card.music.genre ? ` · ${card.music.genre}` : '';
+    return `♪ ${card.music.title}${vibe}`;
+  }
+  if (card.audioMix?.musicTrackId) return `♪ Elsewhere sound · ${card.audioMix.musicTrackId.replace(/-/g, ' ')}`;
+  return '♪ Elsewhere sound · travel bed';
+}
+
+function postCopy(card: PersonalizedDiscoveryCard, selectedAnswer?: NonNullable<DiscoverInteractivePrompt['answers']>[number]): string {
+  if (selectedAnswer) return `${selectedAnswer.responseHook} ${selectedAnswer.responseDetail}`;
+  if (card.interactivePrompt) return card.interactivePrompt.question;
+  if (card.cardKind === 'personal_deal') {
+    return `Your calendar and close friends line up for ${locationLabel(card)}. Elsewhere found ${valueLabel(card) ?? 'a watched monthly price'} and is checking dates, stays, and the trip rules before you commit.`;
+  }
+  if (card.cardKind === 'deal') {
+    return `${locationLabel(card)} is moving right now, but Elsewhere only surfaces the deal because it matches a saved place, timing signal, or trip you already care about.`;
+  }
+  if (card.adminAction) {
+    return `${card.adminAction.statusLabel}. ${card.adminAction.deadlineLabel}. Handle this before you lock in flights, hotels, or a trip that depends on paperwork.`;
+  }
+  if (card.cardKind === 'assist_alert') {
+    return card.relevanceReason ?? 'Assist found a trip change worth reviewing before it affects the group, the price, or your ability to keep travel credits protected.';
+  }
+  if (isPersonalCardKind(card.cardKind)) {
+    const people = card.people.filter((name) => name.toLowerCase() !== 'you').slice(0, 2).join(' and ');
+    return people
+      ? `${locationLabel(card)} with ${people} could become a real trip. Elsewhere can match the right dates, flights, stays, payment split, and group pace before anyone has to chase links.`
+      : `${locationLabel(card)} with your saved reference set could become a real trip. Elsewhere can match the right dates, flights, stays, and price watch before you start planning.`;
+  }
+  return card.editorialShort?.captionText ?? card.detail;
+}
+
+function savedPlanCardFromCard(
+  card: PersonalizedDiscoveryCard,
+  reason: SavedPlanReason,
+  reasonLabel: string,
+): SavedPlanCard {
+  return {
+    id: card.id,
+    title: card.title,
+    location: locationLabel(card),
+    cardType: cardTypeLabel(card),
+    detail: postCopy(card),
+    reason,
+    reasonLabel,
+    imageUrl: card.mediaPosterUrl ?? card.mediaUrl,
+    posterUrl: card.mediaPosterUrl,
+    valueLabel: valueLabel(card),
+    people: card.people,
+    musicLabel: musicLine(card),
+    prompt: card.prompt || `Plan a trip from ${card.title}.`,
+    createdAt: new Date().toISOString(),
+  };
+}
+
 function preferenceSignature(card: PersonalizedDiscoveryCard): string[] {
   return [
     card.cardKind,
@@ -452,13 +552,14 @@ function destinationMatch(destinations: Destination[], hint: string): Destinatio
   return destinations.find((destination) =>
     destination.name.toLowerCase().includes(hint.toLowerCase()) ||
     destination.country.toLowerCase().includes(hint.toLowerCase()),
-  ) ?? destinations[0] ?? null;
+  ) ?? null;
 }
 
 function mediaSourceKind(source: DiscoverContentSource | undefined): DiscoverMediaSource {
   if (!source) return 'local';
   if (source.kind === 'ai_generated') return 'ai';
   if (source.kind === 'local_demo') return 'local';
+  if (source.kind === 'publisher_feed' || source.kind === 'public_research') return 'partner';
   return source.kind;
 }
 
@@ -492,6 +593,8 @@ function cardFromFeedItem(item: DiscoverFeedItem, destinations: Destination[]): 
       : [],
     mediaUrl: item.mediaUrl,
     mediaPosterUrl: item.mediaPosterUrl,
+    postFamily: item.postFamily,
+    heroMediaGallery: item.heroMediaGallery,
     primaryCta: item.curationAction.label,
     badge: item.sponsored ? 'Sponsored' : item.primaryValueLabel ?? cardTypeLabel({ cardKind: item.kind, typeLabel: item.kind }),
     feedScope: item.feedScope,
@@ -504,10 +607,13 @@ function cardFromFeedItem(item: DiscoverFeedItem, destinations: Destination[]): 
     primaryValueLabel: item.primaryValueLabel,
     priceBadgeLabel: item.priceBadgeLabel,
     relevanceReason: item.relevanceReason,
+    dealAttachedToPlan: item.dealAttachedToPlan,
+    sourceTripId: item.sourceTripId,
     contentTopics: item.contentTopics,
     interactionStats: item.interactionStats,
     textTreatment: item.textTreatment,
     captionBeats: item.captionBeats,
+    captionSegments: item.captionSegments,
     narration: item.narration,
     audioMix: item.audioMix,
     mediaMode: item.mediaMode,
@@ -515,8 +621,13 @@ function cardFromFeedItem(item: DiscoverFeedItem, destinations: Destination[]): 
     music: item.music,
     participants: item.participants,
     contentSources: item.contentSources,
+    articleSource: item.articleSource,
+    sourceHighlights: item.sourceHighlights,
+    generatedVideo: item.generatedVideo,
+    learnSections: item.learnSections,
     tripValue: item.tripValue,
     tripProposal: item.tripProposal,
+    planProposal: item.planProposal,
     assistWatchItems: item.assistWatchItems,
     interactivePrompt: item.interactivePrompt,
     adminAction: item.adminAction,
@@ -528,6 +639,112 @@ function cardFromFeedItem(item: DiscoverFeedItem, destinations: Destination[]): 
     soundtrackRecommendations: item.soundtrackRecommendations,
     photoMemory: item.photoMemory,
     collectionItems: item.collection?.items,
+  };
+}
+
+function cardFromPhotoMemoryTrip(trip: PhotoMemoryTrip): BasePersonalizedDiscoveryCard {
+  const hero = trip.coverMedia.find((item) => item.mediaType === 'photo') ?? trip.coverMedia[0];
+  const destination = trip.destinationName === 'Photo Trip' ? 'your camera roll' : trip.destinationName;
+  return {
+    id: `discover-${trip.id}`,
+    typeLabel: 'Private memory',
+    cardKind: 'photo_memory',
+    title: `${trip.title}, remembered`,
+    detail: `${trip.mediaCount} photos and videos from ${trip.dateRangeLabel}. Elsewhere can turn this into a private recap, a Discover memory reel, or a plan for a similar trip once you approve it.`,
+    sourceLine: `Photos · ${trip.dateRangeLabel} · private on device`,
+    destination: null,
+    prompt: `Plan a similar trip based on my ${trip.title} photo memories, matching the pace, places, and trip style but using current flights, stays, activities, and Assist monitoring.`,
+    people: ['You'],
+    mediaUrl: hero?.uri,
+    mediaPosterUrl: hero?.uri,
+    postFamily: 'personal',
+    heroMediaGallery: trip.coverMedia.slice(0, 6).map((item, index) => ({
+      id: `${trip.id}-cover-${index}`,
+      mediaType: item.mediaType === 'video' ? 'video' : 'image',
+      url: item.uri,
+      posterUrl: item.uri,
+      mediaMode: item.mediaType === 'video' ? 'video' : 'animated_still',
+      rightsStatus: 'user_shared',
+      sourceName: 'Photos',
+      alt: `${trip.title} memory ${index + 1}`,
+    })),
+    mediaMode: 'animated_still',
+    rightsStatus: 'user_shared',
+    primaryCta: 'Plan',
+    badge: 'Memory',
+    feedScope: 'both',
+    layoutVariant: 'personal_preview',
+    mediaSource: 'photo_library',
+    locationOverride: trip.destinationName,
+    hook: `${destination} already happened. Elsewhere can help you relive it, then plan the next one.`,
+    creatorLabel: 'Your Photos',
+    postType: 'photo_memory',
+    relevanceReason: 'Built from private camera-roll media on this phone.',
+    contentTopics: ['memory', 'recap', 'photo_library', trip.destinationName.toLowerCase()],
+    textTreatment: 'memory',
+    captionBeats: [
+      {
+        id: `${trip.id}-memory-hook`,
+        text: `${trip.title} is already in your camera roll.`,
+        emphasis: trip.destinationName,
+        durationMs: 2800,
+      },
+      {
+        id: `${trip.id}-memory-use`,
+        text: 'Approve it once, and Elsewhere can make a recap or plan the next version.',
+        emphasis: 'private until approved',
+        durationMs: 3600,
+      },
+    ],
+    music: {
+      title: 'Memory Light',
+      artistOrLibrary: 'Elsewhere Sound Library',
+      genre: 'ambient R&B',
+      licenseKind: 'royalty_free_demo',
+      rightsStatus: 'owned',
+      provider: 'elsewhere_licensed',
+      playableInApp: true,
+      bpm: 82,
+    },
+    audioMix: {
+      mode: 'music_plus_voice',
+      musicTrackId: 'elsewhere-memory-light',
+      bpm: 82,
+      beatGridMs: 732,
+      musicUrl: null,
+      narrationUrl: null,
+      loopStrategy: 'poster_motion',
+      limitation: 'Local photo memories are private until approved for recap or Discover.',
+    },
+    participants: [{ name: 'You' }],
+    sourceHighlights: [
+      {
+        id: `${trip.id}-memory-highlight`,
+        title: `${trip.title} from Photos`,
+        body: `${trip.mediaCount} local photos and videos matched ${trip.dateRangeLabel}. This stays private until you approve recap or Discover use.`,
+        mediaUrl: hero?.uri,
+        sourceName: 'Photos',
+        sourceUrl: null,
+      },
+    ],
+    learnSections: [
+      {
+        id: `${trip.id}-memory-learn`,
+        title: 'Private memory trip',
+        body: `${trip.title} was inferred from local Photos metadata. Elsewhere can turn it into a recap or plan a similar trip after approval.`,
+        kind: 'story',
+        sourceUrl: null,
+      },
+    ],
+    photoMemory: {
+      id: `${trip.id}-reel`,
+      clusterId: trip.clusterId,
+      title: `${trip.title} memory reel`,
+      generatedPostId: null,
+      approvalStatus: trip.approvalStatus === 'approved_for_discover' ? 'approved_for_discover' : 'private_candidate',
+      sourceAssetIds: trip.coverMedia.map((item) => item.localAssetId).filter((id): id is string => Boolean(id)),
+      privacyLabel: trip.privacyLabel,
+    },
   };
 }
 
@@ -549,18 +766,6 @@ function friendAvatarForName(name: string, fallbackIndex: number): string | null
     hash = Math.imul(hash ^ name.charCodeAt(index), 31);
   }
   return FRIEND_AVATAR_PATHS[Math.abs(hash || fallbackIndex) % FRIEND_AVATAR_PATHS.length];
-}
-
-function musicLabel(card: Pick<PersonalizedDiscoveryCard, 'music' | 'mediaMode' | 'rightsStatus' | 'creatorLabel' | 'sourceLine' | 'audioMix' | 'narration' | 'soundtrackRecommendations'>): string {
-  const track = card.music?.title ?? 'Elsewhere Drift';
-  const genre = card.music?.genre ?? 'chill hop';
-  const source = card.music?.artistOrLibrary ?? 'Elsewhere Sound Library';
-  const rights = card.rightsStatus === 'embed_only' ? 'embed only' : source;
-  const bpm = card.audioMix?.bpm ?? card.music?.bpm;
-  const sync = card.narration?.captionsAvailable ? 'caption-synced' : 'music bed';
-  const commercialIdea = card.soundtrackRecommendations?.find((recommendation) => !recommendation.track.playableInApp);
-  const ideaLabel = commercialIdea ? ` · export idea: ${commercialIdea.track.title} (${commercialIdea.track.rightsStatus.replace(/_/g, ' ')})` : '';
-  return `${card.creatorLabel ?? card.sourceLine.split('·')[0].trim()} · ${track} · ${genre}${bpm ? ` · ${bpm} bpm` : ''} · ${sync} · ${rights}${ideaLabel}`;
 }
 
 function readinessLabel(value: SocialTripInviteCard['previewReadiness']): string {
@@ -793,11 +998,13 @@ function enrichCard(
 
 export default function DiscoverScreen() {
   const router = useRouter();
-  const tabSwipeHandlers = useHorizontalTabSwipe('discover');
+  const tabSwipe = useHorizontalTabSwipe('discover');
   const queryClient = useQueryClient();
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const [selectedCard, setSelectedCard] = useState<PersonalizedDiscoveryCard | null>(null);
+  const [postCard, setPostCard] = useState<PersonalizedDiscoveryCard | null>(null);
+  const [postCardInitialPage, setPostCardInitialPage] = useState<'learn' | 'plan'>('learn');
   const [error, setError] = useState<string | null>(null);
   const [watchedCardIds, setWatchedCardIds] = useState<Set<string>>(() => new Set());
   const [savedCardIds, setSavedCardIds] = useState<Set<string>>(() => new Set());
@@ -808,6 +1015,18 @@ export default function DiscoverScreen() {
   const [revealedPromptIds, setRevealedPromptIds] = useState<Set<string>>(() => new Set());
   const [photoMemoryCandidates, setPhotoMemoryCandidates] = useState<Record<string, PhotoMemoryCandidate>>({});
   const [photoMemoryScanMessage, setPhotoMemoryScanMessage] = useState<string | null>(null);
+  const likedPostIds = usePlansStore((state) => state.likedPostIds);
+  const togglePlanLike = usePlansStore((state) => state.toggleLike);
+  const markPlanned = usePlansStore((state) => state.markPlanned);
+  const markInterested = usePlansStore((state) => state.markInterested);
+  const markWatched = usePlansStore((state) => state.markWatched);
+  const {
+    trips: photoMemoryTrips,
+    isScanning: isScanningPhotoTrips,
+    lastScanMessage: photoTripScanMessage,
+    scanPhotoLibraryTrips,
+    approveTripForDiscover,
+  } = usePhotoMemoryTrips();
   const { photos, error: photosError } = useReferencePhotos();
   const calendar = useCalendarSignals();
   const localDiscovery = useLocalDiscoveryContext();
@@ -1201,7 +1420,8 @@ export default function DiscoverScreen() {
     const apiFeedCards = [
       ...(discoverFeed?.items ?? []),
     ].map((item) => cardFromFeedItem(item, destinationList));
-    const sourceCards = apiFeedCards.length ? apiFeedCards : cards;
+    const photoTripCards = photoMemoryTrips.map(cardFromPhotoMemoryTrip);
+    const sourceCards = apiFeedCards.length ? [...apiFeedCards, ...photoTripCards] : [...cards, ...photoTripCards];
 
     const scopedCardsFor = (feedScope: 'here' | 'elsewhere') => sourceCards.filter((card) => {
       const scope = card.feedScope ?? 'elsewhere';
@@ -1221,6 +1441,7 @@ export default function DiscoverScreen() {
     isLoading,
     localDiscovery.marketLabel,
     localDiscovery.usingFallbackMarket,
+    photoMemoryTrips,
     socialGraph,
   ]);
 
@@ -1246,7 +1467,8 @@ export default function DiscoverScreen() {
   }, [activeReelIndex, discoverReelCards, revealedPromptIds]);
 
   const handleCardPress = (card: PersonalizedDiscoveryCard) => {
-    setSelectedCard(card);
+    setPostCardInitialPage('learn');
+    setPostCard(card);
   };
 
   const handleShareInvite = async (card: SocialTripInviteCard) => {
@@ -1259,6 +1481,7 @@ export default function DiscoverScreen() {
 
   const handleWatchCard = (card: PersonalizedDiscoveryCard) => {
     setError(null);
+    markWatched(savedPlanCardFromCard(card, 'watched', 'watching'));
     cardActionMutation.mutate({ cardId: card.id, watch: true, saved: true });
   };
 
@@ -1268,18 +1491,26 @@ export default function DiscoverScreen() {
   };
 
   const handleLikeCard = (card: PersonalizedDiscoveryCard) => {
+    const isLiked = togglePlanLike(savedPlanCardFromCard(card, 'liked', 'liked'));
     setLikedCards((current) => {
-      const next = { ...current };
-      if (next[card.id]) {
+      if (!isLiked) {
+        const next = { ...current };
         delete next[card.id];
-      } else {
-        next[card.id] = preferenceSignature(card);
+        return next;
       }
-      return next;
+      return { ...current, [card.id]: preferenceSignature(card) };
     });
   };
 
   const handleBookCard = (card: PersonalizedDiscoveryCard) => {
+    setSelectedCard(null);
+    markPlanned(savedPlanCardFromCard(card, 'planned', 'marked to plan'));
+    setPostCardInitialPage('plan');
+    setPostCard(card);
+  };
+
+  const handleOpenPlanner = (card: PersonalizedDiscoveryCard) => {
+    setPostCard(null);
     router.push({
       pathname: '/trip/intake',
       params: { initialText: card.prompt || `Curate a trip from ${card.title}.` },
@@ -1289,33 +1520,27 @@ export default function DiscoverScreen() {
   const handleScanPhotoMemory = async (card: PersonalizedDiscoveryCard) => {
     try {
       setPhotoMemoryScanMessage(null);
-      const permission = await MediaLibrary.requestPermissionsAsync();
-      if (!permission.granted) {
-        setPhotoMemoryScanMessage('Photo access is off. Elsewhere will keep memory reels as private demo candidates.');
+      const trips = await scanPhotoLibraryTrips();
+      if (!trips.length) {
+        setPhotoMemoryScanMessage('No strong photo-trip cluster yet. Try full Photos access with location metadata for better memory reels.');
         return;
       }
 
-      const assets = await MediaLibrary.getAssetsAsync({
-        first: 80,
-        mediaType: [MediaLibrary.MediaType.photo, MediaLibrary.MediaType.video],
-        sortBy: [MediaLibrary.SortBy.creationTime],
-      });
-      const newest = assets.assets[0]?.creationTime;
-      const oldest = assets.assets[assets.assets.length - 1]?.creationTime;
-      const formatMonth = (value?: number) => value ? new Date(value).toLocaleDateString(undefined, { month: 'short', year: 'numeric' }) : 'recent';
+      const bestTrip = trips.find((trip) => trip.destinationName === locationLabel(card)) ?? trips[0];
       const candidate: PhotoMemoryCandidate = {
         id: `${card.id}-local-candidate`,
-        localAssetIds: assets.assets.map((asset) => asset.id),
-        previewAssetId: assets.assets[0]?.id ?? null,
-        mediaCount: assets.totalCount ?? assets.assets.length,
-        dateRangeLabel: `${formatMonth(oldest)} - ${formatMonth(newest)}`,
-        inferredLocation: locationLabel(card),
-        matchConfidence: assets.assets.length >= 12 ? 'medium' : 'low',
+        localAssetIds: bestTrip.coverMedia.map((asset) => asset.localAssetId).filter((id): id is string => Boolean(id)),
+        previewAssetId: bestTrip.coverMedia[0]?.localAssetId ?? null,
+        mediaCount: bestTrip.mediaCount,
+        dateRangeLabel: bestTrip.dateRangeLabel,
+        inferredLocation: bestTrip.destinationName,
+        matchConfidence: bestTrip.destinationName === 'Photo Trip' ? 'medium' : 'high',
         approvalStatus: 'private_candidate',
-        privacyLabel: 'Private candidate. Nothing uploads or shares until you approve it.',
+        privacyLabel: bestTrip.privacyLabel,
       };
       setPhotoMemoryCandidates((current) => ({ ...current, [card.id]: candidate }));
-      setPhotoMemoryScanMessage(`Found ${assets.assets.length} local photo/video candidate${assets.assets.length === 1 ? '' : 's'} for a private ${locationLabel(card)} memory reel.`);
+      approveTripForDiscover(bestTrip.id);
+      setPhotoMemoryScanMessage(`Added ${bestTrip.title} to Trips and prepared a private Discover memory reel from ${bestTrip.mediaCount} local item${bestTrip.mediaCount === 1 ? '' : 's'}.`);
     } catch (err) {
       setPhotoMemoryScanMessage((err as Error).message);
     }
@@ -1354,9 +1579,14 @@ export default function DiscoverScreen() {
     (healthError instanceof Error ? `API unreachable at ${api.baseUrl}` : null);
   const reelHeight = screenHeight;
   const reelChromeBottom = Math.max(102, insets.bottom + 86);
+  const memoryStatusMessage = photoMemoryScanMessage ??
+    (isScanningPhotoTrips ? 'Scanning Photos privately on this phone...' : photoTripScanMessage);
 
   return (
-    <View style={styles.reelsContainer} {...tabSwipeHandlers}>
+    <Animated.View
+      style={[styles.reelsContainer, tabSwipe.animatedStyle]}
+      {...(postCard ? {} : tabSwipe.panHandlers)}
+    >
       <FlatList
         data={discoverReelCards}
         keyExtractor={(card) => card.id}
@@ -1370,7 +1600,7 @@ export default function DiscoverScreen() {
             photos={referencePhotosForGeneration}
             isActive={index === activeReelIndex}
             soundEnabled={soundEnabled}
-            isLiked={Boolean(likedCards[item.id])}
+            isLiked={likedPostIds.includes(item.id)}
             showPromptControls={revealedPromptIds.has(item.id) || Boolean(interactiveAnswers[item.id])}
             selectedAnswerId={interactiveAnswers[item.id]}
             photoMemoryCandidate={photoMemoryCandidates[item.id]}
@@ -1380,6 +1610,7 @@ export default function DiscoverScreen() {
             onShare={() => Share.share({ title: item.title, message: item.detail })}
             onScanPhotoMemory={() => handleScanPhotoMemory(item)}
             onSelectAnswer={(answerId) => {
+              markInterested(savedPlanCardFromCard(item, 'interested', 'answered prompt'), `${item.id}:${answerId}`);
               setInteractiveAnswers((current) => ({ ...current, [item.id]: answerId }));
             }}
           />
@@ -1398,17 +1629,33 @@ export default function DiscoverScreen() {
         ListEmptyComponent={isLoading ? <ActivityIndicator style={styles.reelsLoader} color="#fff" /> : null}
       />
 
-      <View style={[styles.reelsTopBar, { paddingTop: insets.top + 18 }]}>
-        <View style={styles.reelsLogoMark}>
-          <View style={styles.reelsLogoOrbitA} />
-          <View style={styles.reelsLogoOrbitB} />
-          <Text style={styles.reelsLogoText}>e</Text>
+      <View style={[styles.reelsTopBar, { paddingTop: insets.top + 16 }]}>
+        <View style={styles.reelsTopBrandRow}>
+          <View style={styles.reelsBrandCluster}>
+            <View style={styles.reelsLogoMark}>
+              <View style={styles.reelsLogoOrbitA} />
+              <View style={styles.reelsLogoOrbitB} />
+              <Text style={styles.reelsLogoText}>e</Text>
+            </View>
+            <View>
+              <Text style={styles.reelsWordmark}>elsewhere</Text>
+              <Text style={styles.reelsTagline}>Watch travel. Make it real.</Text>
+            </View>
+          </View>
+          <View style={styles.reelsSoundStack}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={soundEnabled ? 'Mute reel audio' : 'Play reel audio'}
+              style={styles.soundBubble}
+              onPress={() => setSoundEnabled((enabled) => !enabled)}
+            >
+              <Text style={styles.soundBubbleText}>{soundEnabled ? 'sound on' : 'sound off'}</Text>
+            </Pressable>
+            <Text style={styles.reelsMusicLabel} numberOfLines={2}>
+              {musicLine(discoverReelCards[activeReelIndex] ?? discoverReelCards[0])}
+            </Text>
+          </View>
         </View>
-        <View style={styles.reelsTopCopy}>
-          <Text style={styles.reelsWordmark}>elsewhere</Text>
-          <Text style={styles.reelsTagline}>Watch travel. Make it real.</Text>
-        </View>
-        <ReelSoundToggle enabled={soundEnabled} onPress={() => setSoundEnabled((enabled) => !enabled)} />
       </View>
 
       {feedError ? (
@@ -1416,12 +1663,477 @@ export default function DiscoverScreen() {
           <Text style={styles.reelsErrorText}>{feedError}</Text>
         </View>
       ) : null}
-      {photoMemoryScanMessage ? (
+      {memoryStatusMessage ? (
         <View style={[styles.reelsErrorToast, { top: insets.top + 116 }]}>
-          <Text style={styles.reelsErrorText}>{photoMemoryScanMessage}</Text>
+          <Text style={styles.reelsErrorText}>{memoryStatusMessage}</Text>
+        </View>
+      ) : null}
+      {postCard ? (
+        <DiscoverPostCardSheet
+          card={postCard}
+          initialPage={postCardInitialPage}
+          bottomOffset={reelChromeBottom - 20}
+          onClose={() => setPostCard(null)}
+          onOpenPlanner={() => handleOpenPlanner(postCard)}
+          onMarkPlanned={() => markPlanned(savedPlanCardFromCard(postCard, 'planned', 'marked to plan'))}
+        />
+      ) : null}
+    </Animated.View>
+  );
+}
+
+function formatCurrency(amount: number): string {
+  return `$${amount.toLocaleString()}`;
+}
+
+function PlansPage({
+  cards,
+  bottomInset,
+  onOpenPlanner,
+  onRemove,
+}: {
+  cards: SavedPlanCard[];
+  bottomInset: number;
+  onOpenPlanner: (card: SavedPlanCard) => void;
+  onRemove: (cardId: string) => void;
+}) {
+  const ordered = [...cards].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+  return (
+    <ScrollView
+      style={styles.plansPage}
+      showsVerticalScrollIndicator={false}
+      contentContainerStyle={[styles.plansPageContent, { paddingBottom: bottomInset + 26 }]}
+    >
+      <View style={styles.plansHero}>
+        <Text style={styles.plansHeroKicker}>not booked yet</Text>
+        <Text style={styles.plansHeroTitle}>Saved sparks, ready to become real trips.</Text>
+        <Text style={styles.plansHeroBody}>
+          Likes, answers, watched ideas, and plan taps collect here until you book.
+        </Text>
+      </View>
+
+      {ordered.length ? (
+        <View style={styles.plansGrid}>
+          {ordered.map((card, index) => (
+            <View key={card.id} style={[styles.planMiniCard, index % 3 === 0 && styles.planMiniCardTall]}>
+              {card.imageUrl ? (
+                <Image
+                  source={{ uri: assetUrl(card.imageUrl) }}
+                  style={styles.planMiniImage}
+                  contentFit="cover"
+                />
+              ) : null}
+              <View style={styles.planMiniShade} />
+              <View style={styles.planMiniTop}>
+                <Text style={styles.planMiniReason}>{card.reasonLabel}</Text>
+                {card.valueLabel ? <Text style={styles.planMiniValue}>{card.valueLabel}</Text> : null}
+              </View>
+              <View style={styles.planMiniCopy}>
+                <Text style={styles.planMiniLocation} numberOfLines={1}>{card.location}</Text>
+                <Text style={styles.planMiniTitle} numberOfLines={2}>{card.title}</Text>
+                <Text style={styles.planMiniDetail} numberOfLines={2}>{card.detail}</Text>
+                {card.musicLabel ? <Text style={styles.planMiniMusic} numberOfLines={1}>{card.musicLabel}</Text> : null}
+                <View style={styles.planMiniActions}>
+                  <Pressable style={styles.planMiniButton} onPress={() => onOpenPlanner(card)}>
+                    <Text style={styles.planMiniButtonText}>book</Text>
+                  </Pressable>
+                  <Pressable style={styles.planMiniGhostButton} onPress={() => onRemove(card.id)}>
+                    <Text style={styles.planMiniGhostText}>remove</Text>
+                  </Pressable>
+                </View>
+              </View>
+            </View>
+          ))}
+        </View>
+      ) : (
+        <View style={styles.plansEmpty}>
+          <Text style={styles.plansEmptyTitle}>Nothing waiting yet.</Text>
+          <Text style={styles.plansEmptyBody}>
+            Like a reel, tap Plan, answer a question, or watch a place. It will show up here before it becomes a booked trip.
+          </Text>
+        </View>
+      )}
+    </ScrollView>
+  );
+}
+
+function sourceDisplayName(sourceKind: DiscoverTripProposal['components'][number]['sourceKind']): string {
+  const kind = String(sourceKind);
+  if (kind === 'provider_api') return 'live provider';
+  if (sourceKind === 'google_places') return 'place data';
+  if (sourceKind === 'pexels') return 'media source';
+  if (sourceKind === 'youtube') return 'video source';
+  if (sourceKind === 'partner') return 'partner';
+  if (sourceKind === 'publisher_feed') return 'publisher';
+  if (sourceKind === 'public_research') return 'research';
+  if (sourceKind === 'mock' || sourceKind === 'local_demo') return 'estimate';
+  return 'source';
+}
+
+function livePlanStatus(card: PersonalizedDiscoveryCard): string {
+  const components = card.tripProposal?.components ?? [];
+  const hasLive = components.some((component) => String(component.sourceKind) === 'provider_api' || component.sourceKind === 'google_places' || component.sourceKind === 'partner');
+  if (hasLive) return 'Live sources attached. Elsewhere still verifies availability before booking.';
+  return 'Provider-ready estimate. Live flights, stays, and tickets require connected booking APIs before final action.';
+}
+
+function DiscoverPostCardSheet({
+  card,
+  initialPage,
+  bottomOffset,
+  onClose,
+  onOpenPlanner,
+  onMarkPlanned,
+}: {
+  card: PersonalizedDiscoveryCard;
+  initialPage: 'learn' | 'plan';
+  bottomOffset: number;
+  onClose: () => void;
+  onOpenPlanner: () => void;
+  onMarkPlanned: () => void;
+}) {
+  const { width } = useWindowDimensions();
+  const pageWidth = Math.max(320, width - 48);
+  const [activePage, setActivePage] = useState(initialPage);
+  const pagerRef = useRef<ScrollView>(null);
+  const heroDismissResponder = useMemo(
+    () => PanResponder.create({
+      onMoveShouldSetPanResponder: (_event, gesture) =>
+        gesture.dy > 14 && Math.abs(gesture.dy) > Math.abs(gesture.dx) * 1.25,
+      onPanResponderRelease: (_event, gesture) => {
+        if (gesture.dy > 56 || gesture.vy > 0.7) onClose();
+      },
+    }),
+    [onClose],
+  );
+
+  useEffect(() => {
+    pagerRef.current?.scrollTo({ x: activePage === 'plan' ? pageWidth : 0, animated: true });
+  }, [activePage, pageWidth]);
+
+  return (
+    <AppBottomSheet visible onClose={onClose} bottomOffset={bottomOffset} maxHeightRatio={0.84}>
+      <View style={styles.postSheetContent}>
+        <PostHeroGallery card={card} panHandlers={heroDismissResponder.panHandlers} />
+        <View style={styles.postSheetTabs}>
+          {(['learn', 'plan'] as const).map((page) => (
+            <Pressable
+              key={page}
+              style={[styles.postSheetTab, activePage === page && styles.postSheetTabActive]}
+              onPress={() => setActivePage(page)}
+            >
+              <Text style={[styles.postSheetTabText, activePage === page && styles.postSheetTabTextActive]}>
+                {page === 'learn' ? 'discover' : 'plan'}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+        <ScrollView
+          ref={pagerRef}
+          horizontal
+          pagingEnabled
+          showsHorizontalScrollIndicator={false}
+          contentOffset={{ x: initialPage === 'plan' ? pageWidth : 0, y: 0 }}
+          onMomentumScrollEnd={(event) => {
+            const nextPage = Math.round(event.nativeEvent.contentOffset.x / pageWidth) === 1 ? 'plan' : 'learn';
+            setActivePage(nextPage);
+          }}
+        >
+          <View style={{ width: pageWidth }}>
+            <LearnPageContent card={card} onClose={onClose} onPlan={() => setActivePage('plan')} />
+          </View>
+          <View style={{ width: pageWidth }}>
+            <PlanPageContent
+              card={card}
+              onClose={onClose}
+              onOpenPlanner={onOpenPlanner}
+              onMarkPlanned={onMarkPlanned}
+            />
+          </View>
+        </ScrollView>
+      </View>
+    </AppBottomSheet>
+  );
+}
+
+function PostHeroGallery({
+  card,
+  panHandlers,
+}: {
+  card: PersonalizedDiscoveryCard;
+  panHandlers?: ReturnType<typeof PanResponder.create>['panHandlers'];
+}) {
+  const { width } = useWindowDimensions();
+  const slideWidth = Math.max(300, width - 24);
+  const media = card.heroMediaGallery?.length
+    ? card.heroMediaGallery
+    : card.mediaUrl
+      ? [{
+        id: `${card.id}-primary`,
+        mediaType: card.mediaUrl && isVideoUrl(card.mediaUrl) ? 'video' as const : 'image' as const,
+        url: card.mediaUrl,
+        posterUrl: card.mediaPosterUrl,
+        mediaMode: card.mediaMode,
+        rightsStatus: card.rightsStatus,
+        sourceName: card.creatorLabel ?? card.sourceLine,
+        alt: card.mediaAlt,
+      }]
+      : [];
+
+  return (
+    <View style={styles.postHeroFrame} {...panHandlers}>
+      <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false}>
+        {media.map((item) => (
+          <View key={item.id} style={[styles.postHeroSlide, { width: slideWidth }]}>
+            <AutoplayMedia
+              uri={item.url}
+              posterUri={item.posterUrl}
+              animateStill
+              isActive
+              soundEnabled={false}
+              style={styles.learnMedia}
+              accessibilityLabel={item.alt ?? card.mediaAlt}
+            />
+            <View style={styles.learnMediaShade} />
+            <View style={styles.postHeroCopy}>
+              <Text style={styles.learnLocation}>{locationLabel(card)}</Text>
+              <Text style={styles.postHeroSource} numberOfLines={1}>
+                {item.sourceName ?? card.sourceLine}
+              </Text>
+            </View>
+          </View>
+        ))}
+      </ScrollView>
+      {card.generatedVideo?.status === 'queued' || card.generatedVideo?.status === 'missing_provider' ? (
+        <View style={styles.generatedVideoStatus}>
+          <Text style={styles.generatedVideoText}>
+            {card.generatedVideo.status === 'queued' ? 'generated film queued' : 'generated film needs provider'}
+          </Text>
         </View>
       ) : null}
     </View>
+  );
+}
+
+function LearnPageContent({
+  card,
+  onClose,
+  onPlan,
+}: {
+  card: PersonalizedDiscoveryCard;
+  onClose: () => void;
+  onPlan: () => void;
+}) {
+  const article = card.articleSource;
+  const source = article?.publisher ?? card.contentSources?.find((item) => item.url)?.name ?? card.creatorLabel ?? 'Elsewhere field note';
+  const sourceUrl = article?.url ?? card.contentSources?.find((item) => item.url)?.url;
+  const sections = card.learnSections?.length
+    ? card.learnSections
+    : [
+      {
+        id: `${card.id}-fallback-learn`,
+        kind: 'story' as const,
+        title: card.interactivePrompt?.contextLabel ?? card.editorialShort?.hook ?? card.title,
+        body: card.interactivePrompt?.question ?? card.editorialShort?.captionText ?? card.detail,
+        sourceUrl,
+      },
+    ];
+  const highlights = card.sourceHighlights ?? [];
+
+  return (
+    <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.learnScroll}>
+      <Text style={styles.overlayKicker}>{card.postFamily === 'vibe' ? 'vibe note' : 'discover'}</Text>
+      <Text style={styles.overlayTitle}>{card.title}</Text>
+      <Text style={styles.overlayBody}>{card.editorialShort?.captionText ?? card.detail}</Text>
+
+      {card.interactivePrompt ? <InteractiveDetailPanel prompt={card.interactivePrompt} /> : null}
+
+      {sections.slice(0, 4).map((section, index) => (
+        <View key={section.id} style={styles.learnBullet}>
+          <Text style={styles.learnBulletDot}>{index + 1}</Text>
+          <View style={styles.learnBulletCopy}>
+            <Text style={styles.learnBulletTitle}>{section.title}</Text>
+            <Text style={styles.learnBulletText}>{section.body}</Text>
+            {section.sourceUrl ? (
+              <Pressable style={styles.sourceInlineButton} onPress={() => Linking.openURL(section.sourceUrl!)}>
+                <Text style={styles.sourceOpenText}>open source</Text>
+              </Pressable>
+            ) : null}
+          </View>
+        </View>
+      ))}
+
+      {highlights.length ? (
+        <View style={styles.sourceLinkCard}>
+          <Text style={styles.sourceLinkKicker}>highlights</Text>
+          {highlights.slice(0, 3).map((highlight) => (
+            <View key={highlight.id} style={styles.highlightCard}>
+              <Text style={styles.sourceLinkTitle}>{highlight.title}</Text>
+              <Text style={styles.sourceLinkMeta}>{highlight.sourceName ?? source}</Text>
+              <Text style={styles.overlayBody}>{highlight.body}</Text>
+            </View>
+          ))}
+        </View>
+      ) : null}
+
+      <View style={styles.sourceLinkCard}>
+        <Text style={styles.sourceLinkKicker}>source</Text>
+        <Text style={styles.sourceLinkTitle}>{article?.title ?? source}</Text>
+        <Text style={styles.sourceLinkMeta}>{source}</Text>
+        {sourceUrl ? (
+          <Pressable style={styles.sourceOpenButton} onPress={() => Linking.openURL(sourceUrl)}>
+            <Text style={styles.sourceOpenText}>open source</Text>
+          </Pressable>
+        ) : null}
+      </View>
+
+      <View style={styles.overlayActions}>
+        <Pressable style={styles.overlaySecondaryButton} onPress={onClose}>
+          <Text style={styles.overlaySecondaryText}>done</Text>
+        </Pressable>
+        <Pressable style={styles.overlayPrimaryButton} onPress={onPlan}>
+          <Text style={styles.overlayPrimaryText}>plan</Text>
+        </Pressable>
+      </View>
+    </ScrollView>
+  );
+}
+
+function PlanPageContent({
+  card,
+  onClose,
+  onOpenPlanner,
+  onMarkPlanned,
+}: {
+  card: PersonalizedDiscoveryCard;
+  onClose: () => void;
+  onOpenPlanner: () => void;
+  onMarkPlanned: () => void;
+}) {
+  const proposal = card.planProposal ?? card.tripProposal;
+  const fallbackComponents: DiscoverTripProposal['components'] = [
+    {
+      id: `${card.id}-flight-estimate`,
+      kind: 'flight',
+      title: `${proposal?.origin ?? 'Your airport'} to ${locationLabel(card)}`,
+      summary: 'Flight options appear first once live provider search is connected.',
+      estimatedPriceAmount: card.tripValue ? Math.round(card.tripValue.totalEstimateAmount * 0.34) : 0,
+      sourceKind: 'mock',
+    },
+    {
+      id: `${card.id}-stay-estimate`,
+      kind: 'hotel',
+      title: 'Stay shortlist',
+      summary: 'Hotel and Airbnb-style options will sort by location, cancellation rules, and group fit.',
+      estimatedPriceAmount: card.tripValue ? Math.round(card.tripValue.totalEstimateAmount * 0.46) : 0,
+      sourceKind: 'mock',
+    },
+    {
+      id: `${card.id}-activity-estimate`,
+      kind: 'activity',
+      title: card.possibleEvents[0]?.title ?? 'Highlighted experience',
+      summary: card.possibleEvents[0]?.detail ?? 'Tickets, reservations, and add-ons are attached to the post’s story.',
+      estimatedPriceAmount: card.tripValue ? Math.round(card.tripValue.totalEstimateAmount * 0.12) : 0,
+      sourceKind: 'mock',
+    },
+  ];
+  const components = proposal?.components?.length ? proposal.components : fallbackComponents;
+  const flight = components.find((component) => component.kind === 'flight') ?? components[0];
+  const stays = components.filter((component) => component.kind === 'hotel' || component.kind === 'airbnb');
+  const addOns = components.filter((component) => component.kind !== 'flight' && component.kind !== 'hotel' && component.kind !== 'airbnb');
+  const monthly = card.tripValue?.monthlyAmount ?? null;
+
+  return (
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.planScroll}>
+          <View style={styles.planHeaderRow}>
+            <View style={styles.planHeaderCopy}>
+              <Text style={styles.overlayKicker}>smart itinerary</Text>
+              <Text style={styles.overlayTitle}>{locationLabel(card)}</Text>
+              <Text style={styles.planWindow}>{proposal?.dateWindow ?? card.tripDetails.dateWindow}</Text>
+            </View>
+            {monthly ? (
+              <View style={styles.planPriceBadge}>
+                <Text style={styles.planPriceText}>${monthly}/mo</Text>
+                <Text style={styles.planPriceMeta}>starting</Text>
+              </View>
+            ) : null}
+          </View>
+
+          <View style={styles.planStatusBox}>
+            <Text style={styles.planStatusTitle}>data status</Text>
+            <Text style={styles.planStatusText}>{livePlanStatus(card)}</Text>
+          </View>
+
+          <View style={styles.planSection}>
+            <Text style={styles.planSectionTitle}>flight first</Text>
+            <View style={styles.planComponentCard}>
+              <Text style={styles.planComponentKind}>{flight.kind}</Text>
+              <Text style={styles.planComponentTitle}>{flight.title}</Text>
+              <Text style={styles.planComponentSummary}>{flight.summary}</Text>
+              <View style={styles.planComponentFooter}>
+                <Text style={styles.planComponentPrice}>{formatCurrency(flight.estimatedPriceAmount)}</Text>
+                <Text style={styles.planComponentSource}>{sourceDisplayName(flight.sourceKind)}</Text>
+              </View>
+            </View>
+          </View>
+
+          <View style={styles.planSection}>
+            <Text style={styles.planSectionTitle}>stays</Text>
+            {(stays.length ? stays : fallbackComponents.slice(1, 2)).map((component) => (
+              <View key={component.id} style={styles.planComponentCard}>
+                <Text style={styles.planComponentKind}>{component.kind}</Text>
+                <Text style={styles.planComponentTitle}>{component.title}</Text>
+                <Text style={styles.planComponentSummary}>{component.summary}</Text>
+                <View style={styles.planComponentFooter}>
+                  <Text style={styles.planComponentPrice}>{formatCurrency(component.estimatedPriceAmount)}</Text>
+                  <Text style={styles.planComponentSource}>{sourceDisplayName(component.sourceKind)}</Text>
+                </View>
+              </View>
+            ))}
+          </View>
+
+          <View style={styles.planSection}>
+            <Text style={styles.planSectionTitle}>add-ons from the post</Text>
+            {(addOns.length ? addOns : fallbackComponents.slice(2)).map((component) => (
+              <View key={component.id} style={styles.planComponentCard}>
+                <Text style={styles.planComponentKind}>{component.kind}</Text>
+                <Text style={styles.planComponentTitle}>{component.title}</Text>
+                <Text style={styles.planComponentSummary}>{component.summary}</Text>
+                <View style={styles.planComponentFooter}>
+                  <Text style={styles.planComponentPrice}>{formatCurrency(component.estimatedPriceAmount)}</Text>
+                  <Text style={styles.planComponentSource}>{sourceDisplayName(component.sourceKind)}</Text>
+                </View>
+              </View>
+            ))}
+          </View>
+
+          <View style={styles.assistOverlayBox}>
+            <Text style={styles.planSectionTitle}>assist will watch</Text>
+            {(proposal?.assistWatchItems ?? card.assistWatchItems ?? [
+              'Flight prices and better dates',
+              'Hotel cancellation windows',
+              'Ticket or reservation availability',
+            ]).slice(0, 4).map((item) => (
+              <Text key={item} style={styles.assistOverlayItem}>• {item}</Text>
+            ))}
+          </View>
+
+          <View style={styles.overlayActions}>
+            <Pressable style={styles.overlaySecondaryButton} onPress={onClose}>
+              <Text style={styles.overlaySecondaryText}>close</Text>
+            </Pressable>
+            <Pressable
+              style={styles.overlayPrimaryButton}
+              onPress={() => {
+                onMarkPlanned();
+                onOpenPlanner();
+              }}
+            >
+              <Text style={styles.overlayPrimaryText}>open planner</Text>
+            </Pressable>
+          </View>
+        </ScrollView>
   );
 }
 
@@ -1452,7 +2164,7 @@ function DiscoverDetail({
   onShare: () => void;
   onWatch: () => void;
 }) {
-  const isPersonal = isPersonalCardKind(card.cardKind);
+  const isPersonal = isPersonalCardKind(card.cardKind) || card.cardKind === 'photo_memory';
   const isDeal = isDealCardKind(card.cardKind);
 
   return (
@@ -1604,6 +2316,8 @@ function DiscoverDetail({
 }
 
 function reelHook(card: PersonalizedDiscoveryCard): string {
+  const copy = postCopy(card);
+  if (copy.length > 48) return copy;
   if (card.hook) return card.hook;
   if (card.editorialShort?.hook) return card.editorialShort.hook;
   if (card.cardKind === 'deal') return `${locationLabel(card)} is moving. Watch the window.`;
@@ -1621,51 +2335,90 @@ function reelSubline(card: PersonalizedDiscoveryCard, selectedAnswer?: NonNullab
 }
 
 function fallbackCaptionBeats(card: PersonalizedDiscoveryCard): NonNullable<DiscoverFeedItem['captionBeats']> {
-  const location = locationLabel(card);
-  const value = priceBadgeLabel(card) ?? card.primaryValueLabel;
-  const phrase = card.audioMix?.beatGridMs ? Math.round(card.audioMix.beatGridMs * 4) : 2600;
-  const bar = card.audioMix?.beatGridMs ? Math.round(card.audioMix.beatGridMs * 6) : 3200;
-
-  if (card.interactivePrompt) {
-    return [
-      {
-        id: `${card.id}-fallback-hook`,
-        text: reelHook(card),
-        emphasis: location,
-        durationMs: phrase,
-      },
-      {
-        id: `${card.id}-fallback-question`,
-        text: card.interactivePrompt.question,
-        emphasis: card.interactivePrompt.contextLabel,
-        durationMs: bar,
-      },
-    ];
+  const baseText = card.interactivePrompt ? card.interactivePrompt.question : reelHook(card);
+  const words = baseText.split(/\s+/).filter(Boolean);
+  const chunks: string[] = [];
+  let current = '';
+  for (const word of words) {
+    const next = current ? `${current} ${word}` : word;
+    const currentWordCount = current.split(/\s+/).filter(Boolean).length;
+    if ((next.length > 44 || currentWordCount >= 7) && current) {
+      chunks.push(current);
+      current = word;
+    } else {
+      current = next;
+    }
   }
+  if (current) chunks.push(current);
 
-  return [
-    {
-      id: `${card.id}-fallback-hook`,
-      text: reelHook(card),
-      emphasis: location,
-      durationMs: phrase,
-    },
-    {
-      id: `${card.id}-fallback-context`,
-      text: value ? `${value}, with Assist watching the timing.` : reelSubline(card),
-      emphasis: value ?? 'field note',
-      durationMs: bar,
-    },
-  ];
+  return (chunks.length ? chunks : [baseText]).slice(0, 5).map((text, index) => ({
+    id: `${card.id}-fallback-${index}`,
+    text,
+    durationMs: Math.max(2800, Math.min(5600, text.split(/\s+/).filter(Boolean).length * 430 + 1300)),
+  }));
 }
 
-function treatmentLabel(card: PersonalizedDiscoveryCard): string {
-  if (card.textTreatment === 'question' || card.interactivePrompt) return 'interactive field question';
-  if (card.textTreatment === 'deal' || isDealCardKind(card.cardKind)) return 'relevant deal signal';
-  if (card.textTreatment === 'personal' || isPersonalCardKind(card.cardKind)) return 'personal travel segment';
-  if (card.textTreatment === 'memory' || card.cardKind === 'photo_memory') return 'private memory reel';
-  if (card.textTreatment === 'admin' || card.adminAction) return 'travel readiness';
-  return 'documentary short';
+function captionSegmentsFromBeats(
+  card: PersonalizedDiscoveryCard,
+  beats: NonNullable<DiscoverFeedItem['captionBeats']>,
+): NonNullable<DiscoverFeedItem['captionSegments']> {
+  let cursor = 0;
+  return beats.map((beat, beatIndex) => {
+    const durationMs = beat.durationMs ?? 3200;
+    const words = beat.text.split(/\s+/).filter(Boolean);
+    const tokenDuration = Math.max(320, Math.floor(durationMs / Math.max(words.length, 1)));
+    const startMs = beat.startMs ?? cursor;
+    cursor = startMs + durationMs;
+
+    return {
+      id: `${card.id}-segment-${beat.id}`,
+      startMs,
+      durationMs,
+      emphasis: beat.emphasis,
+      tokens: words.map((word, tokenIndex) => {
+        return {
+          id: `${card.id}-token-${beatIndex}-${tokenIndex}`,
+          text: `${word}${tokenIndex === words.length - 1 ? '' : ' '}`,
+          startMs: startMs + tokenIndex * tokenDuration,
+          durationMs: tokenDuration,
+          tone: 'normal',
+          scale: 'md',
+        };
+      }),
+    };
+  });
+}
+
+function highlightedTextParts(text: string, card: PersonalizedDiscoveryCard, keyPrefix: string) {
+  const location = locationLabel(card);
+  const locationParts = location.split(',').map((part) => part.trim()).filter(Boolean);
+  const eventWords = card.possibleEvents
+    .flatMap((event) => event.title.split(/\s+/))
+    .map((word) => word.replace(/[^\w$]/g, ''))
+    .filter((word) => word.length > 4);
+  const tokens = [
+    location,
+    ...locationParts,
+    valueLabel(card) ?? '',
+    ...(card.people ?? []),
+    ...(card.tripValue?.monthlyAmount ? [`$${card.tripValue.monthlyAmount}/mo`, `$${card.tripValue.monthlyAmount}`] : []),
+    ...eventWords.slice(0, 4),
+    'Elsewhere',
+    'Assist',
+  ].filter((token) => token.trim().length > 1);
+  const pattern = tokens.length
+    ? new RegExp(`(${tokens.map((token) => token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})`, 'gi')
+    : null;
+  const parts = pattern ? text.split(pattern).filter(Boolean) : [text];
+
+  return parts.map((part, index) => {
+    const isHighlighted = tokens.some((token) => token.toLowerCase() === part.toLowerCase());
+    return (
+      <Text key={`${keyPrefix}-${index}`} style={isHighlighted ? styles.reelHookHighlight : undefined}>
+        {part}
+      </Text>
+    );
+  });
 }
 
 function KineticReelCaption({
@@ -1678,7 +2431,7 @@ function KineticReelCaption({
   isActive: boolean;
 }) {
   const defaultBeats = useMemo(
-    () => (card.captionBeats?.length ? card.captionBeats : fallbackCaptionBeats(card)),
+    () => fallbackCaptionBeats(card),
     [card],
   );
   const beats = useMemo(
@@ -1687,49 +2440,55 @@ function KineticReelCaption({
         {
           id: `${card.id}-${selectedAnswer.id}-reveal`,
           text: selectedAnswer.responseHook,
-          emphasis: selectedAnswer.isPreferred ? 'you got it' : 'field note',
-          durationMs: 2800,
-        },
-        {
-          id: `${card.id}-${selectedAnswer.id}-detail`,
-          text: selectedAnswer.responseDetail,
-          emphasis: selectedAnswer.responseCtaLabel,
-          durationMs: 4200,
+          durationMs: 3800,
         },
       ]
       : defaultBeats),
     [card.id, defaultBeats, selectedAnswer],
   );
+  const segments = useMemo(
+    () => selectedAnswer
+      ? captionSegmentsFromBeats(card, beats)
+      : captionSegmentsFromBeats(card, beats),
+    [beats, card, selectedAnswer],
+  );
   const [beatIndex, setBeatIndex] = useState(0);
+  const [visibleWordCount, setVisibleWordCount] = useState(0);
   const entrance = useRef(new Animated.Value(1)).current;
+  const activeSegment = segments[Math.min(beatIndex, segments.length - 1)] ?? segments[0];
   const activeBeat = beats[Math.min(beatIndex, beats.length - 1)] ?? beats[0];
+  const activeText = activeSegment?.tokens.map((token) => token.text).join('') ?? activeBeat?.text ?? reelHook(card);
+  const activeWords = activeText.split(/\s+/).filter(Boolean);
+  const visibleText = activeWords.slice(0, visibleWordCount).join(' ');
 
   useEffect(() => {
     let timeout: ReturnType<typeof setTimeout> | null = null;
     let cancelled = false;
 
     const showBeat = (nextIndex: number) => {
-      if (cancelled || !beats.length) return;
+      if (cancelled || !segments.length) return;
       setBeatIndex(nextIndex);
+      setVisibleWordCount(0);
       entrance.setValue(0);
       Animated.timing(entrance, {
         toValue: 1,
-        duration: 520,
+        duration: 360,
         easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }).start();
 
-      const rawDuration = beats[nextIndex]?.durationMs ?? 3200;
+      const rawDuration = segments[nextIndex]?.durationMs ?? 3200;
       const beatGrid = card.audioMix?.beatGridMs ?? 650;
       const duration = Math.round(Math.max(beatGrid * 4, Math.round(rawDuration / beatGrid) * beatGrid));
       timeout = setTimeout(() => {
-        showBeat((nextIndex + 1) % beats.length);
-      }, Math.max(1800, duration));
+        showBeat((nextIndex + 1) % segments.length);
+      }, Math.max(2600, duration + 700));
     };
 
     if (!isActive) {
       setBeatIndex(0);
-      entrance.setValue(1);
+      setVisibleWordCount(0);
+      entrance.setValue(0);
       return undefined;
     }
 
@@ -1739,7 +2498,24 @@ function KineticReelCaption({
       cancelled = true;
       if (timeout) clearTimeout(timeout);
     };
-  }, [beats, entrance, isActive]);
+  }, [card.audioMix?.beatGridMs, entrance, isActive, segments]);
+
+  useEffect(() => {
+    if (!isActive || !activeSegment) return undefined;
+    const totalWords = activeWords.length;
+    const wordDelay = Math.max(230, Math.min(390, Math.floor((activeSegment.durationMs * 0.62) / Math.max(totalWords, 1))));
+    setVisibleWordCount(0);
+    const interval = setInterval(() => {
+      setVisibleWordCount((current) => {
+        if (current >= totalWords) {
+          clearInterval(interval);
+          return current;
+        }
+        return current + 1;
+      });
+    }, wordDelay);
+    return () => clearInterval(interval);
+  }, [activeSegment, activeWords.length, isActive]);
 
   const motion = {
     opacity: entrance,
@@ -1761,38 +2537,16 @@ function KineticReelCaption({
 
   return (
     <View style={styles.kineticCaption}>
-      <View style={styles.kineticKickerRow}>
-        <Text style={styles.kineticKicker}>{treatmentLabel(card)}</Text>
-        {card.narration?.voiceLabel ? (
-          <Text style={styles.kineticVoiceTag} numberOfLines={1}>
-            voiced by {card.narration.voiceLabel}
-          </Text>
-        ) : null}
-      </View>
       <Animated.View style={motion}>
-        {activeBeat?.emphasis ? (
-          <Text style={styles.kineticEmphasis} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.72}>
-            {activeBeat.emphasis}
-          </Text>
-        ) : null}
         <Text
           style={[
             styles.reelHook,
-            card.textTreatment === 'question' && styles.reelHookQuestion,
-            selectedAnswer && styles.reelHookAnswer,
           ]}
-          numberOfLines={selectedAnswer ? 3 : 2}
-          adjustsFontSizeToFit
-          minimumFontScale={0.76}
+          numberOfLines={3}
         >
-          {activeBeat?.text ?? reelHook(card)}
+          {highlightedTextParts(visibleText, card, `${card.id}-${beatIndex}`)}
         </Text>
       </Animated.View>
-      {selectedAnswer ? (
-        <Text style={styles.reelDeck} numberOfLines={2}>
-          {selectedAnswer.responseDetail}
-        </Text>
-      ) : null}
     </View>
   );
 }
@@ -1931,7 +2685,7 @@ function DiscoverReelPost({
         <Text style={styles.doubleTapHeartText}>♥</Text>
       </Animated.View>
 
-      <View style={[styles.reelActionRail, { bottom: chromeBottom + 132 }]}>
+      <View style={[styles.reelActionRail, { bottom: chromeBottom + 8 }]}>
         <Pressable
           style={styles.reelRoundAction}
           onPress={(event) => {
@@ -1975,8 +2729,8 @@ function DiscoverReelPost({
           people={isPersonal ? card.people : []}
           photos={photos}
         />
+        <Text style={styles.reelCardType}>{cardTypeLabel(card)}</Text>
         <KineticReelCaption card={card} selectedAnswer={selectedAnswer} isActive={isActive} />
-        <MusicAttributionLabel label={musicLabel(card)} />
         {card.interactivePrompt && showPromptControls ? (
           <InteractivePromptControls
             prompt={card.interactivePrompt}
@@ -2081,6 +2835,39 @@ function InteractivePromptControls({
         ))}
       </View>
     </Animated.View>
+  );
+}
+
+function HighlightedPostText({
+  card,
+  selectedAnswer,
+}: {
+  card: PersonalizedDiscoveryCard;
+  selectedAnswer?: NonNullable<DiscoverInteractivePrompt['answers']>[number];
+}) {
+  const text = postCopy(card, selectedAnswer);
+  const tokens = [
+    locationLabel(card),
+    valueLabel(card) ?? '',
+    ...(card.people ?? []),
+    ...(card.interactivePrompt?.answers.map((answer) => answer.label) ?? []),
+  ].filter((token) => token.trim().length > 1);
+  const pattern = tokens.length
+    ? new RegExp(`(${tokens.map((token) => token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})`, 'gi')
+    : null;
+  const parts = pattern ? text.split(pattern).filter(Boolean) : [text];
+
+  return (
+    <Text style={styles.reelPostCopy} numberOfLines={4}>
+      {parts.map((part, index) => {
+        const isHighlighted = tokens.some((token) => token.toLowerCase() === part.toLowerCase());
+        return (
+          <Text key={`${card.id}-copy-${index}`} style={isHighlighted ? styles.reelPostCopyHighlight : undefined}>
+            {part}
+          </Text>
+        );
+      })}
+    </Text>
   );
 }
 
@@ -2251,18 +3038,6 @@ function PhotoMemoryControls({
       </Pressable>
     </View>
   );
-}
-
-function ReelSoundToggle({ enabled, onPress }: { enabled: boolean; onPress: () => void }) {
-  return (
-    <Pressable style={styles.soundToggle} onPress={onPress}>
-      <Text style={styles.soundToggleText}>{enabled ? 'sound on' : 'sound off'}</Text>
-    </Pressable>
-  );
-}
-
-function MusicAttributionLabel({ label }: { label: string }) {
-  return <Text style={styles.reelMusicLabel} numberOfLines={1}>♪ {label}</Text>;
 }
 
 function ReelLocationRow({
@@ -3078,11 +3853,26 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     zIndex: 20,
+    paddingHorizontal: 16,
+    paddingBottom: 10,
+  },
+  reelsTopBrandRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  reelsBrandCluster: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    paddingHorizontal: 16,
-    paddingBottom: 10,
+  },
+  reelsTopTabsWrap: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 12,
+    paddingRight: 2,
   },
   reelsLogoMark: {
     width: 38,
@@ -3114,27 +3904,213 @@ const styles = StyleSheet.create({
     right: -6,
   },
   reelsLogoText: { color: SOCIAL_POP.text, fontSize: 22, fontWeight: '900' },
-  reelsTopCopy: { flex: 1 },
   reelsWordmark: { color: '#fff', fontSize: 18, fontWeight: '900', textTransform: 'lowercase' },
   reelsTagline: { color: 'rgba(255,255,255,0.78)', fontSize: 11, fontWeight: '800', marginTop: 1 },
-  soundToggle: {
-    minHeight: 32,
+  reelsSoundStack: {
+    maxWidth: 150,
+    alignItems: 'flex-end',
+    gap: 7,
+  },
+  soundBubble: {
     borderRadius: 999,
-    paddingHorizontal: 11,
+    paddingHorizontal: 10,
     paddingVertical: 8,
-    backgroundColor: 'rgba(255,255,255,0.14)',
+    backgroundColor: 'rgba(255,255,255,0.13)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.20)',
-    justifyContent: 'center',
   },
-  soundToggleText: {
+  soundBubbleText: {
     color: '#fff',
     fontSize: 10,
     lineHeight: 12,
     fontWeight: '900',
     textTransform: 'lowercase',
-    textShadowColor: 'rgba(0,0,0,0.48)',
+    textAlign: 'right',
+    textShadowColor: 'rgba(0,0,0,0.54)',
     textShadowRadius: 8,
+  },
+  reelsMusicLabel: {
+    color: 'rgba(255,255,255,0.84)',
+    fontSize: 10,
+    lineHeight: 12,
+    fontWeight: '900',
+    textAlign: 'right',
+    textShadowColor: 'rgba(0,0,0,0.58)',
+    textShadowRadius: 8,
+  },
+  plansPage: {
+    flex: 1,
+    backgroundColor: '#08080a',
+  },
+  plansPageContent: {
+    paddingHorizontal: 12,
+    paddingTop: 154,
+  },
+  plansHero: {
+    borderRadius: 28,
+    padding: 18,
+    marginBottom: 12,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.14)',
+  },
+  plansHeroKicker: {
+    color: '#fff0b8',
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: '900',
+    textTransform: 'lowercase',
+  },
+  plansHeroTitle: {
+    color: '#fff',
+    fontSize: 24,
+    lineHeight: 28,
+    fontWeight: '900',
+    marginTop: 8,
+  },
+  plansHeroBody: {
+    color: 'rgba(255,255,255,0.72)',
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '800',
+    marginTop: 8,
+  },
+  plansGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  planMiniCard: {
+    width: '48.5%',
+    minHeight: 250,
+    borderRadius: 24,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+  },
+  planMiniCardTall: {
+    minHeight: 310,
+  },
+  planMiniImage: {
+    ...StyleSheet.absoluteFillObject,
+    width: '100%',
+    height: '100%',
+  },
+  planMiniShade: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.34)',
+  },
+  planMiniTop: {
+    position: 'absolute',
+    top: 10,
+    left: 10,
+    right: 10,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  planMiniReason: {
+    flexShrink: 1,
+    color: '#fff',
+    fontSize: 10,
+    lineHeight: 12,
+    fontWeight: '900',
+    textTransform: 'lowercase',
+  },
+  planMiniValue: {
+    color: '#fff0b8',
+    fontSize: 10,
+    lineHeight: 12,
+    fontWeight: '900',
+  },
+  planMiniCopy: {
+    position: 'absolute',
+    left: 10,
+    right: 10,
+    bottom: 10,
+  },
+  planMiniLocation: {
+    color: 'rgba(255,255,255,0.82)',
+    fontSize: 10,
+    lineHeight: 12,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  planMiniTitle: {
+    color: '#fff',
+    fontSize: 16,
+    lineHeight: 18,
+    fontWeight: '900',
+    marginTop: 5,
+  },
+  planMiniDetail: {
+    color: 'rgba(255,255,255,0.78)',
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: '800',
+    marginTop: 5,
+  },
+  planMiniMusic: {
+    color: 'rgba(255,255,255,0.72)',
+    fontSize: 10,
+    lineHeight: 12,
+    fontWeight: '800',
+    marginTop: 7,
+  },
+  planMiniActions: {
+    flexDirection: 'row',
+    gap: 7,
+    marginTop: 10,
+  },
+  planMiniButton: {
+    minHeight: 30,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.86)',
+  },
+  planMiniButtonText: {
+    color: '#111114',
+    fontSize: 11,
+    lineHeight: 13,
+    fontWeight: '900',
+  },
+  planMiniGhostButton: {
+    minHeight: 30,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.18)',
+  },
+  planMiniGhostText: {
+    color: '#fff',
+    fontSize: 10,
+    lineHeight: 12,
+    fontWeight: '900',
+  },
+  plansEmpty: {
+    borderRadius: 28,
+    padding: 20,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.14)',
+  },
+  plansEmptyTitle: {
+    color: '#fff',
+    fontSize: 20,
+    lineHeight: 24,
+    fontWeight: '900',
+  },
+  plansEmptyBody: {
+    color: 'rgba(255,255,255,0.74)',
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: '800',
+    marginTop: 8,
   },
   reelsErrorToast: {
     position: 'absolute',
@@ -3146,11 +4122,425 @@ const styles = StyleSheet.create({
     padding: 10,
   },
   reelsErrorText: { color: '#fff', fontSize: 12, lineHeight: 17, fontWeight: '800' },
+  overlayScrim: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 80,
+    justifyContent: 'flex-end',
+  },
+  overlayBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.42)',
+  },
+  postSheetContent: {
+    maxHeight: '100%',
+  },
+  postHeroFrame: {
+    height: 210,
+    marginHorizontal: 12,
+    borderRadius: 24,
+    overflow: 'hidden',
+    backgroundColor: '#111',
+  },
+  postHeroSlide: {
+    height: 210,
+    overflow: 'hidden',
+  },
+  postHeroCopy: {
+    position: 'absolute',
+    left: 14,
+    right: 14,
+    bottom: 12,
+  },
+  postHeroSource: {
+    color: 'rgba(255,255,255,0.76)',
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: '800',
+    marginTop: 3,
+    textShadowColor: 'rgba(0,0,0,0.62)',
+    textShadowRadius: 9,
+  },
+  generatedVideoStatus: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    backgroundColor: 'rgba(255,255,255,0.20)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.26)',
+  },
+  generatedVideoText: {
+    color: '#fff',
+    fontSize: 10,
+    lineHeight: 12,
+    fontWeight: '900',
+    textShadowColor: 'rgba(0,0,0,0.46)',
+    textShadowRadius: 7,
+  },
+  postSheetTabs: {
+    flexDirection: 'row',
+    marginHorizontal: 16,
+    marginTop: 12,
+    padding: 4,
+    borderRadius: 999,
+    backgroundColor: 'rgba(16,16,20,0.08)',
+  },
+  postSheetTab: {
+    flex: 1,
+    minHeight: 36,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  postSheetTabActive: {
+    backgroundColor: 'rgba(255,255,255,0.72)',
+    borderWidth: 1,
+    borderColor: 'rgba(20,20,20,0.07)',
+  },
+  postSheetTabText: {
+    color: '#6b6259',
+    fontSize: 12,
+    lineHeight: 14,
+    fontWeight: '900',
+    textTransform: 'lowercase',
+  },
+  postSheetTabTextActive: {
+    color: '#101014',
+  },
+  planSheet: {
+    maxHeight: '86%',
+    marginHorizontal: 12,
+    marginBottom: 18,
+    borderRadius: 30,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(248,246,241,0.90)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.62)',
+  },
+  overlayGrabber: {
+    alignSelf: 'center',
+    width: 52,
+    height: 5,
+    borderRadius: 999,
+    backgroundColor: 'rgba(12,12,14,0.18)',
+    marginTop: 10,
+    marginBottom: 10,
+  },
+  learnMediaFrame: {
+    height: 190,
+    marginHorizontal: 12,
+    borderRadius: 22,
+    overflow: 'hidden',
+    backgroundColor: '#111',
+  },
+  learnMedia: {
+    ...StyleSheet.absoluteFillObject,
+    width: '100%',
+    height: '100%',
+  },
+  learnMediaShade: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.22)',
+  },
+  learnLocation: {
+    position: 'absolute',
+    left: 14,
+    bottom: 12,
+    color: '#fff',
+    fontSize: 13,
+    lineHeight: 16,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+    textShadowColor: 'rgba(0,0,0,0.58)',
+    textShadowRadius: 10,
+  },
+  learnScroll: { padding: 16, paddingTop: 14, paddingBottom: 22 },
+  planScroll: { padding: 16, paddingTop: 6, paddingBottom: 22 },
+  overlayKicker: {
+    color: SOCIAL_POP.coral,
+    fontSize: 11,
+    lineHeight: 13,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  overlayTitle: {
+    color: '#101014',
+    fontSize: 26,
+    lineHeight: 30,
+    fontWeight: '900',
+    marginTop: 5,
+  },
+  overlayBody: {
+    color: '#3f3a35',
+    fontSize: 14,
+    lineHeight: 20,
+    marginTop: 8,
+  },
+  sourceLinkCard: {
+    borderRadius: 18,
+    padding: 13,
+    marginTop: 14,
+    backgroundColor: 'rgba(255,255,255,0.58)',
+    borderWidth: 1,
+    borderColor: 'rgba(20,20,20,0.08)',
+  },
+  sourceLinkKicker: {
+    color: '#7a7066',
+    fontSize: 10,
+    lineHeight: 12,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  sourceLinkTitle: {
+    color: '#101014',
+    fontSize: 15,
+    lineHeight: 19,
+    fontWeight: '900',
+    marginTop: 5,
+  },
+  sourceLinkMeta: {
+    color: '#69625a',
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '800',
+    marginTop: 4,
+  },
+  sourceOpenButton: {
+    alignSelf: 'flex-start',
+    marginTop: 10,
+    minHeight: 32,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    justifyContent: 'center',
+    backgroundColor: 'rgba(16,16,20,0.10)',
+  },
+  sourceOpenText: {
+    color: '#101014',
+    fontSize: 11,
+    lineHeight: 13,
+    fontWeight: '900',
+    textTransform: 'lowercase',
+  },
+  learnBullet: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 12,
+    alignItems: 'flex-start',
+  },
+  learnBulletDot: {
+    width: 25,
+    height: 25,
+    borderRadius: 13,
+    overflow: 'hidden',
+    color: '#fff',
+    backgroundColor: SOCIAL_POP.coral,
+    fontSize: 11,
+    lineHeight: 25,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+  learnBulletText: {
+    flex: 1,
+    color: '#37332f',
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: '700',
+  },
+  learnBulletCopy: {
+    flex: 1,
+  },
+  learnBulletTitle: {
+    color: '#101014',
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '900',
+    marginBottom: 3,
+  },
+  sourceInlineButton: {
+    alignSelf: 'flex-start',
+    marginTop: 8,
+    minHeight: 28,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    justifyContent: 'center',
+    backgroundColor: 'rgba(16,16,20,0.08)',
+  },
+  highlightCard: {
+    paddingTop: 10,
+    marginTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(20,20,20,0.08)',
+  },
+  overlayActions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 16,
+  },
+  overlaySecondaryButton: {
+    flex: 1,
+    minHeight: 48,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(16,16,20,0.08)',
+  },
+  overlaySecondaryText: {
+    color: '#101014',
+    fontSize: 13,
+    lineHeight: 16,
+    fontWeight: '900',
+    textTransform: 'lowercase',
+  },
+  overlayPrimaryButton: {
+    flex: 1.25,
+    minHeight: 48,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: SOCIAL_POP.coral,
+  },
+  overlayPrimaryText: {
+    color: '#fff',
+    fontSize: 13,
+    lineHeight: 16,
+    fontWeight: '900',
+    textTransform: 'lowercase',
+  },
+  planHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+  },
+  planHeaderCopy: { flex: 1 },
+  planWindow: {
+    color: '#5d554d',
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '800',
+    marginTop: 7,
+  },
+  planPriceBadge: {
+    minWidth: 92,
+    borderRadius: 21,
+    paddingHorizontal: 11,
+    paddingVertical: 9,
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,79,109,0.16)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,79,109,0.32)',
+  },
+  planPriceText: {
+    color: SOCIAL_POP.coral,
+    fontSize: 17,
+    lineHeight: 20,
+    fontWeight: '900',
+  },
+  planPriceMeta: {
+    color: '#6d6258',
+    fontSize: 9,
+    lineHeight: 12,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  planStatusBox: {
+    borderRadius: 18,
+    padding: 13,
+    marginTop: 14,
+    backgroundColor: 'rgba(255,255,255,0.56)',
+    borderWidth: 1,
+    borderColor: 'rgba(20,20,20,0.08)',
+  },
+  planStatusTitle: {
+    color: '#7a7066',
+    fontSize: 10,
+    lineHeight: 12,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  planStatusText: {
+    color: '#332f2b',
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '800',
+    marginTop: 5,
+  },
+  planSection: { marginTop: 15 },
+  planSectionTitle: {
+    color: '#101014',
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '900',
+    textTransform: 'lowercase',
+    marginBottom: 8,
+  },
+  planComponentCard: {
+    borderRadius: 18,
+    padding: 13,
+    marginBottom: 9,
+    backgroundColor: 'rgba(255,255,255,0.62)',
+    borderWidth: 1,
+    borderColor: 'rgba(20,20,20,0.08)',
+  },
+  planComponentKind: {
+    color: SOCIAL_POP.coral,
+    fontSize: 10,
+    lineHeight: 12,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  planComponentTitle: {
+    color: '#101014',
+    fontSize: 16,
+    lineHeight: 20,
+    fontWeight: '900',
+    marginTop: 5,
+  },
+  planComponentSummary: {
+    color: '#514b45',
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '700',
+    marginTop: 5,
+  },
+  planComponentFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 9,
+    gap: 10,
+  },
+  planComponentPrice: {
+    color: '#101014',
+    fontSize: 14,
+    lineHeight: 17,
+    fontWeight: '900',
+  },
+  planComponentSource: {
+    color: '#71685e',
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: '800',
+  },
+  assistOverlayBox: {
+    borderRadius: 18,
+    padding: 13,
+    marginTop: 8,
+    backgroundColor: 'rgba(16,16,20,0.08)',
+  },
+  assistOverlayItem: {
+    color: '#3b3631',
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: '800',
+  },
   reelActionRail: {
     position: 'absolute',
-    right: 12,
-    gap: 13,
+    right: 14,
+    gap: 11,
     alignItems: 'center',
+    justifyContent: 'flex-end',
   },
   reelRoundAction: { alignItems: 'center', gap: 4 },
   planDealActionWrap: {
@@ -3260,6 +4650,14 @@ const styles = StyleSheet.create({
     left: 16,
     right: 98,
   },
+  reelCaptionStage: {
+    position: 'absolute',
+    left: 22,
+    right: 92,
+    alignItems: 'center',
+    justifyContent: 'center',
+    pointerEvents: 'none',
+  },
   reelLocationRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -3268,12 +4666,45 @@ const styles = StyleSheet.create({
   },
   reelLocation: {
     flexShrink: 1,
-    color: '#fff',
+    color: '#ffdca8',
     fontSize: 13,
     fontWeight: '900',
     textTransform: 'uppercase',
     textShadowColor: 'rgba(0,0,0,0.65)',
     textShadowRadius: 12,
+  },
+  reelCardType: {
+    alignSelf: 'flex-start',
+    color: 'rgba(255,255,255,0.78)',
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: '900',
+    textTransform: 'lowercase',
+    marginTop: 6,
+    textShadowColor: 'rgba(0,0,0,0.62)',
+    textShadowRadius: 9,
+  },
+  reelPostCopy: {
+    color: '#fff',
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '800',
+    marginTop: 5,
+    textShadowColor: 'rgba(0,0,0,0.72)',
+    textShadowRadius: 12,
+  },
+  reelPostCopyHighlight: {
+    color: '#fff0b8',
+    fontWeight: '900',
+  },
+  reelMusicLine: {
+    color: 'rgba(255,255,255,0.80)',
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '800',
+    marginTop: 8,
+    textShadowColor: 'rgba(0,0,0,0.68)',
+    textShadowRadius: 10,
   },
   reelParticipantStack: {
     flexDirection: 'row',
@@ -3289,69 +4720,31 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.16)',
   },
   kineticCaption: {
-    marginTop: 8,
-  },
-  kineticKickerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    maxWidth: '100%',
-  },
-  kineticKicker: {
-    color: 'rgba(255,255,255,0.78)',
-    fontSize: 10,
-    lineHeight: 12,
-    fontWeight: '900',
-    textTransform: 'uppercase',
-    textShadowColor: 'rgba(0,0,0,0.58)',
-    textShadowRadius: 8,
-  },
-  kineticVoiceTag: {
-    flexShrink: 1,
-    color: 'rgba(255,255,255,0.62)',
-    fontSize: 10,
-    lineHeight: 12,
-    fontWeight: '800',
-    textShadowColor: 'rgba(0,0,0,0.52)',
-    textShadowRadius: 8,
-  },
-  kineticEmphasis: {
-    alignSelf: 'flex-start',
-    maxWidth: 265,
-    marginTop: 7,
-    color: '#fff0b8',
-    fontSize: 13,
-    lineHeight: 15,
-    fontWeight: '900',
-    textTransform: 'uppercase',
-    textShadowColor: 'rgba(0,0,0,0.7)',
-    textShadowRadius: 12,
+    width: '100%',
+    alignItems: 'flex-start',
   },
   reelHook: {
     color: '#fff',
-    fontSize: 25,
-    lineHeight: 28,
+    fontSize: 30,
+    lineHeight: 34,
     fontWeight: '900',
-    marginTop: 3,
+    textAlign: 'left',
+    letterSpacing: 0,
     textShadowColor: 'rgba(0,0,0,0.65)',
-    textShadowRadius: 16,
+    textShadowOffset: { width: 0, height: 4 },
+    textShadowRadius: 10,
+    marginTop: 6,
+  },
+  reelHookHighlight: {
+    color: '#ffdca8',
   },
   reelHookQuestion: {
-    fontSize: 24,
-    lineHeight: 27,
+    fontSize: 30,
+    lineHeight: 34,
   },
   reelHookAnswer: {
-    fontSize: 21,
-    lineHeight: 24,
-  },
-  reelMusicLabel: {
-    color: 'rgba(255,255,255,0.82)',
-    fontSize: 11,
-    lineHeight: 14,
-    fontWeight: '800',
-    marginTop: 8,
-    textShadowColor: 'rgba(0,0,0,0.55)',
-    textShadowRadius: 10,
+    fontSize: 30,
+    lineHeight: 34,
   },
   reelDeck: {
     color: 'rgba(255,255,255,0.92)',

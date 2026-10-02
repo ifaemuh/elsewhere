@@ -10,7 +10,7 @@ export async function GET(req: NextRequest) {
   try {
     await getAuthUser(req);
     const scope = scopeSchema.parse(req.nextUrl.searchParams.get('scope') ?? undefined);
-    return NextResponse.json(buildDiscoverFeed(scope));
+    return NextResponse.json(await buildDiscoverFeed(scope));
   } catch (error) {
     return errorResponse(error);
   }

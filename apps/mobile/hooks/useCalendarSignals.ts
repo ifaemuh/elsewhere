@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { Platform } from 'react-native';
 import * as Calendar from 'expo-calendar';
 
 export interface CalendarSignal {
@@ -82,6 +83,15 @@ export function useCalendarSignals() {
   );
 
   const connectCalendar = async () => {
+    // expo-calendar is native-only; on the web dev target fall back to the
+    // computed weekend windows instead of throwing.
+    if (Platform.OS === 'web') {
+      setPermissionStatus('unavailable');
+      setSignals(weekendSignals());
+      setError('Calendar access is unavailable on web. Run on a device to read birthday, anniversary, and time-off windows.');
+      return;
+    }
+
     try {
       setIsLoading(true);
       setError(null);

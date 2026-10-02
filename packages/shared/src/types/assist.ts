@@ -132,6 +132,18 @@ export interface ActiveTripGuide {
   tripTagline: string | null;
   destinationName: string;
   destinationCountry: string;
+  source?: 'elsewhere_booked' | 'imported_booking' | 'photo_library_inferred' | 'manual';
+  sourceLabel?: string;
+  memoryClusterId?: string;
+  coverMedia?: Array<{
+    id: string;
+    localAssetId: string | null;
+    uri: string;
+    mediaType: 'photo' | 'video';
+    capturedAt: string | null;
+    width: number | null;
+    height: number | null;
+  }>;
   status: 'booked' | 'in_progress' | 'draft' | 'completed';
   travelerCount: number;
   totalCost: number;

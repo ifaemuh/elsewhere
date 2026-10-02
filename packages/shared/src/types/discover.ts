@@ -21,6 +21,8 @@ export type DiscoverFeedItemKind =
 export type DiscoverMediaType = 'image' | 'video' | 'carousel';
 export type DiscoverFeedScope = 'here' | 'elsewhere' | 'both';
 export type DiscoverContentSourceKind =
+  | 'publisher_feed'
+  | 'public_research'
   | 'pexels'
   | 'google_places'
   | 'youtube'
@@ -34,6 +36,7 @@ export type DiscoverValueConfidence = 'low' | 'medium' | 'high';
 export type DiscoverDealTrend = 'down' | 'flat' | 'up' | 'watching';
 export type DiscoverMediaMode = 'video' | 'animated_still' | 'embed' | 'ai_video' | 'personal_ai';
 export type DiscoverRightsStatus = 'owned' | 'licensed' | 'partner' | 'embed_only' | 'user_shared';
+export type DiscoverPostFamily = 'content' | 'personal' | 'vibe';
 export type MusicRightsStatus = 'owned' | 'licensed' | 'partner' | 'rights_pending' | 'spotify_reference_only' | 'not_cleared';
 export type MusicProviderKind = 'elsewhere_licensed' | 'spotify_catalog' | 'direct_label' | 'commercial_library' | 'partner';
 export type PhotoMemoryApprovalStatus = 'private_candidate' | 'approved_for_discover' | 'approved_for_recap' | 'rejected';
@@ -51,6 +54,61 @@ export interface DiscoverContentSource {
   attribution: string | null;
   freshnessLabel: string | null;
   limitation: string | null;
+}
+
+export interface DiscoverArticleSource {
+  publisher: string;
+  title: string;
+  url: string;
+  publishedAt: string | null;
+  excerpt: string;
+  usagePolicy: 'summary_link_only' | 'licensed_partner' | 'owned';
+}
+
+export interface DiscoverMediaGenerationRequest {
+  status: 'not_needed' | 'queued' | 'ready' | 'missing_provider';
+  provider: 'pexels' | 'openai_image' | 'sora' | 'publisher_feed';
+  prompt: string;
+  searchQuery: string;
+  reason: string;
+  generatedAt: string | null;
+}
+
+export interface DiscoverHeroMedia {
+  id: string;
+  mediaType: DiscoverMediaType;
+  url: string;
+  posterUrl?: string;
+  mediaMode?: DiscoverMediaMode;
+  sourceName?: string;
+  rightsStatus?: DiscoverRightsStatus;
+  alt?: string;
+}
+
+export interface DiscoverSourceHighlight {
+  id: string;
+  title: string;
+  body: string;
+  mediaUrl?: string;
+  sourceName?: string;
+  sourceUrl?: string | null;
+}
+
+export interface DiscoverGeneratedVideo {
+  status: 'not_needed' | 'queued' | 'ready' | 'missing_provider';
+  videoUrl?: string;
+  posterUrl?: string;
+  prompt: string;
+  provider: 'sora' | 'openai_video' | 'local_demo';
+  generatedAt?: string | null;
+}
+
+export interface DiscoverLearnSection {
+  id: string;
+  title: string;
+  body: string;
+  kind: 'story' | 'fact' | 'trivia' | 'source' | 'context' | 'practical';
+  sourceUrl?: string | null;
 }
 
 export interface DiscoverTripValue {
@@ -102,6 +160,28 @@ export interface DiscoverCaptionBeat {
   emphasis?: string;
   startMs?: number;
   durationMs?: number;
+}
+
+export type DiscoverCaptionTokenTone = 'normal' | 'accent' | 'quiet' | 'question' | 'answer' | 'price' | 'place';
+
+export interface DiscoverCaptionToken {
+  id: string;
+  text: string;
+  startMs: number;
+  durationMs: number;
+  tone: DiscoverCaptionTokenTone;
+  scale: 'sm' | 'md' | 'lg' | 'xl';
+  color?: string;
+  letterDelayMs?: number;
+}
+
+export interface DiscoverCaptionSegment {
+  id: string;
+  startMs: number;
+  durationMs: number;
+  tokens: DiscoverCaptionToken[];
+  emphasis?: string;
+  narrationCueId?: string;
 }
 
 export interface DiscoverNarration {
@@ -273,6 +353,7 @@ export interface DiscoverAdminAction {
 export interface DiscoverFeedItem {
   id: string;
   kind: DiscoverFeedItemKind;
+  postFamily?: DiscoverPostFamily;
   feedScope?: DiscoverFeedScope;
   hook?: string;
   creatorLabel?: string;
@@ -296,6 +377,7 @@ export interface DiscoverFeedItem {
   mediaType: DiscoverMediaType;
   mediaUrl?: string;
   mediaPosterUrl?: string;
+  heroMediaGallery?: DiscoverHeroMedia[];
   mediaMode?: DiscoverMediaMode;
   rightsStatus?: DiscoverRightsStatus;
   music?: DiscoverMusicAttribution;
@@ -311,9 +393,12 @@ export interface DiscoverFeedItem {
   primaryValueLabel?: string;
   priceBadgeLabel?: string;
   relevanceReason?: string;
+  dealAttachedToPlan?: boolean;
+  sourceTripId?: string;
   contentTopics?: string[];
   textTreatment?: 'documentary' | 'question' | 'personal' | 'deal' | 'admin' | 'memory';
   captionBeats?: DiscoverCaptionBeat[];
+  captionSegments?: DiscoverCaptionSegment[];
   narration?: DiscoverNarration;
   interactionStats?: {
     likes: number;
@@ -322,8 +407,14 @@ export interface DiscoverFeedItem {
     shares: number;
   };
   contentSources?: DiscoverContentSource[];
+  articleSource?: DiscoverArticleSource;
+  sourceHighlights?: DiscoverSourceHighlight[];
+  mediaGeneration?: DiscoverMediaGenerationRequest;
+  generatedVideo?: DiscoverGeneratedVideo;
+  learnSections?: DiscoverLearnSection[];
   tripValue?: DiscoverTripValue;
   tripProposal?: DiscoverTripProposal;
+  planProposal?: DiscoverTripProposal;
   assistWatchItems?: string[];
   interactivePrompt?: DiscoverInteractivePrompt;
   adminAction?: DiscoverAdminAction;

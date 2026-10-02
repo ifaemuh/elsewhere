@@ -1,14 +1,18 @@
-import { ScrollView, Text, Pressable, StyleSheet, Linking, View } from 'react-native';
+import { Animated, Text, Pressable, StyleSheet, Linking, View } from 'react-native';
 import { AppHeader, BRAND_TAGLINE, SOCIAL_POP } from '@/components/AppHeader';
 import { useHorizontalTabSwipe } from '@/hooks/useHorizontalTabSwipe';
 import { useAuthStore } from '@/stores/auth';
 
 export default function ProfileScreen() {
   const { session, signOut } = useAuthStore();
-  const tabSwipeHandlers = useHorizontalTabSwipe('profile');
+  const tabSwipe = useHorizontalTabSwipe('profile');
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content} {...tabSwipeHandlers}>
+    <Animated.ScrollView
+      style={[styles.container, tabSwipe.animatedStyle]}
+      contentContainerStyle={styles.content}
+      {...tabSwipe.panHandlers}
+    >
       <AppHeader pageLabel="profile" tagline="identity, wallet, documents, media" />
       {session ? (
         <>
@@ -52,7 +56,7 @@ export default function ProfileScreen() {
       <View style={styles.brandFooter}>
         <Text style={styles.brandFooterText}>{BRAND_TAGLINE}</Text>
       </View>
-    </ScrollView>
+    </Animated.ScrollView>
   );
 }
 

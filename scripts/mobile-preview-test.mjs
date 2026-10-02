@@ -41,7 +41,7 @@ async function main() {
     await verifyDevAuthMode();
   } else {
     console.log(`Starting API at ${apiLocalUrl} with ELSEWHERE_USE_LOCAL_STORES=true...`);
-    spawnManaged(npm, ['run', 'dev'], {
+    spawnManaged(npm, ['exec', 'next', 'dev', '--', '--port', String(apiPort)], {
       cwd: apiDir,
       env: {
         ...process.env,

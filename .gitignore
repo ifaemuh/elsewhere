@@ -48,3 +48,6 @@ supabase/.temp/
 *.swift
 *.xcodeproj/
 *.xcassets/
+
+# Brainstorming companion mockups
+.superpowers/

@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator, ScrollView, Pressable, useWindowDimensions, Share, Linking, Modal } from 'react-native';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { View, Text, StyleSheet, ActivityIndicator, ScrollView, Pressable, useWindowDimensions, Share, Linking, Modal, Platform } from 'react-native';
 import type { NativeScrollEvent, NativeSyntheticEvent } from 'react-native';
 import { useEvent } from 'expo';
 import { useLocalSearchParams } from 'expo-router';
@@ -9,9 +9,11 @@ import * as MediaLibrary from 'expo-media-library';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SOCIAL_POP } from '@/components/AppHeader';
+import { photoMemoryTripToGuide, photoMemoryTripToRoom, usePhotoMemoryTrip, usePhotoMemoryTrips } from '@/hooks/usePhotoMemoryTrips';
 import { useLiveTripIntelligence, useTripGuide, useTripRoom } from '@/hooks/useTrip';
 import { api } from '@/services/api';
 import type {
+  ActiveTripGuide,
   AssistTripOpportunity,
   TripActionItem,
   TripChatProvider,
@@ -19,6 +21,7 @@ import type {
   TripFeedCard,
   TripMediaItem,
   TripMessage,
+  TripRoomData,
   PreviewVideoJob,
   SocialPublishingStatus,
   TripPlannerSuggestion,
@@ -82,13 +85,13 @@ function readableKind(value: string): string {
 
 function mediaUri(value: string | null): string | null {
   if (!value) return null;
-  if (value.startsWith('http')) return value;
+  if (value.startsWith('http') || value.startsWith('file:') || value.startsWith('ph:') || value.startsWith('assets-library:')) return value;
   const separator = value.includes('?') ? '&' : '?';
   return `${api.baseUrl}${value}${separator}v=${MEDIA_CACHE_VERSION}`;
 }
 
 function localAssetUri(path: string): string {
-  if (path.startsWith('http')) return path;
+  if (path.startsWith('http') || path.startsWith('file:') || path.startsWith('ph:') || path.startsWith('assets-library:')) return path;
   const separator = path.includes('?') ? '&' : '?';
   return `${api.baseUrl}${path}${separator}v=${MEDIA_CACHE_VERSION}`;
 }
@@ -916,6 +919,9 @@ export default function TripDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const queryClient = useQueryClient();
   const insets = useSafeAreaInsets();
+  const photoMemoryTrip = usePhotoMemoryTrip(id);
+  const { scanPhotoLibraryTrips } = usePhotoMemoryTrips();
+  const isPhotoMemoryTrip = Boolean(photoMemoryTrip);
   const [tripPage, setTripPage] = useState<TripPage>('feed');
   const [selectedMediaItem, setSelectedMediaItem] = useState<TripMediaItem | null>(null);
   const [selectedSuggestion, setSelectedSuggestion] = useState<TripPlannerSuggestion | null>(null);
@@ -924,13 +930,31 @@ export default function TripDetailScreen() {
   const [isHeroCollapsed, setIsHeroCollapsed] = useState(false);
   const pagerRef = useRef<ScrollView>(null);
   const { width } = useWindowDimensions();
-  const { data: guide, isLoading, refetch, isRefetching } = useTripGuide(id);
-  const { data: room, isLoading: isRoomLoading } = useTripRoom(id);
+  const tripPages = useMemo(
+    () => isPhotoMemoryTrip ? TRIP_PAGES.filter((page) => page.id !== 'payments') : TRIP_PAGES,
+    [isPhotoMemoryTrip],
+  );
+  const pageIndexFor = useCallback(
+    (page: TripPage): number => Math.max(0, tripPages.findIndex((item) => item.id === page)),
+    [tripPages],
+  );
+  const { data: apiGuide, isLoading, refetch, isRefetching } = useTripGuide(isPhotoMemoryTrip ? undefined : id);
+  const { data: apiRoom, isLoading: isRoomLoading } = useTripRoom(isPhotoMemoryTrip ? undefined : id);
   const {
     data: liveIntel,
     refetch: refetchLiveIntel,
     isRefetching: isLiveIntelRefetching,
-  } = useLiveTripIntelligence(id);
+  } = useLiveTripIntelligence(isPhotoMemoryTrip ? undefined : id);
+  const localGuide = useMemo<ActiveTripGuide | undefined>(
+    () => photoMemoryTrip ? photoMemoryTripToGuide(photoMemoryTrip) : undefined,
+    [photoMemoryTrip],
+  );
+  const localRoom = useMemo<TripRoomData | undefined>(
+    () => photoMemoryTrip ? photoMemoryTripToRoom(photoMemoryTrip) : undefined,
+    [photoMemoryTrip],
+  );
+  const guide = localGuide ?? apiGuide;
+  const room = localRoom ?? apiRoom;
   const { data: socialPublishingStatus } = useQuery({
     queryKey: ['social', 'publishing', 'status'],
     queryFn: () => api.getSocialPublishingStatus(),
@@ -938,8 +962,9 @@ export default function TripDetailScreen() {
   const refreshRoom = () =>
     queryClient.invalidateQueries({ queryKey: ['trips', id, 'room'] });
   const goToTripPage = (page: TripPage) => {
+    if (!tripPages.some((item) => item.id === page)) return;
     setTripPage(page);
-    pagerRef.current?.scrollTo({ x: pageIndex(page) * width, animated: true });
+    pagerRef.current?.scrollTo({ x: pageIndexFor(page) * width, animated: true });
   };
   const handleVerticalPageScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const shouldCollapse = event.nativeEvent.contentOffset.y > 24;
@@ -949,10 +974,16 @@ export default function TripDetailScreen() {
   useEffect(() => {
     if (isLoading || isRoomLoading) return undefined;
     const timeout = setTimeout(() => {
-      pagerRef.current?.scrollTo({ x: pageIndex('feed') * width, animated: false });
+      pagerRef.current?.scrollTo({ x: pageIndexFor('feed') * width, animated: false });
     }, 0);
     return () => clearTimeout(timeout);
-  }, [isLoading, isRoomLoading, width]);
+  }, [isLoading, isRoomLoading, pageIndexFor, width]);
+
+  useEffect(() => {
+    if (tripPage === 'payments' && isPhotoMemoryTrip) {
+      setTripPage('feed');
+    }
+  }, [isPhotoMemoryTrip, tripPage]);
 
   const voteMutation = useMutation({
     mutationFn: ({ voteId, optionId }: { voteId: string; optionId: string }) =>
@@ -1014,7 +1045,7 @@ export default function TripDetailScreen() {
     if (refreshedRecapJob) setRecapVideoJob(refreshedRecapJob);
   }, [refreshedRecapJob]);
 
-  if (isLoading || isRoomLoading || !guide || !room) {
+  if ((!isPhotoMemoryTrip && (isLoading || isRoomLoading)) || !guide || !room) {
     return (
       <View style={styles.center}>
         <ActivityIndicator size="large" />
@@ -1031,10 +1062,19 @@ export default function TripDetailScreen() {
     });
   };
   const handleScanLibrary = async () => {
+    if (Platform.OS === 'web') {
+      setLibraryScanSummary('Photo-library scanning is unavailable on web. Run on a device or simulator to match camera-roll media.');
+      return;
+    }
     try {
       const permission = await MediaLibrary.requestPermissionsAsync();
       if (!permission.granted) {
         setLibraryScanSummary('Photo library access is off. Elsewhere will keep using mock candidates until access is granted.');
+        return;
+      }
+      if (isPhotoMemoryTrip) {
+        const trips = await scanPhotoLibraryTrips();
+        setLibraryScanSummary(`Refreshed Photos clustering. Elsewhere now sees ${trips.length} private photo trip${trips.length === 1 ? '' : 's'} on this phone.`);
         return;
       }
       const assets = await MediaLibrary.getAssetsAsync({
@@ -1060,7 +1100,7 @@ export default function TripDetailScreen() {
       ]}
     >
       <Image
-        source={{ uri: imageForDestination(guide.destinationName) }}
+        source={{ uri: localAssetUri(guide.coverMedia?.find((item) => item.mediaType === 'photo')?.uri ?? imageForDestination(guide.destinationName)) }}
         style={styles.anchoredHeroImage}
         contentFit="cover"
       />
@@ -1086,7 +1126,7 @@ export default function TripDetailScreen() {
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.pageChipScroller}
         >
-          {TRIP_PAGES.map((page) => {
+          {tripPages.map((page) => {
             const active = page.id === tripPage;
             return (
               <Pressable
@@ -1139,8 +1179,8 @@ export default function TripDetailScreen() {
         showsHorizontalScrollIndicator={false}
         scrollEventThrottle={16}
         onMomentumScrollEnd={(event) => {
-          const index = Math.max(0, Math.min(TRIP_PAGES.length - 1, Math.round(event.nativeEvent.contentOffset.x / width)));
-          setTripPage(TRIP_PAGES[index].id);
+          const index = Math.max(0, Math.min(tripPages.length - 1, Math.round(event.nativeEvent.contentOffset.x / width)));
+          setTripPage(tripPages[index].id);
         }}
       >
         <View style={{ width }}>
@@ -1150,7 +1190,7 @@ export default function TripDetailScreen() {
             suggestions={room.suggestions}
             chatProvider={room.chatProvider}
             chatSuggestions={room.chatSuggestions}
-            onVote={(voteId, optionId) => voteMutation.mutate({ voteId, optionId })}
+            onVote={(voteId, optionId) => !isPhotoMemoryTrip && voteMutation.mutate({ voteId, optionId })}
             onBackToFeed={() => goToTripPage('feed')}
             onScroll={handleVerticalPageScroll}
           />
@@ -1163,25 +1203,37 @@ export default function TripDetailScreen() {
             onScroll={handleVerticalPageScroll}
             scrollEventThrottle={16}
           >
-            <Pressable
-              style={[styles.monitorButton, (isRefetching || isLiveIntelRefetching) && styles.disabledButton]}
-              onPress={async () => {
-                await Promise.all([refetch(), refetchLiveIntel()]);
-                queryClient.invalidateQueries({ queryKey: ['assist', 'trip-guides'] });
-                queryClient.invalidateQueries({ queryKey: ['assist', 'live-intel', id] });
-                queryClient.invalidateQueries({ queryKey: ['trips', id, 'room'] });
-              }}
-              disabled={isRefetching || isLiveIntelRefetching}
-            >
-              {isRefetching || isLiveIntelRefetching ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={styles.monitorButtonText}>Run Trip Check</Text>
-              )}
-            </Pressable>
-            <Text style={styles.monitorMeta}>
-              Last checked {formatDate(liveIntel?.generatedAt ?? guide.monitoredAt)}
-            </Text>
+            {!isPhotoMemoryTrip ? (
+              <>
+                <Pressable
+                  style={[styles.monitorButton, (isRefetching || isLiveIntelRefetching) && styles.disabledButton]}
+                  onPress={async () => {
+                    await Promise.all([refetch(), refetchLiveIntel()]);
+                    queryClient.invalidateQueries({ queryKey: ['assist', 'trip-guides'] });
+                    queryClient.invalidateQueries({ queryKey: ['assist', 'live-intel', id] });
+                    queryClient.invalidateQueries({ queryKey: ['trips', id, 'room'] });
+                  }}
+                  disabled={isRefetching || isLiveIntelRefetching}
+                >
+                  {isRefetching || isLiveIntelRefetching ? (
+                    <ActivityIndicator color="#fff" />
+                  ) : (
+                    <Text style={styles.monitorButtonText}>Run Trip Check</Text>
+                  )}
+                </Pressable>
+                <Text style={styles.monitorMeta}>
+                  Last checked {formatDate(liveIntel?.generatedAt ?? guide.monitoredAt)}
+                </Text>
+              </>
+            ) : (
+              <View style={styles.memoryTripNotice}>
+                <Text style={styles.smartChatLabel}>from Photos</Text>
+                <Text style={styles.smartChatTitle}>Private memory trip</Text>
+                <Text style={styles.smartChatDetail}>
+                  This trip was inferred on-device from your camera roll. Media stays local until you approve Discover, recap, or AI generation.
+                </Text>
+              </View>
+            )}
 
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Smart Feed</Text>
@@ -1200,17 +1252,17 @@ export default function TripDetailScreen() {
                     setSelectedMediaItem(item);
                     goToTripPage('media');
                   }}
-                  onApprove={() => mediaMutation.mutate({ mediaId: item.id, action: 'approve' })}
-                  onReject={() => mediaMutation.mutate({ mediaId: item.id, action: 'reject' })}
-                  onSelectForRecap={() => mediaMutation.mutate({ mediaId: item.id, action: 'select_for_recap' })}
-                  onExcludeFromRecap={() => mediaMutation.mutate({ mediaId: item.id, action: 'exclude_from_recap' })}
+                  onApprove={() => !isPhotoMemoryTrip && mediaMutation.mutate({ mediaId: item.id, action: 'approve' })}
+                  onReject={() => !isPhotoMemoryTrip && mediaMutation.mutate({ mediaId: item.id, action: 'reject' })}
+                  onSelectForRecap={() => !isPhotoMemoryTrip && mediaMutation.mutate({ mediaId: item.id, action: 'select_for_recap' })}
+                  onExcludeFromRecap={() => !isPhotoMemoryTrip && mediaMutation.mutate({ mediaId: item.id, action: 'exclude_from_recap' })}
                   onOpenSocial={() => handleOpenSocial(item)}
                 />
               ))}
               {!sharedMedia.length ? <Text style={styles.emptyLine}>No trip media yet.</Text> : null}
             </View>
 
-            {liveIntel && (
+            {liveIntel && !isPhotoMemoryTrip && (
               <View style={styles.section}>
                 <Text style={styles.sectionTitle}>Best Move</Text>
                 <View style={styles.decisionCard}>
@@ -1231,50 +1283,54 @@ export default function TripDetailScreen() {
               </View>
             )}
 
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Assist Recommendations</Text>
-              {guide.opportunities.map((opportunity) => {
-                const tone = opportunityTone(opportunity);
-                return (
-                  <View key={opportunity.id} style={styles.opportunityCard}>
-                    <View style={styles.opportunityHeader}>
-                      <Text style={styles.opportunityTitle}>{opportunity.title}</Text>
-                      <Text style={[styles.opportunityStatus, { color: tone }]}>
-                        {readableKind(opportunity.status)}
-                      </Text>
-                    </View>
-                    <Text style={styles.opportunityDetail}>{opportunity.detail}</Text>
-                    <View style={styles.valueRow}>
-                      <Text style={styles.valueLabel}>
-                        {opportunity.savingsAmount ? 'Savings' : 'Protected'}
-                      </Text>
-                      <Text style={styles.valueAmount}>
-                        ${(opportunity.savingsAmount ?? opportunity.protectedValue ?? 0).toLocaleString()}
-                      </Text>
-                    </View>
-                    <Text style={styles.deadline}>Deadline: {formatDate(opportunity.deadlineAt)}</Text>
-                  </View>
-                );
-              })}
-              {!guide.opportunities.length && !topOpportunity ? (
-                <Text style={styles.emptyLine}>No active Assist actions. Elsewhere is still watching.</Text>
-              ) : null}
-            </View>
-
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Monitored Bookings</Text>
-              {guide.segments.map((segment) => (
-                <View key={segment.id} style={styles.segmentCard}>
-                  <Text style={styles.segmentProvider}>{segment.providerName}</Text>
-                  <Text style={styles.segmentTitle}>{segment.title}</Text>
-                  <Text style={styles.segmentMeta}>{formatDate(segment.startsAt)}</Text>
-                  {segment.routeSummary ? (
-                    <Text style={styles.segmentMeta}>{segment.routeSummary}</Text>
+            {!isPhotoMemoryTrip ? (
+              <>
+                <View style={styles.section}>
+                  <Text style={styles.sectionTitle}>Assist Recommendations</Text>
+                  {guide.opportunities.map((opportunity) => {
+                    const tone = opportunityTone(opportunity);
+                    return (
+                      <View key={opportunity.id} style={styles.opportunityCard}>
+                        <View style={styles.opportunityHeader}>
+                          <Text style={styles.opportunityTitle}>{opportunity.title}</Text>
+                          <Text style={[styles.opportunityStatus, { color: tone }]}>
+                            {readableKind(opportunity.status)}
+                          </Text>
+                        </View>
+                        <Text style={styles.opportunityDetail}>{opportunity.detail}</Text>
+                        <View style={styles.valueRow}>
+                          <Text style={styles.valueLabel}>
+                            {opportunity.savingsAmount ? 'Savings' : 'Protected'}
+                          </Text>
+                          <Text style={styles.valueAmount}>
+                            ${(opportunity.savingsAmount ?? opportunity.protectedValue ?? 0).toLocaleString()}
+                          </Text>
+                        </View>
+                        <Text style={styles.deadline}>Deadline: {formatDate(opportunity.deadlineAt)}</Text>
+                      </View>
+                    );
+                  })}
+                  {!guide.opportunities.length && !topOpportunity ? (
+                    <Text style={styles.emptyLine}>No active Assist actions. Elsewhere is still watching.</Text>
                   ) : null}
-                  <Text style={styles.policySummary}>{segment.policySummary}</Text>
                 </View>
-              ))}
-            </View>
+
+                <View style={styles.section}>
+                  <Text style={styles.sectionTitle}>Monitored Bookings</Text>
+                  {guide.segments.map((segment) => (
+                    <View key={segment.id} style={styles.segmentCard}>
+                      <Text style={styles.segmentProvider}>{segment.providerName}</Text>
+                      <Text style={styles.segmentTitle}>{segment.title}</Text>
+                      <Text style={styles.segmentMeta}>{formatDate(segment.startsAt)}</Text>
+                      {segment.routeSummary ? (
+                        <Text style={styles.segmentMeta}>{segment.routeSummary}</Text>
+                      ) : null}
+                      <Text style={styles.policySummary}>{segment.policySummary}</Text>
+                    </View>
+                  ))}
+                </View>
+              </>
+            ) : null}
           </ScrollView>
         </View>
 
@@ -1318,8 +1374,8 @@ export default function TripDetailScreen() {
                 <ScheduleCard
                   key={item.id}
                   item={item}
-                  onGoing={() => participationMutation.mutate({ itemId: item.id, status: 'going' })}
-                  onJoinLater={() => participationMutation.mutate({ itemId: item.id, status: 'join_later' })}
+                  onGoing={() => !isPhotoMemoryTrip && participationMutation.mutate({ itemId: item.id, status: 'going' })}
+                  onJoinLater={() => !isPhotoMemoryTrip && participationMutation.mutate({ itemId: item.id, status: 'join_later' })}
                 />
               ))}
             </View>
@@ -1355,30 +1411,32 @@ export default function TripDetailScreen() {
           </ScrollView>
         </View>
 
-        <View style={{ width }}>
-          <ScrollView
-            style={styles.container}
-            contentContainerStyle={styles.content}
-            onScroll={handleVerticalPageScroll}
-            scrollEventThrottle={16}
-          >
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Payments</Text>
-              {renderPaymentSummary()}
-              {room.paymentSummary.travelers.map((traveler) => (
-                <View key={traveler.userId} style={styles.compactCard}>
-                  <View style={styles.rowBetween}>
-                    <Text style={styles.compactTitle}>{traveler.name}</Text>
-                    <Text style={styles.compactMeta}>{readableKind(traveler.status)}</Text>
+        {!isPhotoMemoryTrip ? (
+          <View style={{ width }}>
+            <ScrollView
+              style={styles.container}
+              contentContainerStyle={styles.content}
+              onScroll={handleVerticalPageScroll}
+              scrollEventThrottle={16}
+            >
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>Payments</Text>
+                {renderPaymentSummary()}
+                {room.paymentSummary.travelers.map((traveler) => (
+                  <View key={traveler.userId} style={styles.compactCard}>
+                    <View style={styles.rowBetween}>
+                      <Text style={styles.compactTitle}>{traveler.name}</Text>
+                      <Text style={styles.compactMeta}>{readableKind(traveler.status)}</Text>
+                    </View>
+                    <Text style={styles.compactDetail}>
+                      Paid ${traveler.paid.toLocaleString()} · due ${(traveler.totalDue - traveler.paid).toLocaleString()}
+                    </Text>
                   </View>
-                  <Text style={styles.compactDetail}>
-                    Paid ${traveler.paid.toLocaleString()} · due ${(traveler.totalDue - traveler.paid).toLocaleString()}
-                  </Text>
-                </View>
-              ))}
-            </View>
-          </ScrollView>
-        </View>
+                ))}
+              </View>
+            </ScrollView>
+          </View>
+        ) : null}
 
         <View style={{ width }}>
           <ScrollView
@@ -1393,8 +1451,8 @@ export default function TripDetailScreen() {
                 <ActionItemCard
                   key={item.id}
                   item={item}
-                  onDone={() => actionItemMutation.mutate({ actionItemId: item.id, status: 'done' })}
-                  onSnooze={() => actionItemMutation.mutate({ actionItemId: item.id, status: 'snoozed' })}
+                  onDone={() => !isPhotoMemoryTrip && actionItemMutation.mutate({ actionItemId: item.id, status: 'done' })}
+                  onSnooze={() => !isPhotoMemoryTrip && actionItemMutation.mutate({ actionItemId: item.id, status: 'snoozed' })}
                 />
               ))}
               {!room.actionItems.length ? <Text style={styles.emptyLine}>Nothing to do right now.</Text> : null}
@@ -1410,6 +1468,14 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: SOCIAL_POP.background },
   content: { padding: 16, paddingBottom: 104 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: SOCIAL_POP.background },
+  memoryTripNotice: {
+    borderWidth: 1,
+    borderColor: 'rgba(255, 79, 109, 0.18)',
+    backgroundColor: 'rgba(255, 255, 255, 0.72)',
+    borderRadius: 18,
+    padding: 14,
+    marginBottom: 14,
+  },
   anchoredHero: {
     paddingHorizontal: 16,
     paddingTop: 18,

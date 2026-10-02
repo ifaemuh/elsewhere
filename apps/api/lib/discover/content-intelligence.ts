@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto';
 import {
   DEMO_MEDIA,
   DEMO_MEDIA_METADATA,
+  type DiscoverArticleSource,
   type DiscoverAudioMix,
   type DiscoverContentSource,
   type DiscoverContentSourceKind,
@@ -11,9 +12,15 @@ import {
   type DiscoverFeedItem,
   type DiscoverFeedResponse,
   type DiscoverFeedScope,
+  type DiscoverGeneratedVideo,
+  type DiscoverHeroMedia,
+  type DiscoverLearnSection,
+  type DiscoverMediaGenerationRequest,
   type DiscoverMediaMode,
   type DiscoverMusicAttribution,
+  type DiscoverPostFamily,
   type DiscoverRightsStatus,
+  type DiscoverSourceHighlight,
   type DiscoverSocialLinkRequest,
   type DiscoverSocialLinkResult,
   type DiscoverTripProposal,
@@ -53,6 +60,639 @@ export const CREATOR_INSPIRATION_REGISTRY: CreatorInspirationPattern[] = [
   },
 ];
 
+interface TravelArticleFeedSource {
+  id: string;
+  publisher: string;
+  feedUrl: string;
+  sourceKind: DiscoverContentSourceKind;
+  editorialAngle: string;
+  defaultDestination: string;
+  musicTitle: string;
+  musicGenre: string;
+}
+
+interface ParsedTravelArticle {
+  source: TravelArticleFeedSource;
+  title: string;
+  url: string;
+  publishedAt: string | null;
+  excerpt: string;
+  mediaUrl: string | null;
+  mediaType: 'image' | 'video';
+}
+
+interface ResolvedDiscoverMedia {
+  mediaUrl: string;
+  mediaPosterUrl?: string;
+  mediaType: 'image' | 'video';
+  mediaMode: DiscoverMediaMode;
+  rightsStatus: DiscoverRightsStatus;
+  sources: DiscoverContentSource[];
+  generation: DiscoverMediaGenerationRequest;
+}
+
+const TRAVEL_ARTICLE_FEED_SOURCES: TravelArticleFeedSource[] = [
+  {
+    id: 'smithsonian-travel',
+    publisher: 'Smithsonian Magazine',
+    feedUrl: 'https://www.smithsonianmag.com/rss/travel/',
+    sourceKind: 'publisher_feed',
+    editorialAngle: 'history, nature, and culture context',
+    defaultDestination: 'World',
+    musicTitle: 'Field Note Tape',
+    musicGenre: 'ambient',
+  },
+  {
+    id: 'conde-nast-traveler',
+    publisher: 'Condé Nast Traveler',
+    feedUrl: 'https://www.cntraveler.com/feed/rss',
+    sourceKind: 'publisher_feed',
+    editorialAngle: 'hotels, places, and trip design',
+    defaultDestination: 'World',
+    musicTitle: 'Hotel Lobby Cut',
+    musicGenre: 'chill hop',
+  },
+  {
+    id: 'atlas-obscura',
+    publisher: 'Atlas Obscura',
+    feedUrl: 'https://www.atlasobscura.com/feeds/latest',
+    sourceKind: 'publisher_feed',
+    editorialAngle: 'curious places and hidden stories',
+    defaultDestination: 'World',
+    musicTitle: 'Hidden Door Map',
+    musicGenre: 'soft electronic',
+  },
+  {
+    id: 'bbc-travel',
+    publisher: 'BBC Travel',
+    feedUrl: 'https://www.bbc.com/travel/feed.rss',
+    sourceKind: 'publisher_feed',
+    editorialAngle: 'documentary travel and cultural explainers',
+    defaultDestination: 'World',
+    musicTitle: 'World Service Postcard',
+    musicGenre: 'ambient',
+  },
+  {
+    id: 'nomadic-matt',
+    publisher: 'Nomadic Matt',
+    feedUrl: 'https://www.nomadicmatt.com/feed/',
+    sourceKind: 'publisher_feed',
+    editorialAngle: 'practical travel, stays, and budget trip mechanics',
+    defaultDestination: 'World',
+    musicTitle: 'Backpack Ledger',
+    musicGenre: 'chill hop',
+  },
+  {
+    id: 'the-points-guy',
+    publisher: 'The Points Guy',
+    feedUrl: 'https://thepointsguy.com/feed/',
+    sourceKind: 'publisher_feed',
+    editorialAngle: 'fare, points, airline, and hotel opportunity signals',
+    defaultDestination: 'World',
+    musicTitle: 'Gate Change Groove',
+    musicGenre: 'soft electronic',
+  },
+];
+
+let articleFeedCache: { expiresAt: number; items: DiscoverFeedItem[] } | null = null;
+
+function decodeXml(value: string): string {
+  return value
+    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&apos;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function tagValue(xml: string, tag: string): string | null {
+  const match = xml.match(new RegExp(`<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${tag}>`, 'i'));
+  return match ? decodeXml(match[1]) : null;
+}
+
+function inferArticleLocation(article: Pick<ParsedTravelArticle, 'title' | 'excerpt'>): string {
+  const text = `${article.title} ${article.excerpt}`.toLowerCase();
+  const places = [
+    ['kyoto', 'Kyoto'],
+    ['tokyo', 'Tokyo'],
+    ['japan', 'Japan'],
+    ['paris', 'Paris'],
+    ['france', 'France'],
+    ['bali', 'Bali'],
+    ['indonesia', 'Indonesia'],
+    ['iceland', 'Iceland'],
+    ['lisbon', 'Lisbon'],
+    ['portugal', 'Portugal'],
+    ['marrakech', 'Marrakech'],
+    ['morocco', 'Morocco'],
+    ['seoul', 'Seoul'],
+    ['korea', 'South Korea'],
+    ['mexico city', 'Mexico City'],
+    ['mexico', 'Mexico'],
+    ['peru', 'Peru'],
+    ['greece', 'Greece'],
+    ['santorini', 'Santorini'],
+    ['italy', 'Italy'],
+  ] as const;
+  return places.find(([token]) => text.includes(token))?.[1] ?? 'World';
+}
+
+function decodeUrlValue(value: string): string {
+  return decodeXml(value)
+    .replace(/&amp;/g, '&')
+    .trim();
+}
+
+function firstAttribute(raw: string, pattern: RegExp): string | null {
+  const match = raw.match(pattern);
+  return match?.[1] ? decodeUrlValue(match[1]) : null;
+}
+
+function normalizePublisherMediaUrl(url: string): string {
+  if (url.includes('ychef.files.bbci.co.uk/144x81/')) {
+    return url.replace('/144x81/', '/1600x900/');
+  }
+  return url;
+}
+
+function extractArticleMedia(raw: string): { url: string | null; mediaType: 'image' | 'video' } {
+  const candidates = [
+    firstAttribute(raw, /<media:content[^>]*url=["']([^"']+)["'][^>]*>/i),
+    firstAttribute(raw, /<media:thumbnail[^>]*url=["']([^"']+)["'][^>]*>/i),
+    firstAttribute(raw, /<enclosure[^>]*url=["']([^"']+)["'][^>]*>/i),
+    firstAttribute(raw, /<itunes:image[^>]*href=["']([^"']+)["'][^>]*>/i),
+    firstAttribute(raw, /<img[^>]*src=["']([^"']+)["'][^>]*>/i),
+  ].filter((value): value is string => Boolean(value));
+
+  const rawUrl = candidates.find((candidate) => /^https?:\/\//i.test(candidate)) ?? null;
+  if (!rawUrl) return { url: null, mediaType: 'image' };
+  const url = normalizePublisherMediaUrl(rawUrl);
+  return {
+    url,
+    mediaType: /\.(mp4|m4v|mov)(?:[?#]|$)/i.test(url) ? 'video' : 'image',
+  };
+}
+
+function articleMediaSearchQuery(article: ParsedTravelArticle, location: string): string {
+  const title = article.title
+    .replace(/[^\p{L}\p{N}\s-]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const place = location === 'World' ? article.source.defaultDestination : location;
+  return `${place} ${title}`.slice(0, 96);
+}
+
+const pexelsMediaCache = new Map<string, ResolvedDiscoverMedia | null>();
+
+function sourceForPublisherMedia(article: ParsedTravelArticle, url: string): DiscoverContentSource {
+  return {
+    kind: 'publisher_feed',
+    name: `${article.source.publisher} RSS media`,
+    url: article.url,
+    attribution: article.source.publisher,
+    freshnessLabel: article.publishedAt
+      ? new Date(article.publishedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+      : 'Fresh source feed item',
+    limitation: 'Displayed from the publisher feed URL as summary/link context; Elsewhere does not download or rehost this media.',
+  };
+}
+
+function queuedMediaGeneration(article: ParsedTravelArticle, location: string, query: string): DiscoverMediaGenerationRequest {
+  return {
+    status: hasEnv('OPENAI_API_KEY', 'AI_GATEWAY_API_KEY') ? 'queued' : 'missing_provider',
+    provider: hasEnv('PEXELS_API_KEY') ? 'pexels' : 'openai_image',
+    prompt: [
+      `Create a vertical documentary travel reel poster inspired by this source-fed story.`,
+      `Source: ${article.source.publisher}`,
+      `Location: ${location}`,
+      `Story hook: ${shortArticleHook(article)}`,
+      `Visual brief: cinematic real-world travel, no logos, no copied publisher imagery, no text overlay.`,
+    ].join('\n'),
+    searchQuery: query,
+    reason: hasEnv('PEXELS_API_KEY')
+      ? 'Pexels did not return a strong match; queue AI media or broaden the media search.'
+      : 'No licensed media provider key is configured; queue AI image/video generation instead of falling back to the demo library.',
+    generatedAt: null,
+  };
+}
+
+async function fetchPexelsMedia(article: ParsedTravelArticle, location: string): Promise<ResolvedDiscoverMedia | null> {
+  const apiKey = process.env.PEXELS_API_KEY;
+  if (!apiKey) return null;
+
+  const query = articleMediaSearchQuery(article, location);
+  const cacheKey = `${article.source.id}:${query}`;
+  if (pexelsMediaCache.has(cacheKey)) return pexelsMediaCache.get(cacheKey) ?? null;
+
+  const headers = { Authorization: apiKey };
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 3000);
+
+  try {
+    const preferVideo = /video|short|reel|festival|beach|train|route|hotel|market|food/i.test(article.title);
+    if (preferVideo) {
+      const videoUrl = new URL('https://api.pexels.com/videos/search');
+      videoUrl.searchParams.set('query', query);
+      videoUrl.searchParams.set('orientation', 'portrait');
+      videoUrl.searchParams.set('per_page', '3');
+      const response = await fetch(videoUrl, { headers, signal: controller.signal });
+      if (response.ok) {
+        const data = await response.json() as {
+          videos?: Array<{
+            url?: string;
+            image?: string;
+            video_files?: Array<{ link?: string; width?: number; height?: number; quality?: string }>;
+            user?: { name?: string; url?: string };
+          }>;
+        };
+        const video = data.videos?.[0];
+        const file = video?.video_files
+          ?.filter((candidate) => candidate.link)
+          .sort((a, b) => (b.height ?? 0) - (a.height ?? 0))[0];
+        if (video && file?.link) {
+          const resolved: ResolvedDiscoverMedia = {
+            mediaUrl: file.link,
+            mediaPosterUrl: video.image,
+            mediaType: 'video',
+            mediaMode: 'video',
+            rightsStatus: 'licensed',
+            sources: [
+              {
+                kind: 'pexels',
+                name: 'Pexels video search',
+                url: video.url ?? null,
+                attribution: video.user?.name ?? 'Pexels creator',
+                freshnessLabel: 'Fetched live from Pexels',
+                limitation: 'Pexels media is used through the provider API; production should cache and track creator metadata.',
+              },
+            ],
+            generation: {
+              status: 'not_needed',
+              provider: 'pexels',
+              prompt: '',
+              searchQuery: query,
+              reason: 'Pexels returned a licensed video candidate.',
+              generatedAt: new Date().toISOString(),
+            },
+          };
+          pexelsMediaCache.set(cacheKey, resolved);
+          return resolved;
+        }
+      }
+    }
+
+    const photoUrl = new URL('https://api.pexels.com/v1/search');
+    photoUrl.searchParams.set('query', query);
+    photoUrl.searchParams.set('orientation', 'portrait');
+    photoUrl.searchParams.set('per_page', '5');
+    const response = await fetch(photoUrl, { headers, signal: controller.signal });
+    if (!response.ok) {
+      pexelsMediaCache.set(cacheKey, null);
+      return null;
+    }
+    const data = await response.json() as {
+      photos?: Array<{
+        url?: string;
+        alt?: string;
+        photographer?: string;
+        photographer_url?: string;
+        src?: { portrait?: string; large2x?: string; large?: string; original?: string };
+      }>;
+    };
+    const photo = data.photos?.[0];
+    const photoMediaUrl = photo?.src?.portrait ?? photo?.src?.large2x ?? photo?.src?.large ?? photo?.src?.original;
+    if (!photo || !photoMediaUrl) {
+      pexelsMediaCache.set(cacheKey, null);
+      return null;
+    }
+
+    const resolved: ResolvedDiscoverMedia = {
+      mediaUrl: photoMediaUrl,
+      mediaPosterUrl: photoMediaUrl,
+      mediaType: 'image',
+      mediaMode: 'animated_still',
+      rightsStatus: 'licensed',
+      sources: [
+        {
+          kind: 'pexels',
+          name: 'Pexels photo search',
+          url: photo.url ?? null,
+          attribution: photo.photographer ?? 'Pexels creator',
+          freshnessLabel: 'Fetched live from Pexels',
+          limitation: 'Pexels media is used through the provider API; production should cache and track creator metadata.',
+        },
+      ],
+      generation: {
+        status: 'not_needed',
+        provider: 'pexels',
+        prompt: '',
+        searchQuery: query,
+        reason: 'Pexels returned a licensed photo candidate.',
+        generatedAt: new Date().toISOString(),
+      },
+    };
+    pexelsMediaCache.set(cacheKey, resolved);
+    return resolved;
+  } catch {
+    pexelsMediaCache.set(cacheKey, null);
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function resolveArticleMedia(article: ParsedTravelArticle, location: string): Promise<ResolvedDiscoverMedia | null> {
+  const query = articleMediaSearchQuery(article, location);
+  const pexels = await fetchPexelsMedia(article, location);
+  if (pexels) return pexels;
+
+  if (article.mediaUrl) {
+    return {
+      mediaUrl: article.mediaUrl,
+      mediaPosterUrl: article.mediaType === 'image' ? article.mediaUrl : undefined,
+      mediaType: article.mediaType,
+      mediaMode: article.mediaType === 'video' ? 'video' : 'animated_still',
+      rightsStatus: 'embed_only',
+      sources: [sourceForPublisherMedia(article, article.mediaUrl)],
+      generation: {
+        status: 'not_needed',
+        provider: 'publisher_feed',
+        prompt: '',
+        searchQuery: query,
+        reason: 'The publisher feed supplied media for summary/link display.',
+        generatedAt: new Date().toISOString(),
+      },
+    };
+  }
+
+  return {
+    mediaUrl: '',
+    mediaType: 'image',
+    mediaMode: 'ai_video',
+    rightsStatus: 'owned',
+    sources: [],
+    generation: queuedMediaGeneration(article, location, query),
+  };
+}
+
+function shortArticleHook(article: ParsedTravelArticle): string {
+  const title = compactSentence(article.title, 62).replace(/\.$/, '');
+  const text = `${article.title} ${article.excerpt}`.toLowerCase();
+  const location = inferArticleLocation(article);
+
+  if (text.includes('great lakes')) return 'The Great Lakes look unreal from above.';
+  if (text.includes('pompeii')) return 'Pompeii still has secrets under the ash.';
+  if (text.includes('route 66')) return 'Route 66 is more than a road trip.';
+  if (text.includes('brooklyn') || text.includes('bridge')) return 'A tiny bridge with a bigger story.';
+  if (text.includes('remote nation') || text.includes('opens up')) return 'A remote country is opening up.';
+  if (text.includes('outsite') || text.includes('digital nomad')) return 'Work remotely from somewhere better.';
+  if (text.includes('spirit airlines')) return 'The yellow planes changed travel.';
+  if (text.includes('puerto rico')) return 'Puerto Rico is calling.';
+  if (text.includes('stockholm')) return 'Stockholm is hiding something.';
+  if (text.includes('shipwreck') || text.includes('antilla')) return 'A shipwreck with a wartime past.';
+  if (text.includes('drone')) return 'This changes the travel shot.';
+  if (text.includes('florida') && text.includes('fisher')) return 'A fishing town with a secret.';
+  if (text.includes('northern lights') || text.includes('aurora')) return 'The sky does the storytelling here.';
+  if (text.includes('reef') || text.includes('coral')) return 'A living city is hiding underwater.';
+  if (text.includes('hotel') || text.includes('resort')) {
+    return location === 'World' ? 'A hotel worth building a trip around.' : `The stay is the story in ${location}.`;
+  }
+  if (text.includes('food') || text.includes('restaurant') || text.includes('market')) return `The first reason to go is the food.`;
+  if (/why|how|secret|hidden|rare|myster/i.test(title)) return title.endsWith('?') ? title : `${title}.`;
+  if (location !== 'World') return `What most travelers miss in ${location}.`;
+  return title.endsWith('?') ? title : `${title}.`;
+}
+
+function compactHook(value: string, maxLength = 54): string {
+  const normalized = compactSentence(value, Math.max(maxLength * 2, 96))
+    .replace(/\s+/g, ' ')
+    .replace(/\s+([?.!])/g, '$1')
+    .trim();
+  if (normalized.length <= maxLength) return normalized;
+  const words = normalized.split(/\s+/);
+  let output = '';
+  for (const word of words) {
+    const next = output ? `${output} ${word}` : word;
+    if (next.length > maxLength) break;
+    output = next;
+  }
+  return output.replace(/[,:;.-]+$/, '');
+}
+
+function firstFriendName(input: DiscoverFeedItem): string {
+  return input.participants?.find((participant) => participant.name.toLowerCase() !== 'you')?.name ?? 'Mia';
+}
+
+function socialReelHook(input: DiscoverFeedItem): string {
+  const destination = input.locationLabel ?? input.tripProposal?.destination ?? input.curationAction.destinationName ?? 'there';
+  const friend = firstFriendName(input);
+
+  if (input.kind === 'personal_deal' || input.postType === 'personal_deal') {
+    return `Memorial Day weekend. You and ${friend} in ${destination}?`;
+  }
+  if (input.kind === 'personal_trip_ad' || input.kind === 'personal_preview' || input.postType === 'personal_trip_ad') {
+    return `${destination} with your group?`;
+  }
+  if (input.kind === 'sponsored_native' || input.sponsored) {
+    return `${destination} this weekend?`;
+  }
+  if (input.kind === 'assist_alert') {
+    return 'Your trip just changed.';
+  }
+  if (input.kind === 'travel_admin') {
+    return 'Check this before you book.';
+  }
+  if (input.kind === 'photo_memory') {
+    return 'Your camera roll knows.';
+  }
+  if (input.interactivePrompt) {
+    return compactHook(input.hook ?? input.editorialShort?.hook ?? input.title, 48);
+  }
+  if (input.articleSource) {
+    return compactHook(input.hook ?? shortArticleHook({
+      source: TRAVEL_ARTICLE_FEED_SOURCES[0],
+      title: input.articleSource.title,
+      url: input.articleSource.url,
+      publishedAt: input.articleSource.publishedAt,
+      excerpt: input.articleSource.excerpt,
+      mediaUrl: null,
+      mediaType: 'image',
+    }), 48);
+  }
+  return compactHook(input.hook ?? input.editorialShort?.hook ?? input.title, 50);
+}
+
+function isUsefulTravelArticle(article: ParsedTravelArticle): boolean {
+  const text = `${article.title} ${article.excerpt}`.toLowerCase();
+  if (!article.mediaUrl) return false;
+  if (/(credit card|annual fee|welcome offer|points and miles|transfer bonus|capital one|amex|american express|chase sapphire|best cards)/i.test(text)) {
+    return false;
+  }
+  return /(travel|trip|hotel|flight|airline|train|beach|island|city|museum|restaurant|food|festival|route|park|country|village|resort|stay|guide|weekend|airport|cruise|adventure|historic|culture|street|neighborhood|nature|hike|ski|road)/i.test(text);
+}
+
+function parseFeedArticles(xml: string, source: TravelArticleFeedSource): ParsedTravelArticle[] {
+  const itemMatches = [...xml.matchAll(/<item\b[\s\S]*?<\/item>/gi)].slice(0, 6);
+  return itemMatches.map((match) => {
+    const raw = match[0];
+    const title = tagValue(raw, 'title') ?? '';
+    const url = tagValue(raw, 'link') ?? source.feedUrl;
+    const publishedAt = tagValue(raw, 'pubDate');
+    const excerpt = tagValue(raw, 'description') ?? tagValue(raw, 'content:encoded') ?? title;
+    const media = extractArticleMedia(raw);
+    return {
+      source,
+      title,
+      url,
+      publishedAt,
+      excerpt: compactSentence(excerpt, 180),
+      mediaUrl: media.url,
+      mediaType: media.mediaType,
+    };
+  }).filter((article) => article.title && article.url);
+}
+
+async function fetchFeedSource(source: TravelArticleFeedSource): Promise<ParsedTravelArticle[]> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 2500);
+  try {
+    const response = await fetch(source.feedUrl, {
+      signal: controller.signal,
+      headers: {
+        accept: 'application/rss+xml, application/xml, text/xml',
+        'user-agent': 'ElsewhereMVP/1.0 (+https://elsewhere.local)',
+      },
+    });
+    if (!response.ok) return [];
+    const xml = await response.text();
+    return parseFeedArticles(xml, source);
+  } catch {
+    return [];
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function articleSourceFor(article: ParsedTravelArticle): DiscoverArticleSource {
+  return {
+    publisher: article.source.publisher,
+    title: article.title,
+    url: article.url,
+    publishedAt: article.publishedAt,
+    excerpt: article.excerpt,
+    usagePolicy: 'summary_link_only',
+  };
+}
+
+function tripValueForLocation(location: string): DiscoverTripValue {
+  const normalized = location.toLowerCase();
+  if (normalized.includes('japan') || normalized.includes('kyoto') || normalized.includes('tokyo')) return value(2568, 214, 'Japan from $214/mo', 'medium');
+  if (normalized.includes('paris') || normalized.includes('france')) return value(1836, 153, 'Paris from $153/mo', 'medium');
+  if (normalized.includes('bali') || normalized.includes('indonesia')) return value(2256, 188, 'Bali from $188/mo', 'medium');
+  if (normalized.includes('iceland')) return value(2028, 169, 'Iceland from $169/mo', 'medium');
+  if (normalized.includes('lisbon') || normalized.includes('portugal')) return value(1848, 154, 'Lisbon from $154/mo', 'medium');
+  if (normalized.includes('marrakech') || normalized.includes('morocco')) return value(1452, 121, 'Marrakech from $121/mo', 'low');
+  if (normalized.includes('mexico')) return value(1032, 86, 'Mexico City from $86/mo', 'medium');
+  return value(1800, 150, `${location} from $150/mo`, 'low');
+}
+
+function articleProposal(location: string, article: ParsedTravelArticle): DiscoverTripProposal {
+  const tripValue = tripValueForLocation(location);
+  return proposal({
+    destination: location,
+    origin: 'Los Angeles',
+    dateWindow: 'Next smart calendar window',
+    calendarFit: 'Elsewhere checks PTO, holidays, and friend availability before recommending dates.',
+    groupFit: 'Best after likes/saves reveal who actually cares about this kind of trip.',
+    dealTrend: 'watching',
+    flight: Math.max(0, Math.round(tripValue.totalEstimateAmount * 0.34)),
+    stay: Math.max(0, Math.round(tripValue.totalEstimateAmount * 0.46)),
+    activity: Math.max(0, Math.round(tripValue.totalEstimateAmount * 0.12)),
+    anchor: compactSentence(article.title, 76),
+  });
+}
+
+async function articleToFeedItem(article: ParsedTravelArticle, index: number): Promise<DiscoverFeedItem | null> {
+  const location = inferArticleLocation(article);
+  if (location === 'World') return null;
+  const resolvedMedia = await resolveArticleMedia(article, location);
+  if (!resolvedMedia?.mediaUrl) return null;
+  const tripValue = tripValueForLocation(location);
+  const source: DiscoverContentSource = {
+    kind: article.source.sourceKind,
+    name: article.source.publisher,
+    url: article.url,
+    attribution: article.source.publisher,
+    freshnessLabel: article.publishedAt ? new Date(article.publishedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'Recent feed story',
+    limitation: 'Summary and link only. Elsewhere does not rehost publisher content.',
+  };
+
+  return item({
+    id: `article-${article.source.id}-${index}-${Buffer.from(article.url).toString('base64url').slice(0, 10)}`,
+    kind: 'editorial_short',
+    feedScope: 'both',
+    postType: 'destination_short',
+    hook: shortArticleHook(article),
+    title: article.title,
+    detail: compactSentence(article.excerpt, 124),
+    mediaType: resolvedMedia.mediaType,
+    mediaUrl: resolvedMedia.mediaUrl,
+    mediaPosterUrl: resolvedMedia.mediaPosterUrl ?? resolvedMedia.mediaUrl,
+    mediaMode: resolvedMedia.mediaMode,
+    rightsStatus: resolvedMedia.rightsStatus,
+    sourceLine: `${article.source.publisher} · ${article.source.editorialAngle}`,
+    locationLabel: location,
+    primaryValueLabel: tripValue.label,
+    relevanceReason: `A source-fed travel story that can become a watched ${location} trip only if your calendar, friends, and pricing line up.`,
+    contentTopics: ['source-fed story', article.source.publisher.toLowerCase(), location.toLowerCase(), 'documentary travel'],
+    interactionStats: { likes: 5200 + index * 700, learns: 4100 + index * 500, plans: 700 + index * 90, shares: 900 + index * 80 },
+    contentSources: [...resolvedMedia.sources, source],
+    articleSource: articleSourceFor(article),
+    mediaGeneration: resolvedMedia.generation,
+    music: music(article.source.musicTitle, article.source.musicGenre),
+    editorialShort: editorialShort({
+      hook: shortArticleHook(article),
+      fact: compactSentence(article.excerpt, 142),
+    }),
+    tripValue,
+    tripProposal: articleProposal(location, article),
+    curationAction: {
+      label: 'Plan',
+      prompt: `Use this ${article.source.publisher} story as inspiration and build a realistic trip around it: ${article.url}`,
+      destinationName: location,
+    },
+  });
+}
+
+async function sourceFedTravelItems(): Promise<DiscoverFeedItem[]> {
+  const now = Date.now();
+  if (articleFeedCache && articleFeedCache.expiresAt > now) return articleFeedCache.items;
+
+  const batches = await Promise.all(TRAVEL_ARTICLE_FEED_SOURCES.map(fetchFeedSource));
+  const trimmedBatches = batches.map((items) => items
+    .filter((article) => article.title.length >= 12 && isUsefulTravelArticle(article))
+    .slice(0, 4));
+  const articles: ParsedTravelArticle[] = [];
+  for (let index = 0; index < 4; index += 1) {
+    for (const batch of trimmedBatches) {
+      if (batch[index]) articles.push(batch[index]);
+    }
+  }
+
+  const resolved = await Promise.all(articles.map(articleToFeedItem));
+  const items = resolved.filter((item): item is DiscoverFeedItem => Boolean(item)).slice(0, 18);
+  articleFeedCache = {
+    expiresAt: now + 1000 * 60 * 12,
+    items,
+  };
+  return items;
+}
+
 function hasEnv(...keys: string[]): boolean {
   return keys.some((key) => Boolean(process.env[key]));
 }
@@ -60,12 +700,18 @@ function hasEnv(...keys: string[]): boolean {
 function providerCoverage(): ProviderCoverage[] {
   return [
     {
+      provider: 'Publisher Source Intake',
+      sourceKind: 'publisher_feed',
+      status: 'connected',
+      detail: 'Public RSS/source metadata is ingested live and converted into new documentary Discover posts with source links.',
+    },
+    {
       provider: 'Pexels',
       sourceKind: 'pexels',
-      status: hasEnv('PEXELS_API_KEY') ? 'connected' : 'local_demo',
+      status: hasEnv('PEXELS_API_KEY') ? 'connected' : 'missing_credentials',
       detail: hasEnv('PEXELS_API_KEY')
-        ? 'Real photo/video ingestion can run through the Pexels API.'
-        : 'Using cached Pexels-style local demo media until PEXELS_API_KEY is set.',
+        ? 'Live licensed photo/video search is active for source-fed Discover posts.'
+        : 'Set PEXELS_API_KEY to replace publisher thumbnails with fresh licensed vertical photos/videos.',
     },
     {
       provider: 'Google Places',
@@ -87,7 +733,7 @@ function providerCoverage(): ProviderCoverage[] {
     },
     {
       provider: 'Deal Radar',
-      sourceKind: 'local_demo',
+      sourceKind: 'public_research',
       status: 'local_demo',
       detail: 'Deal and affordability signals use the local Deal Radar fixture until official provider keys are connected.',
     },
@@ -277,106 +923,21 @@ function textTreatmentFor(input: DiscoverFeedItem): NonNullable<DiscoverFeedItem
 }
 
 function captionBeatsFor(input: DiscoverFeedItem): NonNullable<DiscoverFeedItem['captionBeats']> {
-  const hook = compactSentence(input.hook ?? input.editorialShort?.hook ?? input.title, 92);
-  const location = input.locationLabel ?? input.tripProposal?.destination ?? input.curationAction.destinationName ?? input.title;
-  const detail = compactSentence(input.editorialShort?.captionText ?? input.detail, 112);
-  const valueLabel = input.priceBadgeLabel ?? input.primaryValueLabel ?? input.tripValue?.label;
+  const hook = socialReelHook(input);
 
   if (input.interactivePrompt) {
     return [
       {
         id: `${input.id}-beat-hook`,
         text: hook,
-        emphasis: location,
         startMs: 0,
-        durationMs: 1800,
+        durationMs: 4200,
       },
       {
         id: `${input.id}-beat-question`,
         text: input.interactivePrompt.question,
-        emphasis: input.interactivePrompt.contextLabel || 'field question',
         startMs: input.interactivePrompt.revealAfterMs ?? 2200,
-        durationMs: 2600,
-      },
-      {
-        id: `${input.id}-beat-answer`,
-        text: 'Pick an answer. The route changes with the story.',
-        emphasis: 'choose',
-        startMs: (input.interactivePrompt.revealAfterMs ?? 2200) + 2500,
-        durationMs: 1800,
-      },
-    ];
-  }
-
-  if (textTreatmentFor(input) === 'deal') {
-    return [
-      {
-        id: `${input.id}-beat-hook`,
-        text: hook,
-        emphasis: location,
-        startMs: 0,
-        durationMs: 1800,
-      },
-      {
-        id: `${input.id}-beat-value`,
-        text: valueLabel ? `${valueLabel}, only because the timing fits.` : 'This deal only appears because the timing fits.',
-        emphasis: valueLabel ?? 'relevant deal',
-        startMs: 1900,
-        durationMs: 2400,
-      },
-      {
-        id: `${input.id}-beat-watch`,
-        text: compactSentence(input.relevanceReason ?? input.detail, 104),
-        emphasis: 'Assist watching',
-        startMs: 4300,
-        durationMs: 2600,
-      },
-    ];
-  }
-
-  if (textTreatmentFor(input) === 'personal') {
-    return [
-      {
-        id: `${input.id}-beat-hook`,
-        text: hook,
-        emphasis: 'your group',
-        startMs: 0,
-        durationMs: 1900,
-      },
-      {
-        id: `${input.id}-beat-context`,
-        text: compactSentence(input.relevanceReason ?? input.detail, 104),
-        emphasis: valueLabel ?? location,
-        startMs: 2000,
-        durationMs: 2600,
-      },
-      {
-        id: `${input.id}-beat-action`,
-        text: 'Invite, split, watch the price, then let Assist protect the plan.',
-        emphasis: 'make it real',
-        startMs: 4700,
-        durationMs: 2600,
-      },
-    ];
-  }
-
-  if (textTreatmentFor(input) === 'admin') {
-    return [
-      {
-        id: `${input.id}-beat-hook`,
-        text: hook,
-        emphasis: input.adminAction?.kind.replace('_', ' ') ?? 'travel admin',
-        startMs: 0,
-        durationMs: 2200,
-      },
-      {
-        id: `${input.id}-beat-deadline`,
-        text: input.adminAction
-          ? `${input.adminAction.statusLabel}. ${input.adminAction.deadlineLabel}.`
-          : detail,
-        emphasis: input.adminAction?.actionLabel ?? 'handle it',
-        startMs: 2300,
-        durationMs: 2600,
+        durationMs: 5200,
       },
     ];
   }
@@ -385,23 +946,8 @@ function captionBeatsFor(input: DiscoverFeedItem): NonNullable<DiscoverFeedItem[
     {
       id: `${input.id}-beat-hook`,
       text: hook,
-      emphasis: location,
       startMs: 0,
-      durationMs: 2100,
-    },
-    {
-      id: `${input.id}-beat-story`,
-      text: detail,
-      emphasis: input.editorialShort ? 'field note' : input.postType?.replace('_', ' ') ?? 'travel story',
-      startMs: 2100,
-      durationMs: 3200,
-    },
-    {
-      id: `${input.id}-beat-plan`,
-      text: valueLabel ? `Elsewhere can turn it into dates, stays, and ${valueLabel}.` : 'Elsewhere can turn it into dates, stays, and a watched plan.',
-      emphasis: 'plan this',
-      startMs: 5400,
-      durationMs: 2600,
+      durationMs: 5200,
     },
   ];
 }
@@ -459,22 +1005,221 @@ function audioMixFor(
   };
 }
 
+function inferPostFamily(input: DiscoverFeedItem): DiscoverPostFamily {
+  if (
+    input.kind === 'personal_preview' ||
+    input.kind === 'personal_trip_ad' ||
+    input.kind === 'personal_deal' ||
+    input.kind === 'occasion' ||
+    input.kind === 'photo_memory' ||
+    input.postType === 'personal_preview' ||
+    input.postType === 'personal_trip_ad' ||
+    input.postType === 'personal_deal'
+  ) {
+    return 'personal';
+  }
+
+  if (
+    input.kind === 'live_view' ||
+    input.postType === 'live_view' ||
+    /blue hour|sunset|slow pan|coast|beach|calm|vibe|loop/i.test(`${input.title} ${input.hook ?? ''} ${input.sourceLine}`)
+  ) {
+    return 'vibe';
+  }
+
+  return 'content';
+}
+
+function heroMediaGalleryFor(input: DiscoverFeedItem, generatedVideo?: DiscoverGeneratedVideo): DiscoverHeroMedia[] {
+  const gallery: DiscoverHeroMedia[] = [];
+  if (generatedVideo?.status === 'ready' && generatedVideo.videoUrl) {
+    gallery.push({
+      id: `${input.id}-generated-video`,
+      mediaType: 'video',
+      url: generatedVideo.videoUrl,
+      posterUrl: generatedVideo.posterUrl ?? input.mediaPosterUrl ?? input.mediaUrl,
+      mediaMode: 'ai_video',
+      rightsStatus: 'owned',
+      sourceName: 'Elsewhere AI video',
+      alt: `${input.title} generated video`,
+    });
+  }
+
+  if (input.mediaUrl) {
+    gallery.push({
+      id: `${input.id}-primary-media`,
+      mediaType: input.mediaType,
+      url: input.mediaUrl,
+      posterUrl: input.mediaPosterUrl,
+      mediaMode: input.mediaMode,
+      rightsStatus: input.rightsStatus,
+      sourceName: input.contentSources?.[0]?.name ?? input.creatorLabel ?? input.sourceLine,
+      alt: `${input.title} media`,
+    });
+  }
+
+  input.collection?.items.slice(0, 4).forEach((item, index) => {
+    if (!item.imageUrl) return;
+    gallery.push({
+      id: `${input.id}-collection-${index}`,
+      mediaType: 'image',
+      url: item.imageUrl,
+      posterUrl: item.imageUrl,
+      mediaMode: 'animated_still',
+      sourceName: input.sourceLine,
+      rightsStatus: input.rightsStatus,
+      alt: item.title,
+    });
+  });
+
+  return gallery;
+}
+
+function sourceHighlightsFor(input: DiscoverFeedItem): DiscoverSourceHighlight[] {
+  const highlights: DiscoverSourceHighlight[] = [];
+  const article = input.articleSource;
+  if (article) {
+    highlights.push({
+      id: `${input.id}-source-story`,
+      title: article.title,
+      body: article.excerpt,
+      mediaUrl: input.mediaPosterUrl ?? input.mediaUrl,
+      sourceName: article.publisher,
+      sourceUrl: article.url,
+    });
+  }
+
+  if (input.editorialShort) {
+    highlights.push({
+      id: `${input.id}-short-context`,
+      title: input.editorialShort.hook,
+      body: input.editorialShort.captionText,
+      mediaUrl: input.mediaPosterUrl ?? input.mediaUrl,
+      sourceName: input.creatorLabel ?? input.sourceLine,
+      sourceUrl: input.contentSources?.find((source) => source.url)?.url,
+    });
+  }
+
+  if (input.interactivePrompt) {
+    highlights.push({
+      id: `${input.id}-trivia-question`,
+      title: input.interactivePrompt.question,
+      body: input.interactivePrompt.answers
+        .map((answer) => `${answer.label}: ${answer.responseHook} ${answer.responseDetail}`)
+        .join(' '),
+      mediaUrl: input.mediaPosterUrl ?? input.mediaUrl,
+      sourceName: input.interactivePrompt.contextLabel,
+      sourceUrl: input.contentSources?.find((source) => source.url)?.url,
+    });
+  }
+
+  if (!highlights.length) {
+    highlights.push({
+      id: `${input.id}-main-highlight`,
+      title: input.hook ?? input.title,
+      body: input.detail,
+      mediaUrl: input.mediaPosterUrl ?? input.mediaUrl,
+      sourceName: input.creatorLabel ?? input.sourceLine,
+      sourceUrl: input.contentSources?.find((source) => source.url)?.url,
+    });
+  }
+
+  return highlights.slice(0, 5);
+}
+
+function learnSectionsFor(input: DiscoverFeedItem, highlights: DiscoverSourceHighlight[]): DiscoverLearnSection[] {
+  const sections: DiscoverLearnSection[] = [
+    {
+      id: `${input.id}-story`,
+      kind: input.interactivePrompt ? 'trivia' : 'story',
+      title: input.interactivePrompt?.contextLabel ?? input.hook ?? input.title,
+      body: input.interactivePrompt?.question ?? input.detail,
+      sourceUrl: input.articleSource?.url ?? input.contentSources?.find((source) => source.url)?.url,
+    },
+  ];
+
+  highlights.slice(0, 3).forEach((highlight, index) => {
+    sections.push({
+      id: `${highlight.id}-learn-${index}`,
+      kind: index === 0 ? 'source' : 'context',
+      title: highlight.title,
+      body: highlight.body,
+      sourceUrl: highlight.sourceUrl,
+    });
+  });
+
+  if (input.postFamily === 'vibe' || inferPostFamily(input) === 'vibe') {
+    sections.push({
+      id: `${input.id}-vibe`,
+      kind: 'practical',
+      title: 'Build the feeling',
+      body: 'Elsewhere treats this as a mood board for trip pacing, hotel style, arrival timing, music, and the kind of activities that match the scene.',
+      sourceUrl: null,
+    });
+  }
+
+  return sections.slice(0, 5);
+}
+
+function generatedVideoFor(input: DiscoverFeedItem): DiscoverGeneratedVideo {
+  if (input.mediaType === 'video' && input.mediaUrl) {
+    return {
+      status: 'not_needed',
+      videoUrl: input.mediaUrl,
+      posterUrl: input.mediaPosterUrl,
+      provider: 'local_demo',
+      prompt: '',
+      generatedAt: new Date().toISOString(),
+    };
+  }
+
+  const shouldGenerate = input.kind === 'editorial_short' || input.kind === 'interactive_prompt' || input.postFamily === 'content';
+  if (!shouldGenerate) {
+    return {
+      status: 'not_needed',
+      provider: 'local_demo',
+      prompt: '',
+      generatedAt: null,
+    };
+  }
+
+  return {
+    status: hasEnv('OPENAI_API_KEY') ? 'queued' : 'missing_provider',
+    provider: 'sora',
+    prompt: [
+      'Create a 10-15 second vertical documentary travel reel.',
+      `Location: ${input.locationLabel ?? input.tripProposal?.destination ?? input.curationAction.destinationName ?? 'travel destination'}`,
+      `Hook: ${input.hook ?? input.title}`,
+      `Context: ${input.detail}`,
+      'Style: cinematic, educational, premium travel documentary, no logos, no copied creator footage.',
+    ].join('\n'),
+    generatedAt: null,
+  };
+}
+
 function item(input: DiscoverFeedItem): DiscoverFeedItem {
   const musicTrack = input.music ?? music('Elsewhere Drift', 'chill hop');
   const bpm = musicTrack.bpm ?? bpmForGenre(musicTrack.genre);
   const beatGridMs = Math.round(60000 / bpm);
   const captionBeats = (input.captionBeats ?? captionBeatsFor(input)).map((beat) => ({
     ...beat,
-    durationMs: alignToBeat(beat.durationMs, beatGridMs),
+    durationMs: alignToBeat(beat.durationMs, beatGridMs, 6),
   }));
   const narration = input.narration ?? narrationFor(input, captionBeats);
+  const postFamily = input.postFamily ?? inferPostFamily(input);
+  const generatedVideo = input.generatedVideo ?? generatedVideoFor({ ...input, postFamily });
+  const sourceHighlights = input.sourceHighlights ?? sourceHighlightsFor(input);
+  const learnSections = input.learnSections ?? learnSectionsFor({ ...input, postFamily }, sourceHighlights);
+  const heroMediaGallery = input.heroMediaGallery ?? heroMediaGalleryFor(input, generatedVideo);
 
   return {
     ...input,
+    postFamily,
     hook: input.hook ?? input.editorialShort?.hook ?? input.title,
     creatorLabel: input.creatorLabel ?? input.advertiserName ?? input.sourceLine.split('·')[0].trim(),
     mediaMode: input.mediaMode ?? inferMediaMode(input),
     rightsStatus: input.rightsStatus ?? inferRightsStatus(input),
+    heroMediaGallery,
     music: musicTrack,
     textTreatment: input.textTreatment ?? textTreatmentFor(input),
     captionBeats,
@@ -487,6 +1232,10 @@ function item(input: DiscoverFeedItem): DiscoverFeedItem {
       music: musicTrack,
     }),
     primaryAction: input.primaryAction ?? input.curationAction,
+    sourceHighlights,
+    generatedVideo,
+    learnSections,
+    planProposal: input.planProposal ?? input.tripProposal,
     assistWatchItems: input.assistWatchItems ?? input.tripProposal?.assistWatchItems,
   };
 }
@@ -918,8 +1667,24 @@ function elsewhereItems(): DiscoverFeedItem[] {
   ];
 }
 
-export function buildDiscoverFeed(scope: DiscoverFeedScope): DiscoverFeedResponse {
-  const allItems = travelReelItems();
+export async function buildDiscoverFeed(scope: DiscoverFeedScope): Promise<DiscoverFeedResponse> {
+  const sourceItems = await sourceFedTravelItems();
+  const baseItems = travelReelItems();
+  const first = baseItems[0];
+  const rest = first ? baseItems.slice(1) : baseItems;
+  const productLoopItems = rest.filter((feedItem) =>
+    feedItem.kind === 'personal_trip_ad' ||
+    feedItem.kind === 'personal_deal' ||
+    feedItem.kind === 'assist_alert' ||
+    feedItem.kind === 'travel_admin' ||
+    feedItem.kind === 'photo_memory' ||
+    feedItem.kind === 'interactive_prompt' ||
+    feedItem.kind === 'sponsored_native');
+  const evergreenEditorialItems = rest.filter((feedItem) => !productLoopItems.includes(feedItem)).slice(0, 4);
+  const sourceLedItems = sourceItems.length
+    ? [...sourceItems, ...productLoopItems, ...evergreenEditorialItems]
+    : [...productLoopItems, ...evergreenEditorialItems, ...rest.filter((feedItem) => !productLoopItems.includes(feedItem)).slice(4)];
+  const allItems = first ? [first, ...sourceLedItems] : sourceLedItems;
   const items = scope === 'both'
     ? allItems
     : allItems.filter((feedItem) => {

@@ -1,13 +1,14 @@
-import { useMemo, useState } from 'react';
-import { View, Text, FlatList, Pressable, StyleSheet, ActivityIndicator, useWindowDimensions } from 'react-native';
+import { useEffect, useMemo, useState } from 'react';
+import { Animated, View, Text, FlatList, Pressable, StyleSheet, ActivityIndicator, useWindowDimensions } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SOCIAL_POP } from '@/components/AppHeader';
 import { LiquidGlassButton } from '@/components/LiquidGlass';
 import { useHorizontalTabSwipe } from '@/hooks/useHorizontalTabSwipe';
+import { photoMemoryTripToGuide, usePhotoMemoryTrips } from '@/hooks/usePhotoMemoryTrips';
 import { useTripGuides } from '@/hooks/useTrip';
-import { getDemoTripHeaderPath, type ActiveTripGuide } from '@elsewhere/shared';
+import { getDemoTripHeaderPath, type ActiveTripGuide, type TripCoverMedia } from '@elsewhere/shared';
 import { api } from '@/services/api';
 
 type TripFilter = 'all' | 'action' | 'upcoming' | 'active' | 'past';
@@ -198,7 +199,7 @@ const DEMO_TRIP_GUIDES: ActiveTripGuide[] = [
 const MEDIA_CACHE_VERSION = 'elsewhere-trip-card-bg-20260501a';
 
 function localAssetUri(path: string): string {
-  if (path.startsWith('http')) return path;
+  if (path.startsWith('http') || path.startsWith('file:') || path.startsWith('ph:') || path.startsWith('assets-library:')) return path;
   const separator = path.includes('?') ? '&' : '?';
   return `${api.baseUrl}${path}${separator}v=${MEDIA_CACHE_VERSION}`;
 }
@@ -260,12 +261,25 @@ export default function TripsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { height: screenHeight, width: screenWidth } = useWindowDimensions();
-  const tabSwipeHandlers = useHorizontalTabSwipe('trips');
+  const tabSwipe = useHorizontalTabSwipe('trips');
   const { data: guides, error: guidesError, isLoading } = useTripGuides();
+  const {
+    trips: photoMemoryTrips,
+    isScanning: isScanningPhotos,
+    lastScanMessage,
+    scanPhotoLibraryTrips,
+  } = usePhotoMemoryTrips();
   const [filterOpen, setFilterOpen] = useState(false);
   const [selectedFilter, setSelectedFilter] = useState<TripFilter | null>(null);
   const activeFilter = selectedFilter ?? 'all';
-  const guideSource = guides?.length ? guides : DEMO_TRIP_GUIDES;
+  const photoGuides = useMemo(
+    () => photoMemoryTrips.map(photoMemoryTripToGuide),
+    [photoMemoryTrips],
+  );
+  const guideSource = useMemo(
+    () => [...(guides?.length ? guides : DEMO_TRIP_GUIDES), ...photoGuides],
+    [guides, photoGuides],
+  );
   const filteredGuides = useMemo(
     () => filterGuides(guideSource, activeFilter),
     [guideSource, activeFilter],
@@ -274,11 +288,11 @@ export default function TripsScreen() {
   const chromeBottom = Math.max(102, insets.bottom + 86);
 
   return (
-    <View style={styles.reelsContainer} {...tabSwipeHandlers}>
+    <Animated.View style={[styles.reelsContainer, tabSwipe.animatedStyle]} {...tabSwipe.panHandlers}>
       <View style={[styles.reelsTopBar, { paddingTop: insets.top + 18 }]}>
-        <View>
-          <Text style={styles.reelsTitle}>trips</Text>
-          <Text style={styles.reelsSubtitle}>plans, alerts, payments, memories</Text>
+        <View style={styles.reelsTopSpacer} />
+        <View style={styles.reelsTabsWrap}>
+          <Text style={styles.tripsTopTitle}>trips</Text>
         </View>
         <View style={styles.reelsTopActions}>
           <LiquidGlassButton
@@ -286,6 +300,12 @@ export default function TripsScreen() {
             onPress={() => router.push('/trip/intake')}
           >
             <Text style={styles.topGlassButtonText}>book</Text>
+          </LiquidGlassButton>
+          <LiquidGlassButton
+            style={styles.topGlassButton}
+            onPress={() => scanPhotoLibraryTrips()}
+          >
+            <Text style={styles.topGlassButtonText}>{isScanningPhotos ? 'scanning' : 'photos'}</Text>
           </LiquidGlassButton>
           <LiquidGlassButton
             style={styles.topGlassButton}
@@ -322,6 +342,11 @@ export default function TripsScreen() {
           <Text style={styles.offlineNoticeText}>Showing demo trips while the trip guide service reconnects.</Text>
         </View>
       ) : null}
+      {lastScanMessage ? (
+        <View style={[styles.offlineNotice, styles.photoNotice, { top: insets.top + (guidesError ? 198 : 142) }]}>
+          <Text style={styles.offlineNoticeText}>{lastScanMessage}</Text>
+        </View>
+      ) : null}
 
       {isLoading && !guideSource.length ? (
         <ActivityIndicator style={styles.loader} />
@@ -352,7 +377,7 @@ export default function TripsScreen() {
           )}
         />
       )}
-    </View>
+    </Animated.View>
   );
 }
 
@@ -371,6 +396,7 @@ function TripReelCard({
 }) {
   const topOpportunity = guide.opportunities[0];
   const actionNeeded = hasActionNeeded(guide);
+  const coverMedia = guide.coverMedia ?? [];
   const statusLabel = guide.status === 'in_progress'
     ? 'active now'
     : guide.status === 'completed'
@@ -379,7 +405,11 @@ function TripReelCard({
 
   return (
     <Pressable style={[styles.tripReel, { height, width }]} onPress={onOpen}>
-      <Image source={{ uri: tripHeroImage(guide.destinationName) }} style={styles.tripReelImage} contentFit="cover" />
+      <TripReelCover
+        coverMedia={coverMedia}
+        fallbackUri={tripHeroImage(guide.destinationName)}
+        isPhotoMemory={guide.source === 'photo_library_inferred'}
+      />
       <View style={styles.tripReelShade} />
       <View style={styles.tripReelTopFade} />
       <View style={styles.tripReelBottomFade} />
@@ -410,11 +440,51 @@ function TripReelCard({
         </Text>
 
         <Text style={styles.tripReelMetaLine}>
-          {guide.travelerCount} travelers · {guide.opportunities.length} alerts · ${guide.potentialSavings.toLocaleString()} watched savings
+          {guide.sourceLabel ? `${guide.sourceLabel} · ` : ''}{guide.travelerCount} traveler{guide.travelerCount === 1 ? '' : 's'} · {guide.coverMedia?.length ? `${guide.coverMedia.length} moments` : `${guide.opportunities.length} alerts`} · ${guide.potentialSavings.toLocaleString()} watched savings
         </Text>
         </View>
       </View>
     </Pressable>
+  );
+}
+
+function TripReelCover({
+  coverMedia,
+  fallbackUri,
+  isPhotoMemory,
+}: {
+  coverMedia: TripCoverMedia[];
+  fallbackUri: string;
+  isPhotoMemory: boolean;
+}) {
+  const playable = coverMedia.filter((item) => item.uri && item.mediaType === 'photo').slice(0, 8);
+  const slides = playable.length ? playable : [];
+  const [slideIndex, setSlideIndex] = useState(0);
+
+  useEffect(() => {
+    if (slides.length <= 1) return undefined;
+    const timer = setInterval(() => {
+      setSlideIndex((current) => (current + 1) % slides.length);
+    }, isPhotoMemory ? 2600 : 4200);
+    return () => clearInterval(timer);
+  }, [isPhotoMemory, slides.length]);
+
+  const active = slides[slideIndex]?.uri ?? fallbackUri;
+
+  return (
+    <>
+      <Image source={{ uri: localAssetUri(active) }} style={styles.tripReelImage} contentFit="cover" />
+      {slides.length > 1 ? (
+        <View style={styles.slideshowDots}>
+          {slides.slice(0, 6).map((slide, index) => (
+            <View
+              key={slide.id}
+              style={[styles.slideshowDot, index === slideIndex % Math.min(slides.length, 6) && styles.slideshowDotActive]}
+            />
+          ))}
+        </View>
+      ) : null}
+    </>
   );
 }
 
@@ -435,7 +505,23 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 12,
   },
+  reelsTopSpacer: {
+    width: 44,
+  },
+  reelsTabsWrap: {
+    flex: 1,
+    alignItems: 'center',
+  },
   reelsTitle: {
+    color: '#fff',
+    fontSize: 22,
+    lineHeight: 25,
+    fontWeight: '900',
+    textTransform: 'lowercase',
+    textShadowColor: 'rgba(0,0,0,0.45)',
+    textShadowRadius: 12,
+  },
+  tripsTopTitle: {
     color: '#fff',
     fontSize: 22,
     lineHeight: 25,
@@ -512,6 +598,10 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     lineHeight: 17,
   },
+  photoNotice: {
+    borderColor: 'rgba(255, 255, 255, 0.30)',
+    backgroundColor: 'rgba(255, 255, 255, 0.24)',
+  },
   loader: { marginTop: 40 },
   tripReel: {
     backgroundColor: '#050506',
@@ -521,6 +611,25 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     width: '100%',
     height: '100%',
+  },
+  slideshowDots: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    bottom: 118,
+    zIndex: 5,
+    flexDirection: 'row',
+    gap: 5,
+  },
+  slideshowDot: {
+    width: 18,
+    height: 3,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.28)',
+  },
+  slideshowDotActive: {
+    width: 32,
+    backgroundColor: 'rgba(255,255,255,0.88)',
   },
   tripReelShade: {
     ...StyleSheet.absoluteFillObject,
