@@ -1,0 +1,47 @@
+rule: eu261-cancellation-compensation
+cases:
+  - name: "told 13 days before departure"
+    situation: { flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, event.type: cancellation, event.cause: controllable, event.notice_days: 13 }
+    outcome: applies
+  - name: "told exactly 14 days before departure (two weeks: no compensation)"
+    situation: { flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, event.type: cancellation, event.cause: controllable, event.notice_days: 14 }
+    outcome: does_not_apply
+  - name: "told 15 days before departure"
+    situation: { flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, event.type: cancellation, event.cause: controllable, event.notice_days: 15 }
+    outcome: does_not_apply
+  - name: "told on the day"
+    situation: { flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, event.type: cancellation, event.cause: controllable, event.notice_days: 0 }
+    outcome: applies
+  - name: "Paris outbound, DL from JFK to CDG, told 2 days before (not covered)"
+    situation: { flight.departs_eu: false, flight.arrives_eu: true, flight.carrier_is_eu: false, event.type: cancellation, event.cause: controllable, event.notice_days: 2 }
+    outcome: does_not_apply
+  - name: "Paris return, DL from CDG to JFK, told 2 days before"
+    situation: { flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, event.type: cancellation, event.cause: controllable, event.notice_days: 2 }
+    outcome: applies
+  - name: "JFK to CDG on an EU airline, told 2 days before"
+    situation: { flight.departs_eu: false, flight.arrives_eu: true, flight.carrier_is_eu: true, event.type: cancellation, event.cause: controllable, event.notice_days: 2 }
+    outcome: applies
+  - name: "flight within the EU, told 5 days before"
+    situation: { flight.departs_eu: true, flight.arrives_eu: true, flight.carrier_is_eu: true, event.type: cancellation, event.cause: controllable, event.notice_days: 5 }
+    outcome: applies
+  - name: "cause is uncontrollable (extraordinary circumstances)"
+    situation: { flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, event.type: cancellation, event.cause: uncontrollable, event.notice_days: 2 }
+    outcome: does_not_apply
+  - name: "airline has not said why"
+    situation: { flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, event.type: cancellation, event.cause: unknown, event.notice_days: 2 }
+    outcome: applies
+  - name: "cause not known to the app yet"
+    situation: { flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, event.type: cancellation, event.notice_days: 2 }
+    outcome: may_apply
+    missing_facts: [event.cause]
+  - name: "notice not known yet"
+    situation: { flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, event.type: cancellation, event.cause: controllable }
+    outcome: may_apply
+    missing_facts: [event.notice_days]
+  - name: "a delay is not a cancellation"
+    situation: { flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, event.type: delay, event.cause: controllable, event.notice_days: 2 }
+    outcome: does_not_apply
+  - name: "flight scope not known yet"
+    situation: { event.type: cancellation, event.cause: controllable, event.notice_days: 2 }
+    outcome: may_apply
+    missing_facts: [flight.departs_eu, flight.arrives_eu, flight.carrier_is_eu]

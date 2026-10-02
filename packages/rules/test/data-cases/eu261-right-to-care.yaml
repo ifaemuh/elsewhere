@@ -1,0 +1,99 @@
+rule: eu261-right-to-care
+cases:
+  - name: "cancellation, any cause, no time threshold"
+    situation: { flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, event.type: cancellation, event.cause: controllable }
+    outcome: applies
+  - name: "cancellation caused by extraordinary circumstances still gets care"
+    situation: { flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, event.type: cancellation, event.cause: uncontrollable }
+    outcome: applies
+  - name: "cancellation with no cause given"
+    situation: { flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, event.type: cancellation }
+    outcome: applies
+  - name: "Paris outbound, DL from JFK to CDG, cancelled (not covered)"
+    situation: { flight.departs_eu: false, flight.arrives_eu: true, flight.carrier_is_eu: false, event.type: cancellation }
+    outcome: does_not_apply
+  - name: "Paris return, DL from CDG to JFK, cancelled"
+    situation: { flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, event.type: cancellation }
+    outcome: applies
+  - name: "Paris outbound, DL from JFK to CDG, delayed 5 hours (not covered)"
+    situation: { flight.departs_eu: false, flight.arrives_eu: true, flight.carrier_is_eu: false, event.type: delay, flight.distance_km: 5837, event.delay_minutes: 300 }
+    outcome: does_not_apply
+  - name: "Paris return, DL from CDG to JFK, delayed 5 hours"
+    situation: { flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, event.type: delay, flight.distance_km: 5837, event.delay_minutes: 300 }
+    outcome: applies
+  - name: "JFK to CDG on an EU airline, delayed 4 hours"
+    situation: { flight.departs_eu: false, flight.arrives_eu: true, flight.carrier_is_eu: true, event.type: delay, flight.distance_km: 5837, event.delay_minutes: 240 }
+    outcome: applies
+  - name: "delay caused by extraordinary circumstances still gets care"
+    situation: { flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, event.type: delay, event.cause: uncontrollable, flight.distance_km: 1200, event.delay_minutes: 120 }
+    outcome: applies
+  - name: "1500 km or less, 119 minutes"
+    situation: { flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, event.type: delay, flight.distance_km: 1500, event.delay_minutes: 119 }
+    outcome: does_not_apply
+  - name: "1500 km or less, exactly 120 minutes"
+    situation: { flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, event.type: delay, flight.distance_km: 1500, event.delay_minutes: 120 }
+    outcome: applies
+  - name: "exactly 1500 km, exactly 120 minutes (still the 1500 km or less band)"
+    situation: { flight.departs_eu: true, flight.arrives_eu: true, flight.carrier_is_eu: true, event.type: delay, flight.distance_km: 1500, event.delay_minutes: 120 }
+    outcome: applies
+  - name: "1501 km inside the EU, 120 minutes (3 hour band)"
+    situation: { flight.departs_eu: true, flight.arrives_eu: true, flight.carrier_is_eu: true, event.type: delay, flight.distance_km: 1501, event.delay_minutes: 120 }
+    outcome: does_not_apply
+  - name: "1501 km inside the EU, 179 minutes"
+    situation: { flight.departs_eu: true, flight.arrives_eu: true, flight.carrier_is_eu: true, event.type: delay, flight.distance_km: 1501, event.delay_minutes: 179 }
+    outcome: does_not_apply
+  - name: "1501 km inside the EU, exactly 180 minutes"
+    situation: { flight.departs_eu: true, flight.arrives_eu: true, flight.carrier_is_eu: true, event.type: delay, flight.distance_km: 1501, event.delay_minutes: 180 }
+    outcome: applies
+  - name: "1501 km leaving the EU, 179 minutes"
+    situation: { flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, event.type: delay, flight.distance_km: 1501, event.delay_minutes: 179 }
+    outcome: does_not_apply
+  - name: "1501 km leaving the EU, exactly 180 minutes"
+    situation: { flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, event.type: delay, flight.distance_km: 1501, event.delay_minutes: 180 }
+    outcome: applies
+  - name: "exactly 3500 km leaving the EU, 179 minutes"
+    situation: { flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, event.type: delay, flight.distance_km: 3500, event.delay_minutes: 179 }
+    outcome: does_not_apply
+  - name: "exactly 3500 km leaving the EU, exactly 180 minutes (still the 1500 to 3500 km band)"
+    situation: { flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, event.type: delay, flight.distance_km: 3500, event.delay_minutes: 180 }
+    outcome: applies
+  - name: "3501 km leaving the EU, 239 minutes"
+    situation: { flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, event.type: delay, flight.distance_km: 3501, event.delay_minutes: 239 }
+    outcome: does_not_apply
+  - name: "3501 km leaving the EU, exactly 240 minutes"
+    situation: { flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, event.type: delay, flight.distance_km: 3501, event.delay_minutes: 240 }
+    outcome: applies
+  - name: "3501 km inside the EU, 179 minutes (intra-EU 3 hour band has no upper limit)"
+    situation: { flight.departs_eu: true, flight.arrives_eu: true, flight.carrier_is_eu: true, event.type: delay, flight.distance_km: 3501, event.delay_minutes: 179 }
+    outcome: does_not_apply
+  - name: "3501 km inside the EU, exactly 180 minutes"
+    situation: { flight.departs_eu: true, flight.arrives_eu: true, flight.carrier_is_eu: true, event.type: delay, flight.distance_km: 3501, event.delay_minutes: 180 }
+    outcome: applies
+  - name: "3501 km to the EU on an EU airline, 239 minutes"
+    situation: { flight.departs_eu: false, flight.arrives_eu: true, flight.carrier_is_eu: true, event.type: delay, flight.distance_km: 3501, event.delay_minutes: 239 }
+    outcome: does_not_apply
+  - name: "3501 km to the EU on an EU airline, exactly 240 minutes"
+    situation: { flight.departs_eu: false, flight.arrives_eu: true, flight.carrier_is_eu: true, event.type: delay, flight.distance_km: 3501, event.delay_minutes: 240 }
+    outcome: applies
+  - name: "delay length not known yet"
+    situation: { flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, event.type: delay, flight.distance_km: 1000 }
+    outcome: may_apply
+    missing_facts: [event.delay_minutes]
+  - name: "distance not known yet, 130 minutes late"
+    situation: { flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, event.type: delay, event.delay_minutes: 130 }
+    outcome: may_apply
+    missing_facts: [flight.distance_km]
+  - name: "distance not known yet, 90 minutes late (under every threshold)"
+    situation: { flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, event.type: delay, event.delay_minutes: 90 }
+    outcome: does_not_apply
+  - name: "whether the flight arrives in the EU is not known, long flight 5 hours late"
+    situation: { flight.departs_eu: true, event.type: delay, flight.distance_km: 5000, event.delay_minutes: 300 }
+    outcome: may_apply
+    missing_facts: [flight.arrives_eu]
+  - name: "flight scope not known yet"
+    situation: { event.type: cancellation }
+    outcome: may_apply
+    missing_facts: [flight.departs_eu, flight.arrives_eu, flight.carrier_is_eu]
+  - name: "another kind of event is not covered"
+    situation: { flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, event.type: bag_delayed }
+    outcome: does_not_apply
