@@ -1,6 +1,6 @@
 import 'server-only';
 import { after } from 'next/server';
-import { isFactName } from '@elsewhere/rules/core';
+import { FACTS, isFactName } from '@elsewhere/rules/core';
 import { createAdminClient } from '@/lib/supabase/admin';
 
 export interface RulesApiEvent {
@@ -21,17 +21,26 @@ export interface RulesApiEvent {
   latency_ms: number;
 }
 
+const EVENT_TYPES: readonly string[] = FACTS['event.type'].values;
+const RULE_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const int = (n: number): number => (Number.isFinite(n) ? Math.max(0, Math.round(n)) : 0);
+
+// Redaction is best-effort: ASCII digits only, and dotless emails (a@b) are not covered.
 const EMAIL = /[^\s@]+@[^\s@]+\.[^\s@]+/g;
 const PHONE_LIKE = /\+?\d[\d\s().-]{8,}\d/g;
 
 /** Redact first, then truncate, so a number straddling the limit never leaks partially. */
 export function sanitizeQuery(q: string | null | undefined): string | null {
   if (!q) return null;
-  const redacted = q
-    .replace(EMAIL, '[redacted]')
-    .replace(PHONE_LIKE, (m) => (m.replace(/\D/g, '').length >= 10 ? '[redacted]' : m))
-    .trim()
-    .slice(0, 200);
+  const redacted = Array.from(
+    q
+      .slice(0, 2000)
+      .replace(EMAIL, '[redacted]')
+      .replace(PHONE_LIKE, (m) => (m.replace(/\D/g, '').length >= 10 ? '[redacted]' : m))
+      .trim(),
+  )
+    .slice(0, 200)
+    .join('');
   return redacted || null;
 }
 
@@ -50,19 +59,19 @@ export function scheduleEvent(event: RulesApiEvent): void {
   const row: RulesApiEvent = {
     surface: event.surface,
     endpoint: event.endpoint,
-    status: event.status,
+    status: int(event.status),
     client_name: event.client_name ? event.client_name.slice(0, 120) : null,
     client_version: event.client_version ? event.client_version.slice(0, 40) : null,
     tier: event.tier,
     key_id: event.key_id,
-    rule_ids: event.rule_ids,
+    rule_ids: event.rule_ids.filter((id) => id.length <= 120 && RULE_ID.test(id)).slice(0, 50),
     fact_names: event.fact_names.filter(isFactName),
-    event_type: event.event_type,
+    event_type: event.event_type && EVENT_TYPES.includes(event.event_type) ? event.event_type : null,
     missing_facts: event.missing_facts.filter(isFactName),
     query: sanitizeQuery(event.query),
-    result_count: event.result_count,
+    result_count: int(event.result_count),
     library_version: event.library_version,
-    latency_ms: event.latency_ms,
+    latency_ms: int(event.latency_ms),
   };
   after(() => insertEvent(row));
 }

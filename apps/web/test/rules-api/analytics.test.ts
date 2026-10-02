@@ -40,9 +40,12 @@ describe('sanitizeQuery', () => {
   });
 
   it('redacts before truncating so a number on the boundary never leaks', () => {
-    const out = sanitizeQuery('a'.repeat(195) + ' 4155550100 tail')!;
-    expect(out).not.toMatch(/\d{3}/);
-    expect(out.length).toBeLessThanOrEqual(200);
+    expect(sanitizeQuery('a'.repeat(195) + ' 4155550100 tail')).toBe('a'.repeat(195) + ' [red');
+  });
+
+  it('truncates by code point so an emoji at the boundary is not split', () => {
+    const out = sanitizeQuery('a'.repeat(199) + '\u{1F600}\u{1F600}')!;
+    expect(out).toBe('a'.repeat(199) + '\u{1F600}');
   });
 });
 
@@ -68,6 +71,21 @@ describe('scheduleEvent', () => {
     });
     await (vi.mocked(after).mock.calls.at(-1)![0] as () => Promise<void>)();
     expect(fakeDb.events[0]).toMatchObject({ fact_names: ['event.type'], missing_facts: ['event.type'] });
+  });
+
+  it('rounds and clamps integer columns', async () => {
+    scheduleEvent({ ...base, latency_ms: 12.7, status: 200.2, result_count: -3 });
+    await (vi.mocked(after).mock.calls.at(-1)![0] as () => Promise<void>)();
+    expect(fakeDb.events[0]).toMatchObject({ latency_ms: 13, status: 200, result_count: 0 });
+  });
+
+  it('allowlists event_type and filters rule_ids', async () => {
+    scheduleEvent({ ...base, event_type: 'cancellation', rule_ids: ['eu-261', 'Bad Id', 'x'.repeat(121), 'jo@example.com'] });
+    scheduleEvent({ ...base, event_type: 'jo@example.com', rule_ids: Array.from({ length: 60 }, (_, i) => `r-${i}`) });
+    for (const c of vi.mocked(after).mock.calls.slice(-2)) await (c[0] as () => Promise<void>)();
+    expect(fakeDb.events[0]).toMatchObject({ event_type: 'cancellation', rule_ids: ['eu-261'] });
+    expect(fakeDb.events[1].event_type).toBeNull();
+    expect(fakeDb.events[1].rule_ids).toHaveLength(50);
   });
 
   it('inserts only the table columns', async () => {
