@@ -51,3 +51,6 @@ supabase/.temp/
 
 # Brainstorming companion mockups
 .superpowers/
+
+# Next app build-time output
+apps/web/generated/
