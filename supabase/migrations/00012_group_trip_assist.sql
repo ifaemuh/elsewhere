@@ -509,6 +509,11 @@ create unique index funnel_offer_click_daily_idx on public.funnel_telemetry_even
   (anonymous_id, rule_id, ((created_at at time zone 'utc')::date))
   where event_name = 'offer_click';
 
+-- One paid event per trip. The Stripe webhook retries, and a retry after recordPaid must not
+-- double the revenue count; pass-store.recordPaid treats the 23505 as a no-op.
+create unique index funnel_paid_trip_idx on public.funnel_telemetry_events (trip_id)
+  where event_name = 'paid';
+
 create or replace function public.attribution_summary(p_since timestamptz)
 returns table (post_id text, clicks bigint, forwarded_bookings bigint, paid_passes bigint)
 language sql stable security definer set search_path = public as $$

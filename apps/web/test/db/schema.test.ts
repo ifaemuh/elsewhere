@@ -196,6 +196,16 @@ describe('growth tables and attribution', () => {
     await expect(click('r2')).resolves.toBeDefined();
   });
 
+  it('allows only one paid event per trip', async () => {
+    const paid = () =>
+      asService(db, () =>
+        db.query("insert into public.funnel_telemetry_events (anonymous_id, event_name, trip_id) values ($1, 'paid', $2)", ['aid0000000000000000000000000000d', tripId]),
+      );
+    await paid();
+    await expect(paid()).rejects.toThrow(/funnel_paid_trip_idx/);
+    await asService(db, () => db.query("delete from public.funnel_telemetry_events where anonymous_id = 'aid0000000000000000000000000000d'"));
+  });
+
   it('attributes conversions to the last touch before them', async () => {
     const aid = 'aid0000000000000000000000000000a';
     await asService(db, async () => {

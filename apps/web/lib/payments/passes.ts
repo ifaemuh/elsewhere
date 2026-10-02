@@ -11,6 +11,8 @@ export interface PassStore {
   markProcessed(eventId: string): Promise<void>;
   /** Matches on both the Stripe session id and the trip; returns null when no pass row we created matches. */
   completePass(input: { sessionId: string; tripId: string; status: 'paid' | 'comp'; amountCents: number; paidAt: string }): Promise<CompletedPass | null>;
+  /** True when another session on this trip is already paid or comped. */
+  hasOtherActivePass(tripId: string, sessionId: string): Promise<boolean>;
   activateTrip(tripId: string, passStatus: 'active' | 'comp'): Promise<void>;
   recordPaid(input: { anonymousId: string; tripId: string; variant: string; amountCents: number; utm: Record<string, string> }): Promise<void>;
 }
@@ -20,7 +22,8 @@ export type PassOutcome =
   | { kind: 'activated'; tripId: string; status: 'paid' | 'comp' };
 
 /**
- * Idempotent on the Stripe event id. Every write is safe to repeat, and the event is
+ * Idempotent on the Stripe event id. Every write is safe to repeat (recordPaid is guarded by a
+ * unique index on the trip's paid event and throws on any other failure), and the event is
  * marked processed last, so a crash mid-way lets Stripe's retry finish the job.
  */
 export async function handleStripeEvent(event: Stripe.Event, store: PassStore): Promise<PassOutcome> {
@@ -53,6 +56,9 @@ export async function handleStripeEvent(event: Stripe.Event, store: PassStore): 
     // Not a session we created for this trip: never activate on it.
     await store.markProcessed(event.id);
     return { kind: 'ignored', reason: 'unknown session' };
+  }
+  if (await store.hasOtherActivePass(tripId, session.id)) {
+    console.error(`second paid session on an active trip: ${session.id}, refund needed`);
   }
   await store.activateTrip(tripId, status === 'paid' ? 'active' : 'comp');
   if (status === 'paid' && pass.anonymousId) {

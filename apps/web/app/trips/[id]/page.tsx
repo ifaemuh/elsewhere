@@ -41,6 +41,7 @@ async function TripContent({ params, searchParams }: { params: Params; searchPar
   if (!domain) console.error('INBOUND_DOMAIN is not set');
   const address = typeof code === 'string' && domain ? inboundAddress(code, domain) : null;
   const addressFailed = Boolean(codeError) || (typeof code === 'string' && !domain);
+  const { data: isPlanner } = await supabase.rpc('is_trip_planner', { p_trip_id: trip.id });
   return (
     <>
       <h1 className="text-3xl font-bold tracking-tight">{trip.name}</h1>
@@ -60,12 +61,22 @@ async function TripContent({ params, searchParams }: { params: Params; searchPar
           We couldn’t load your forwarding address. Refresh the page to try again.
         </p>
       ) : null}
-      <PassSection tripId={trip.id} passStatus={trip.pass_status} justPaid={pass === 'success'} />
+      <PassSection tripId={trip.id} passStatus={trip.pass_status} justPaid={pass === 'success'} isPlanner={isPlanner === true} />
     </>
   );
 }
 
-async function PassSection({ tripId, passStatus, justPaid }: { tripId: string; passStatus: 'none' | 'active' | 'comp'; justPaid: boolean }) {
+async function PassSection({
+  tripId,
+  passStatus,
+  justPaid,
+  isPlanner,
+}: {
+  tripId: string;
+  passStatus: 'none' | 'active' | 'comp';
+  justPaid: boolean;
+  isPlanner: boolean;
+}) {
   if (passStatus !== 'none') {
     return (
       <section className="mt-6 rounded-xl border border-[#cfe3c8] bg-[#f1f8ee] p-6">
@@ -78,6 +89,14 @@ async function PassSection({ tripId, passStatus, justPaid }: { tripId: string; p
     return (
       <section role="status" className="mt-6 rounded-xl border border-[#e4dfd0] bg-white p-6">
         Payment received. Turning on the trip pass — refresh in a moment.
+      </section>
+    );
+  }
+  if (!isPlanner) {
+    return (
+      <section className="mt-6 rounded-xl border border-[#e4dfd0] bg-white p-6">
+        <h2 className="font-semibold">Watch this trip</h2>
+        <p className="mt-1 text-sm text-[#4b5745]">The trip planner can turn on the trip pass for the whole group.</p>
       </section>
     );
   }

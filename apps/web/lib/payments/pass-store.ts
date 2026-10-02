@@ -1,5 +1,5 @@
 import 'server-only';
-import { recordEvent } from '@/lib/funnel/events';
+import { telemetryEnabled, toEventRow } from '@/lib/funnel/events';
 import { createAdminClient } from '@/lib/supabase/admin';
 import type { PassStore } from './passes';
 
@@ -32,11 +32,22 @@ export function supabasePassStore(): PassStore {
       const trip = check(await admin.from('trips').select('created_utm').eq('id', tripId).maybeSingle());
       return { anonymousId: pass.anonymous_id, variant: pass.price_variant, utm: (trip?.created_utm ?? {}) as Record<string, string> };
     },
+    async hasOtherActivePass(tripId, sessionId) {
+      const rows = check(
+        await admin.from('passes').select('id').eq('trip_id', tripId).in('status', ['paid', 'comp']).neq('stripe_session_id', sessionId).limit(1),
+      );
+      return (rows?.length ?? 0) > 0;
+    },
     async activateTrip(tripId, passStatus) {
       check(await admin.from('trips').update({ pass_status: passStatus }).eq('id', tripId));
     },
     async recordPaid({ anonymousId, tripId, variant, amountCents, utm }) {
-      await recordEvent({ anonymousId, event: 'paid', tripId, variant, utm, metadata: { amount_cents: amountCents } });
+      if (!telemetryEnabled()) return;
+      const { error } = await admin
+        .from('funnel_telemetry_events')
+        .insert(toEventRow({ anonymousId, event: 'paid', tripId, variant, utm, metadata: { amount_cents: amountCents } }));
+      // 23505 is funnel_paid_trip_idx: this trip's paid event already exists, so a retry is a no-op.
+      if (error && error.code !== '23505') throw new Error(error.message);
     },
   };
 }

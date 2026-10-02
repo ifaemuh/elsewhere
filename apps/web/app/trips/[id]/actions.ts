@@ -26,11 +26,30 @@ export async function startPassCheckout(rawTripId: string): Promise<void> {
   if (!trip) throw new Error('Trip not found.');
   if (trip.pass_status !== 'none') redirect(`/trips/${tripId}`);
 
+  // Reuse an in-flight checkout rather than opening a second one (second tab, early return from Stripe, webhook outage).
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const { data: pending, error: pendingError } = await createAdminClient()
+    .from('passes')
+    .select('stripe_session_id')
+    .eq('trip_id', tripId)
+    .eq('status', 'pending')
+    .gte('created_at', since)
+    .order('created_at', { ascending: false });
+  if (pendingError) throw new Error(pendingError.message);
+  for (const row of pending ?? []) {
+    if (!row.stripe_session_id) continue;
+    const existing = await stripe().checkout.sessions.retrieve(row.stripe_session_id);
+    if (existing.status === 'complete') redirect(`/trips/${tripId}?pass=success`);
+    if (existing.status === 'open' && existing.url) redirect(existing.url);
+  }
+
   const store = await cookies();
   const anonymousId = store.get(ANONYMOUS_ID_COOKIE)?.value;
   const variant = isAnonymousId(anonymousId) ? assignVariant(anonymousId) : 'p19';
   const session = await stripe().checkout.sessions.create({
     mode: 'payment',
+    // Delayed-settlement methods arrive unpaid and would charge without activating the trip.
+    allowed_payment_method_types: ['card'],
     line_items: [{ price: priceIdFor(variant), quantity: 1 }],
     client_reference_id: tripId,
     customer_email: user.email ?? undefined,
