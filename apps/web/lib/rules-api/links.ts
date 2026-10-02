@@ -1,7 +1,15 @@
 import type { LinkAttribution } from './types';
 
 export function appOrigin(): string {
-  return (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000').replace(/\/+$/, '');
+  const configured = process.env.NEXT_PUBLIC_APP_URL?.trim();
+  if (configured) return configured.replace(/\/+$/, '');
+  const vercelHost = process.env.VERCEL_PROJECT_PRODUCTION_URL?.trim();
+  if (vercelHost) return `https://${vercelHost}`;
+  // Links in API responses must never point at localhost in production.
+  if (process.env.VERCEL_ENV === 'production') {
+    throw new Error('NEXT_PUBLIC_APP_URL is not set; rule links would point at localhost.');
+  }
+  return 'http://localhost:3000';
 }
 
 export function sanitizeMedium(raw: string | null | undefined): string {

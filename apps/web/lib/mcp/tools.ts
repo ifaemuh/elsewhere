@@ -150,16 +150,18 @@ export function registerRuleTools(server: McpServer): void {
         "Given facts about a traveler's situation (for example event.type=cancellation, flight.touches_us=true, passenger.accepted_alternative=false), return the rules that apply, the rules that may apply plus the facts still needed, and their citations. Call list_facts first for valid fact names and values.",
       // mcp-handler parses the body itself, so this schema is the only bound on the input.
       inputSchema: z.object({
-        // Limits are checked in one refine, not as per-key/per-value maxes: the SDK echoes a failing
-        // record key's path into its error message, which would echo an oversized key back.
-        facts: z
-          .record(z.string(), z.union([z.string(), z.number(), z.boolean()]))
-          .refine(
-            (facts) =>
-              Object.keys(facts).length <= 30 &&
-              Object.entries(facts).every(([name, value]) => name.length <= 60 && (typeof value !== 'string' || value.length <= 100)),
-            { message: 'At most 30 facts; names up to 60 characters; text values up to 100 characters.' },
-          ),
+        // Values are z.unknown() and every limit lives in one refine: the SDK echoes a failing record
+        // key's path into its error message, which would echo an oversized key back.
+        facts: z.record(z.string(), z.unknown()).refine(
+          (facts) =>
+            Object.keys(facts).length <= 30 &&
+            Object.entries(facts).every(
+              ([name, value]) =>
+                name.length <= 60 &&
+                (typeof value === 'boolean' || typeof value === 'number' || (typeof value === 'string' && value.length <= 100)),
+            ),
+          { message: 'At most 30 facts; names up to 60 characters; values must be text up to 100 characters, a number, or true/false.' },
+        ),
       }),
       outputSchema: z.object({
         applies: z.array(PublicRuleOut),

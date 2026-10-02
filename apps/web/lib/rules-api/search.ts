@@ -6,6 +6,7 @@ const STOPWORDS = new Set([
   'it', 'me', 'my', 'of', 'on', 'or', 'the', 'to', 'was', 'what', 'when', 'with', 'you',
 ]);
 const MAX_QUERY_LENGTH = 2000;
+const MAX_TOKENS = 32;
 const SUFFIXES = ['ations', 'ation', 'ings', 'ing', 'ed', 'es', 's'];
 
 const MIN_STEM = 3;
@@ -36,7 +37,7 @@ function words(text: string): string[] {
  * yields no tokens, and searchRules returns an empty result for it (it does not fall back to listing).
  */
 export function tokenize(q: string): string[] {
-  return [...new Set(words(q).filter((w) => !STOPWORDS.has(w)).map(stem))];
+  return [...new Set(words(q).filter((w) => !STOPWORDS.has(w)).map(stem))].slice(0, MAX_TOKENS);
 }
 
 export interface SearchParams {
