@@ -3761,7 +3761,7 @@ EOF
   - C1's `travel_admin_partner_routes`
   - Track A's `passport` tag (see Depends on): the official renewal route shows only on checks whose rule carries it
 - Produces:
-  - **Regions** (`lib/flights/regions.ts`): `US_JURISDICTION`, the U.S. and its territories. Task 10 imports the same set and adds `EU261_SCOPE` and `UK` to the file.
+  - **Regions** (`lib/flights/regions.ts`): `US_JURISDICTION`, the U.S. and its territories. Task 10 imports the same set and adds `EU_MEMBER_STATES`, `ICELAND_NORWAY_SWITZERLAND`, and `UK` to the file.
   - **Facts:**
     - `monthsBetween(fromIso, toIso): number`
     - `documentSituation(input): Situation`
@@ -4932,9 +4932,9 @@ EOF
     - `FlightSnapshot`
     - `snapshotFromAero(f): FlightSnapshot`
     - `FlightEvent = { type: 'cancellation' | 'delay' | 'schedule_change'; delayMinutes: number | null; dedupeSuffix: string }`
-    - `classify(prev, next): FlightEvent | null`
+    - `classify(prev, next, bookedOut?): FlightEvent | null`. Its types follow the contract's `event.type` (1bc652c): AeroAPI's `cancelled` is a cancellation; the same flight scheduled at least an hour from its booked departure is a schedule change; a diversion is a delay of unknown length.
     - `flightEnded(s): boolean`
-    - `DELAY_BANDS = [120, 180, 360]`
+    - `DELAY_BANDS = [120, 180, 360]` and `RETIME_MINUTES = 60`
   - **Recording:** `recordFlightSnapshot(segmentId, snapshot, source: 'alert' | 'poll'): Promise<{ incidentId: string | null }>`. It checks every write and saves `last_status` last, after the incident is recorded, so a failure leaves the change to be classified again.
   - **Hook tokens:** `tripMonitorToken(id)`, `segmentMonitorToken(id)`, `incidentAnswerToken(id)`, `incidentReleaseToken(id)`
   - **Ports:**
@@ -5027,8 +5027,18 @@ describe('classify', () => {
     expect(classify(base, { ...base, arrivalDelayMinutes: null, estimatedIn: '2026-11-04T09:45:00Z' })).toMatchObject({ type: 'delay', delayMinutes: 190 });
   });
 
-  it('treats a diversion as a schedule change', () => {
-    expect(classify(base, { ...base, diverted: true })).toEqual({ type: 'schedule_change', delayMinutes: null, dedupeSuffix: 'diversion' });
+  it('treats a diversion as a delay of unknown length, not a schedule change', () => {
+    expect(classify(base, { ...base, diverted: true })).toEqual({ type: 'delay', delayMinutes: null, dedupeSuffix: 'diversion' });
+  });
+
+  it('reports the same flight moved to another time as a schedule change, once per new time', () => {
+    const booked = base.scheduledOut;
+    const earlier = { ...base, scheduledOut: '2026-11-03T21:45:00Z' };
+    expect(classify(base, earlier, booked)).toEqual({ type: 'schedule_change', delayMinutes: null, dedupeSuffix: 'retime-2026-11-03T21:45:00.000Z' });
+    expect(classify(null, earlier, booked)).toMatchObject({ type: 'schedule_change' });
+    expect(classify(earlier, earlier, booked)).toBeNull();
+    // Under an hour from the booked time is schedule-data noise.
+    expect(classify(base, { ...base, scheduledOut: '2026-11-03T23:45:00Z' }, booked)).toBeNull();
   });
 });
 
@@ -5153,6 +5163,8 @@ Expected: FAIL, with modules not found and the stub workflow lacking behaviour.
 import type { AeroFlight } from '@/lib/flights/aeroapi';
 
 export const DELAY_BANDS = [120, 180, 360] as const;
+/** A move in the scheduled departure smaller than this is schedule-data noise, not a schedule change. */
+export const RETIME_MINUTES = 60;
 
 export interface FlightSnapshot {
   faFlightId: string | null;
@@ -5199,10 +5211,23 @@ function band(minutes: number): number {
   return [...DELAY_BANDS].reverse().find((b) => minutes >= b) ?? 0;
 }
 
-/** One event per new fact: cancellation, diversion, or a delay crossing a new band. */
-export function classify(prev: FlightSnapshot | null, next: FlightSnapshot): FlightEvent | null {
+/**
+ * One event per new fact, typed as the facts contract defines `event.type`:
+ * - AeroAPI's `cancelled`: the booked flight is not operated, so a cancellation.
+ * - A diversion: the flight operated and its travelers arrive late, so a delay whose length is not known yet.
+ *   AeroAPI does not say whether the aircraft came back without continuing, which would be a cancellation.
+ * - The same flight now scheduled to leave at least an hour from `bookedOut`: a schedule change, once per new time.
+ * - A delay crossing a new band.
+ */
+export function classify(prev: FlightSnapshot | null, next: FlightSnapshot, bookedOut: string | null = null): FlightEvent | null {
   if (next.cancelled && !prev?.cancelled) return { type: 'cancellation', delayMinutes: null, dedupeSuffix: 'cancellation' };
-  if (next.diverted && !prev?.diverted) return { type: 'schedule_change', delayMinutes: null, dedupeSuffix: 'diversion' };
+  if (next.diverted && !prev?.diverted) return { type: 'delay', delayMinutes: null, dedupeSuffix: 'diversion' };
+  const booked = bookedOut ? Date.parse(bookedOut) : null;
+  const scheduled = next.scheduledOut ? Date.parse(next.scheduledOut) : null;
+  const before = prev?.scheduledOut ? Date.parse(prev.scheduledOut) : null;
+  if (booked !== null && scheduled !== null && scheduled !== before && Math.abs(scheduled - booked) >= RETIME_MINUTES * 60000) {
+    return { type: 'schedule_change', delayMinutes: null, dedupeSuffix: `retime-${new Date(scheduled).toISOString()}` };
+  }
   const delay = delayOf(next);
   const newBand = band(delay);
   if (newBand > 0 && newBand > band(prev ? delayOf(prev) : 0)) return { type: 'delay', delayMinutes: delay, dedupeSuffix: `delay-${newBand}` };
@@ -5232,10 +5257,11 @@ function check(result: { error: { message: string } | null }): void {
  */
 export async function recordFlightSnapshot(segmentId: string, snapshot: FlightSnapshot, source: 'alert' | 'poll'): Promise<{ incidentId: string | null }> {
   const admin = createAdminClient();
-  const { data: segment, error } = await admin.from('booking_segments').select('id, trip_id, booking_id, last_status').eq('id', segmentId).maybeSingle();
+  const { data: segment, error } = await admin.from('booking_segments').select('id, trip_id, booking_id, scheduled_out, last_status').eq('id', segmentId).maybeSingle();
   if (error) throw new Error(error.message);
   if (!segment) return { incidentId: null };
-  const event = classify((segment.last_status as FlightSnapshot | null) ?? null, snapshot);
+  // scheduled_out is the departure as booked; a snapshot that moves it is a schedule change.
+  const event = classify((segment.last_status as FlightSnapshot | null) ?? null, snapshot, segment.scheduled_out);
 
   let incidentId: string | null = null;
   if (event) {
@@ -5811,9 +5837,11 @@ AeroAPI alerts are recorded directly. Polling is the safety net:
 frequent when no alert could be registered, sparse when one was.
 AeroAPI errors back off and, after three in a row, flag the flight for
 /admin instead of ending its monitoring.
-Snapshots open an incident only for a new cancellation, a diversion, or
-a delay crossing a new band, and the snapshot is saved only after the
-incident is. The group gets a briefing three days out.
+Snapshots open an incident only for a new cancellation, a diversion
+(a delay of unknown length), a departure moved an hour or more, or a
+delay crossing a new band, typed as the facts contract defines them.
+The snapshot is saved only after the incident is. The group gets a
+briefing three days out.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01CZeaGyqM4LkMDPkaein2Sc
@@ -5824,90 +5852,133 @@ EOF
 
 ### Task 10: From a flight event to rule facts, and the one question to ask
 
-A flight event becomes the `Situation` the rules match on. The facts come from the disrupted flight, and from the whole booking it is on: contract 30b549f made the Part 260 thresholds itinerary-level, and contract bd7e847 made the 24-hour rule booking-level. Every fact is set only when it is known, so `matchRules` says "may apply, needs X" instead of guessing:
+A flight event becomes the `Situation` the rules match on. The facts come from the disrupted flight, from AeroAPI's snapshots of it, from the whole booking it is on, and from any rebooking the airline sent. Contract 30b549f made the Part 260 thresholds itinerary-level, contract bd7e847 made the 24-hour rule booking-level, and contract 1bc652c added EU261's facts: the disrupted flight's own departure delay and distance, the EU scope of its journey, and the re-routing the airline offered. Every fact is set only when it is known, so `matchRules` says "may apply, needs X" instead of guessing:
 
 | Fact | Derived from | Unset when |
 |---|---|---|
-| `event.at_us_airport` | Where the travelers are stranded: the departure airport, for a cancellation or a delay | the event is a diversion (`schedule_change`), or the origin country is unknown |
+| `event.at_us_airport` | Where the travelers are stranded: the departure airport, for a cancellation, a delay, or a schedule change | the flight was diverted (Task 9 records a diversion as a delay), or the origin country is unknown |
+| `event.departure_delay_minutes` | For a delay: the latest departure AeroAPI expected or recorded (`estimatedOut` or `actualOut`, over the snapshot that raised the incident and the latest one) minus the booked departure. The longer of the expected and the actual delay counts, as the contract says. | the event is not a delay, or AeroAPI has shown no estimate or actual time |
+| `event.departure_moved_earlier_minutes` | For a schedule change: the booked departure minus AeroAPI's new one, or 0 if it is not earlier | the event is not a schedule change, or no snapshot shows the new departure |
+| `event.reroute_departs_early_minutes` and `event.reroute_arrival_delay_minutes` | For a cancellation or a schedule change: the offered re-routing, from a forwarded rebooking (Task 12 loads it) or, for a schedule change, the changed flight itself. The first measures how far before the booked departure it leaves, and the second how far after the booked arrival it reaches the journey's final destination; each is 0 if not earlier or later. Of several offers, the one reported is the soonest to arrive among those that leave within 1 hour (notice under 7 days) or 2 hours (notice under 14 days) of the booked departure. | no offer is known, so the planner is asked. The arrival alone is also unset while the offer's connections don't hold up to the final destination. |
+| `flight.leg_distance_km` | Task 4's great-circle distance of the disrupted flight (`distance_km`) | Task 4 has not resolved the flight, or found no coordinates for its airports |
+| `flight.distance_km` | Great-circle distance from the journey's first airport to its final destination, from AeroAPI coordinates, to the nearest 10 km | the journey, or the coordinates of either end, is unknown |
+| `flight.departs_eu` and `flight.arrives_eu` | `EU_MEMBER_STATES`: the 27 states with their outermost regions; not the Faroe Islands, Greenland, Iceland, Norway, or Switzerland | the country is unknown |
+| `flight.departs_iceland_norway_switzerland` | The origin is in `ICELAND_NORWAY_SWITZERLAND` | the origin country is unknown |
 | `flight.single_ticket` | The booking holds more than one flight | the booking holds one flight |
+| `trip.journey_departs_eu` and `trip.journey_arrives_eu` | The journey's first origin, or its final destination, is in `EU_MEMBER_STATES` | the journey, or that end's country, is unknown |
 | `trip.touches_us` | Any flight on the booking starts or ends in `US_JURISDICTION` | no known U.S. end, and some country is unknown |
 | `trip.itinerary_domestic_us` | `false` if any flight has a known end outside `US_JURISDICTION`; `true` only if every end is known and in it | otherwise |
-| `trip.us_foreign_nonstop_minutes` | Scheduled minutes of the flight with exactly one U.S. end; with an outbound and a return one, the one nearest in time to the disrupted flight | any country is unknown, or the crossing's times are |
+| `trip.us_foreign_nonstop_minutes` | Scheduled minutes of the journey's one flight with exactly one U.S. end | the journey is unknown, a country on it is unknown, it has no such flight or more than one, or that flight's times are unknown |
 | `trip.booked_with_us_carrier` | Every flight on the booking is a U.S. airline's (`true`) or none is (`false`) | the airlines are mixed |
 | `trip.hours_booked_before_departure` | From the latest moment the printed booking time can mean (the end of that day or minute, at UTC−12) to the first flight's scheduled departure, rounded down. A lower bound, so an "at least N hours ahead" rule applies only when it certainly does. | no booking time was extracted, or a flight's departure is unknown |
 | `passenger.volunteered` | Never derived. It is a planner question: "Did anyone give up their seat when the airline asked for volunteers?" | until the planner answers |
 
-`flight.scheduled_duration_minutes` and `trip.days_until_departure` are gone from the contract, and nothing here sets them. C2's monitoring raises only `cancellation`, `delay`, and `schedule_change`, so `denied_boarding` (an oversold flight, per bd7e847) and its replacement-arrival delay never come from AeroAPI.
+**The journey** is the set of flights on the booking that take the passenger to the final destination in the disrupted flight's direction. `journeyOf` builds it: a flight joins the one before it when it leaves the airport that flight reached, within 24 hours. A longer gap is a stopover, so outbound and return are separate journeys. `trip.us_foreign_nonstop_minutes` uses the same helper, which replaces its old "crossing nearest in time" rule, so the two facts can never disagree about which way the passenger is going. While a connection's times are unknown, the journey is unknown, and so is every fact built on it.
+
+**Offers.** A forwarded rebooking often repeats the flights that did not change, so a re-routing starts at its first flight that is not on the booking. Its arrival counts only if every flight from there lands before the next one leaves, up to one that reaches the journey's final destination. A changed feeder flight that still makes its connection leaves the booked arrival as it was.
+
+`flight.scheduled_duration_minutes` and `trip.days_until_departure` are gone from the contract, and nothing here sets them. C2's monitoring raises only `cancellation`, `delay`, and `schedule_change`, so `denied_boarding` (an oversold flight, per bd7e847) and its replacement-arrival delay never come from AeroAPI. Task 9 types those three as contract 1bc652c defines `event.type`:
+- A flight AeroAPI marks cancelled is a cancellation.
+- The same flight moved to another time is a schedule change.
+- A diversion is a delay of unknown length.
 
 **Files:**
 - Create: `apps/web/lib/assist/carriers.ts`, `apps/web/lib/assist/situation.ts`, `apps/web/lib/assist/questions.ts`, `apps/web/test/assist/situation.test.ts`, `apps/web/test/assist/scenarios.test.ts`, `apps/web/test/assist/questions.test.ts`
-- Modify: `apps/web/lib/flights/regions.ts` (Task 7's; add `EU261_SCOPE` and `UK`)
+- Modify: `apps/web/lib/flights/regions.ts` (Task 7's; add `EU_MEMBER_STATES`, `ICELAND_NORWAY_SWITZERLAND`, and `UK`)
 
 **Interfaces:**
 - Consumes:
-  - From `@elsewhere/rules/core`: `matchRules`, `MatchResult`, `Situation`, `Primitive`, `Rule`, and `FactName`, with every fact above in `FACTS` (Track A after contracts 30b549f and bd7e847). `matchRules` validates the situation and throws `FactValueError` on a fact it doesn't know.
+  - From `@elsewhere/rules/core`: `matchRules`, `MatchResult`, `Situation`, `Primitive`, `Rule`, `FactName`, `FACTS`, and `isFactName`, with every fact above in `FACTS` (Track A after contracts 30b549f, bd7e847, and 1bc652c). `matchRules` validates the situation and throws `FactValueError` on a fact it doesn't know.
+  - Task 4: `haversineKm`, and the per-flight `distance_km` it computes in `resolveSegment`
   - Task 7: `US_JURISDICTION`
+  - Task 9: the `FlightSnapshot` fields `ObservedFlight` reads, and its event types
   - Task 3: the `YYYY-MM-DD` or `YYYY-MM-DDTHH:mm` shape of `bookedAt`
   - C1's fixture library
 - Produces:
-  - **Region sets** (`lib/flights/regions.ts`): `US_JURISDICTION` (Task 7), `EU261_SCOPE`, `UK`
+  - **Region sets** (`lib/flights/regions.ts`): `US_JURISDICTION` (Task 7), `EU_MEMBER_STATES`, `ICELAND_NORWAY_SWITZERLAND`, `UK`
   - **Carrier sets:** `US_CARRIERS`, `EU_CARRIERS`
   - **Situation:**
-    - `ItinerarySegment = { carrierIata: string; originCountry: string | null; destinationCountry: string | null; scheduledOut: string | null; scheduledIn: string | null }`
-    - `SituationInput = { event: { type: 'cancellation' | 'delay' | 'schedule_change'; delayMinutes: number | null; detectedAt: string }; segment: { carrierIata; originCountry: string | null; destinationCountry: string | null; distanceKm: number | null; scheduledOut: string | null; scheduledIn: string | null }; booking: { bookedVia: string | null; bookedAt: string | null; segments: ItinerarySegment[] }; answers: Record<string, Primitive> }`. `booking.segments` holds every flight on the booking, the disrupted one included, in the order flown.
+    - `ItinerarySegment = { carrierIata: string; originIata: string; destinationIata: string; originCountry: string | null; destinationCountry: string | null; scheduledOut: string | null; scheduledIn: string | null }`
+    - `ObservedFlight = { diverted: boolean; scheduledOut: string | null; estimatedOut: string | null; actualOut: string | null; scheduledIn: string | null }`. Task 9's `FlightSnapshot` satisfies it.
+    - `SituationInput = { event: { type: 'cancellation' | 'delay' | 'schedule_change'; delayMinutes: number | null; detectedAt: string; observed: ObservedFlight[]; offers: ItinerarySegment[][] }; segment: ItinerarySegment & { distanceKm: number | null }; booking: { bookedVia: string | null; bookedAt: string | null; segments: ItinerarySegment[] }; airports: Record<string, { latitude: number; longitude: number }>; answers: Record<string, Primitive> }`
+      - `booking.segments` holds every flight on the booking, the disrupted one included, in the order flown.
+      - `observed` holds AeroAPI's snapshots of the disrupted flight, oldest first.
+      - `offers` holds the forwarded rebookings, each with its flights in order.
+      - `airports` holds coordinates by IATA code.
     - `buildSituation(input): Situation`
   - **Questions:**
     - `PlannerQuestion = { fact: string; prompt: string; options: { value: string; label: string }[] }`
     - `PlannerAnswer = { fact: string; value: string }`
-    - `ASK_ORDER = ['passenger.accepted_alternative', 'passenger.volunteered', 'event.cause']`
+    - `ASK_ORDER = ['passenger.accepted_alternative', 'event.reroute_arrival_delay_minutes', 'event.reroute_departs_early_minutes', 'passenger.volunteered', 'event.cause']`
     - `nextQuestion(results, alreadyAsked): PlannerQuestion | null`
-    - `answerValue(answer): Primitive`
+    - `answerValue(answer): Primitive`, which returns a number for a number fact
 
 - [ ] **Step 1: Check that Track A's facts are on this branch**
 
 The controller merges Track A into `restart/track-c` before this task. Confirm it landed:
 ```bash
 for fact in flight.departs_us event.at_us_airport passenger.volunteered trip.hours_booked_before_departure \
-            trip.touches_us trip.booked_with_us_carrier trip.itinerary_domestic_us trip.us_foreign_nonstop_minutes; do
+            trip.touches_us trip.booked_with_us_carrier trip.itinerary_domestic_us trip.us_foreign_nonstop_minutes \
+            event.departure_delay_minutes event.departure_moved_earlier_minutes event.reroute_departs_early_minutes \
+            event.reroute_arrival_delay_minutes flight.leg_distance_km flight.departs_iceland_norway_switzerland \
+            trip.journey_departs_eu trip.journey_arrives_eu; do
   grep -q "'$fact'" packages/rules/src/facts.ts && echo "ok $fact" || echo "MISSING $fact"
 done
 grep -c "'trip.days_until_departure'\|'flight.scheduled_duration_minutes'" packages/rules/src/facts.ts
 ```
-Expected: eight `ok` lines, then `0`. If any fact is missing, stop and ask the controller to merge Track A. Without it, the scenario tests throw `FactValueError`, and typecheck fails on the fact names.
+Expected: sixteen `ok` lines, then `0`. If any fact is missing, stop and ask the controller to merge Track A. Without those facts, the scenario tests throw `FactValueError`, and typecheck fails on the fact names.
 
 - [ ] **Step 2: Write the failing tests**
 
 `apps/web/test/assist/situation.test.ts`:
 ```ts
 import { describe, expect, it } from 'vitest';
-import { buildSituation, type ItinerarySegment, type SituationInput } from '@/lib/assist/situation';
+import { buildSituation, type ItinerarySegment, type ObservedFlight, type SituationInput } from '@/lib/assist/situation';
+
+const AIRPORTS = {
+  ORD: { latitude: 41.9786, longitude: -87.9048 },
+  EWR: { latitude: 40.6925, longitude: -74.1687 },
+  LIS: { latitude: 38.7813, longitude: -9.13592 },
+};
 
 describe('buildSituation', () => {
   it('fills every flight and trip fact it can', () => {
     expect(
       buildSituation({
-        event: { type: 'cancellation', delayMinutes: null, detectedAt: '2026-11-01T12:00:00Z' },
-        segment: { carrierIata: 'TP', originCountry: 'US', destinationCountry: 'PT', distanceKm: 5430, scheduledOut: '2026-11-03T23:15:00Z', scheduledIn: '2026-11-04T06:35:00Z' },
+        event: {
+          type: 'cancellation',
+          delayMinutes: null,
+          detectedAt: '2026-11-01T12:00:00Z',
+          observed: [],
+          // The rebooking the airline sent: the same flight a day later.
+          offers: [[{ carrierIata: 'TP', originIata: 'EWR', destinationIata: 'LIS', originCountry: 'US', destinationCountry: 'PT', scheduledOut: '2026-11-04T23:15:00Z', scheduledIn: '2026-11-05T06:35:00Z' }]],
+        },
+        segment: { carrierIata: 'TP', originIata: 'EWR', destinationIata: 'LIS', originCountry: 'US', destinationCountry: 'PT', distanceKm: 5430, scheduledOut: '2026-11-03T23:15:00Z', scheduledIn: '2026-11-04T06:35:00Z' },
         booking: {
           bookedVia: 'Expedia',
           bookedAt: '2026-10-01',
-          segments: [{ carrierIata: 'TP', originCountry: 'US', destinationCountry: 'PT', scheduledOut: '2026-11-03T23:15:00Z', scheduledIn: '2026-11-04T06:35:00Z' }],
+          segments: [{ carrierIata: 'TP', originIata: 'EWR', destinationIata: 'LIS', originCountry: 'US', destinationCountry: 'PT', scheduledOut: '2026-11-03T23:15:00Z', scheduledIn: '2026-11-04T06:35:00Z' }],
         },
+        airports: AIRPORTS,
         answers: { 'passenger.accepted_alternative': false },
       }),
     ).toEqual({
       'event.type': 'cancellation',
       'event.notice_days': 2,
       'event.at_us_airport': true,
+      'event.reroute_departs_early_minutes': 0,
+      'event.reroute_arrival_delay_minutes': 1440,
       'flight.carrier_iata': 'TP',
       'flight.carrier_is_us': false,
       'flight.carrier_is_eu': true,
       'flight.departs_us': true,
       'flight.departs_eu': false,
+      'flight.departs_iceland_norway_switzerland': false,
       'flight.departs_uk': false,
       'flight.arrives_eu': true,
       'flight.touches_us': true,
       'flight.is_domestic_us': false,
+      'flight.leg_distance_km': 5430,
       'flight.distance_km': 5430,
       'trip.booked_via': 'ota',
       'trip.touches_us': true,
@@ -5915,16 +5986,20 @@ describe('buildSituation', () => {
       'trip.booked_with_us_carrier': false,
       'trip.us_foreign_nonstop_minutes': 440,
       'trip.hours_booked_before_departure': 779,
+      'trip.journey_departs_eu': false,
+      'trip.journey_arrives_eu': true,
       'passenger.accepted_alternative': false,
     });
   });
 
   it('leaves unknown facts out instead of guessing', () => {
     const unresolved = { carrierIata: 'UA', originCountry: null, destinationCountry: null, scheduledOut: null, scheduledIn: null };
+    const feeder = { ...unresolved, originIata: 'ORD', destinationIata: 'EWR' };
     const situation = buildSituation({
-      event: { type: 'delay', delayMinutes: 200, detectedAt: '2026-11-03T20:00:00Z' },
-      segment: { ...unresolved, distanceKm: null },
-      booking: { bookedVia: null, bookedAt: '2026-10-01', segments: [unresolved, unresolved] },
+      event: { type: 'delay', delayMinutes: 200, detectedAt: '2026-11-03T20:00:00Z', observed: [], offers: [] },
+      segment: { ...feeder, distanceKm: null },
+      booking: { bookedVia: null, bookedAt: '2026-10-01', segments: [feeder, { ...unresolved, originIata: 'EWR', destinationIata: 'LIS' }] },
+      airports: {},
       answers: {},
     });
     expect(situation).toEqual({
@@ -5940,33 +6015,53 @@ describe('buildSituation', () => {
   });
 });
 
-describe('itinerary facts', () => {
-  const leg = (carrierIata: string, originCountry: string | null, destinationCountry: string | null, scheduledOut: string | null, scheduledIn: string | null): ItinerarySegment => ({
-    carrierIata,
-    originCountry,
-    destinationCountry,
-    scheduledOut,
-    scheduledIn,
+const COUNTRY: Record<string, string> = { ORD: 'US', EWR: 'US', SJU: 'PR', LIS: 'PT', CDG: 'FR', PTP: 'GP', KEF: 'IS', ZRH: 'CH', FAE: 'FO', GOH: 'GL' };
+const leg = (carrierIata: string, originIata: string, destinationIata: string, scheduledOut: string | null, scheduledIn: string | null): ItinerarySegment => ({
+  carrierIata,
+  originIata,
+  destinationIata,
+  originCountry: COUNTRY[originIata] ?? null,
+  destinationCountry: COUNTRY[destinationIata] ?? null,
+  scheduledOut,
+  scheduledIn,
+});
+// ORD → EWR → LIS and back, all on one ticket.
+const roundTrip = [
+  leg('UA', 'ORD', 'EWR', '2026-11-03T18:00:00Z', '2026-11-03T20:30:00Z'),
+  leg('TP', 'EWR', 'LIS', '2026-11-03T23:15:00Z', '2026-11-04T06:35:00Z'),
+  leg('TP', 'LIS', 'EWR', '2026-11-10T12:00:00Z', '2026-11-10T20:20:00Z'),
+  leg('UA', 'EWR', 'ORD', '2026-11-10T23:00:00Z', '2026-11-11T01:45:00Z'),
+];
+const situation = (
+  flight: ItinerarySegment,
+  segments: ItinerarySegment[],
+  extra: {
+    bookedAt?: string;
+    type?: SituationInput['event']['type'];
+    observed?: ObservedFlight[];
+    offers?: ItinerarySegment[][];
+    distanceKm?: number;
+    airports?: SituationInput['airports'];
+  } = {},
+) =>
+  buildSituation({
+    event: { type: extra.type ?? 'delay', delayMinutes: null, detectedAt: '2026-11-01T12:00:00Z', observed: extra.observed ?? [], offers: extra.offers ?? [] },
+    segment: { ...flight, distanceKm: extra.distanceKm ?? null },
+    booking: { bookedVia: null, bookedAt: extra.bookedAt ?? null, segments },
+    airports: extra.airports ?? {},
+    answers: {},
   });
-  // ORD → EWR → LIS and back, all on one ticket.
-  const roundTrip = [
-    leg('UA', 'US', 'US', '2026-11-03T18:00:00Z', '2026-11-03T20:30:00Z'),
-    leg('TP', 'US', 'PT', '2026-11-03T23:15:00Z', '2026-11-04T06:35:00Z'),
-    leg('TP', 'PT', 'US', '2026-11-10T12:00:00Z', '2026-11-10T20:20:00Z'),
-    leg('UA', 'US', 'US', '2026-11-10T23:00:00Z', '2026-11-11T01:45:00Z'),
-  ];
-  const situation = (
-    flight: ItinerarySegment,
-    segments: ItinerarySegment[],
-    extra: { bookedAt?: string; type?: SituationInput['event']['type'] } = {},
-  ) =>
-    buildSituation({
-      event: { type: extra.type ?? 'delay', delayMinutes: null, detectedAt: '2026-11-01T12:00:00Z' },
-      segment: { ...flight, distanceKm: null },
-      booking: { bookedVia: null, bookedAt: extra.bookedAt ?? null, segments },
-      answers: {},
-    });
+/** What AeroAPI shows for a flight: its schedule, the airline's estimate, and when it actually left. */
+const seen = (flight: ItinerarySegment, change: Partial<ObservedFlight> = {}): ObservedFlight => ({
+  diverted: false,
+  scheduledOut: flight.scheduledOut,
+  estimatedOut: flight.scheduledOut,
+  actualOut: null,
+  scheduledIn: flight.scheduledIn,
+  ...change,
+});
 
+describe('itinerary facts', () => {
   it('treats a domestic connection on an international ticket as part of an international itinerary', () => {
     const s = situation(roundTrip[0], roundTrip);
     expect(s['flight.is_domestic_us']).toBe(true);
@@ -5975,12 +6070,12 @@ describe('itinerary facts', () => {
   });
 
   it('calls a U.S.-only ticket, territories included, a domestic itinerary', () => {
-    const domestic = [roundTrip[0], leg('UA', 'US', 'PR', '2026-11-04T01:00:00Z', '2026-11-04T05:10:00Z')];
+    const domestic = [roundTrip[0], leg('UA', 'EWR', 'SJU', '2026-11-04T01:00:00Z', '2026-11-04T05:10:00Z')];
     expect(situation(domestic[0], domestic)['trip.itinerary_domestic_us']).toBe(true);
   });
 
   it('leaves the itinerary facts unset while a country is unknown', () => {
-    const partial = [roundTrip[0], leg('UA', 'US', null, '2026-11-04T01:00:00Z', null)];
+    const partial = [roundTrip[0], { ...leg('UA', 'EWR', 'SJU', '2026-11-04T01:00:00Z', null), destinationCountry: null }];
     const s = situation(partial[0], partial);
     expect(s).not.toHaveProperty('trip.itinerary_domestic_us');
     expect(s).not.toHaveProperty('trip.us_foreign_nonstop_minutes');
@@ -6004,18 +6099,126 @@ describe('itinerary facts', () => {
     expect(situation(roundTrip[0], roundTrip)).not.toHaveProperty('trip.booked_with_us_carrier');
   });
 
-  it('places a cancellation or a delay at the departure airport, and leaves a diversion unplaced', () => {
+  it('places a cancellation, a delay, or a schedule change at the departure airport, and leaves a diversion unplaced', () => {
     expect(situation(roundTrip[1], roundTrip, { type: 'cancellation' })['event.at_us_airport']).toBe(true);
     expect(situation(roundTrip[2], roundTrip, { type: 'delay' })['event.at_us_airport']).toBe(false);
-    expect(situation(roundTrip[1], roundTrip, { type: 'schedule_change' })).not.toHaveProperty('event.at_us_airport');
+    expect(situation(roundTrip[1], roundTrip, { type: 'schedule_change' })['event.at_us_airport']).toBe(true);
+    // Task 9 records a diversion as a delay; the travelers are wherever the aircraft landed.
+    expect(situation(roundTrip[1], roundTrip, { observed: [seen(roundTrip[1], { diverted: true })] })).not.toHaveProperty('event.at_us_airport');
   });
 
   it('never sets passenger.volunteered itself; only the planner’s answer does', () => {
     expect(situation(roundTrip[1], roundTrip)).not.toHaveProperty('passenger.volunteered');
   });
 });
+
+describe('EU261 facts', () => {
+  it('reports the longer of the airline’s expected departure delay and the actual one, for that flight only', () => {
+    const flight = roundTrip[1]; // scheduled to leave EWR at 23:15
+    // AeroAPI expected 03:15 (4 hours late), then the flight left at 02:45: the 4 hours the airline expected count.
+    const shrank = [seen(flight, { estimatedOut: '2026-11-04T03:15:00Z' }), seen(flight, { estimatedOut: '2026-11-04T02:45:00Z', actualOut: '2026-11-04T02:45:00Z' })];
+    expect(situation(flight, roundTrip, { observed: shrank })['event.departure_delay_minutes']).toBe(240);
+    // Expected 1 hour late, then it left 3 h 05 min late: the actual delay counts.
+    const grew = [seen(flight, { estimatedOut: '2026-11-04T00:15:00Z' }), seen(flight, { estimatedOut: '2026-11-04T02:20:00Z', actualOut: '2026-11-04T02:20:00Z' })];
+    expect(situation(flight, roundTrip, { observed: grew })['event.departure_delay_minutes']).toBe(185);
+    expect(situation(flight, roundTrip)).not.toHaveProperty('event.departure_delay_minutes');
+    expect(situation(flight, roundTrip, { type: 'cancellation', observed: shrank })).not.toHaveProperty('event.departure_delay_minutes');
+  });
+
+  it('measures the disrupted flight and its whole journey separately', () => {
+    const outbound = situation(roundTrip[1], roundTrip, { distanceKm: 5430, airports: AIRPORTS });
+    expect(outbound['flight.leg_distance_km']).toBe(5430);
+    // ORD to LIS, the journey's first departure to its final destination.
+    expect(outbound['flight.distance_km']).toBe(6440);
+    expect(situation(roundTrip[3], roundTrip, { airports: AIRPORTS })['flight.distance_km']).toBe(6440);
+    expect(situation(roundTrip[1], roundTrip, { airports: { EWR: AIRPORTS.EWR, LIS: AIRPORTS.LIS } })).not.toHaveProperty('flight.distance_km');
+    expect(situation(roundTrip[1], roundTrip)).not.toHaveProperty('flight.leg_distance_km');
+  });
+
+  it('scopes EU departure and arrival to the journey in the disrupted flight’s direction', () => {
+    expect(situation(roundTrip[0], roundTrip)).toMatchObject({
+      'flight.departs_eu': false,
+      'flight.arrives_eu': false,
+      'trip.journey_departs_eu': false,
+      'trip.journey_arrives_eu': true,
+    });
+    expect(situation(roundTrip[3], roundTrip)).toMatchObject({ 'trip.journey_departs_eu': true, 'trip.journey_arrives_eu': false });
+    // While a connection's times are unknown, so is where the journey ends.
+    const unresolved = [roundTrip[0], { ...roundTrip[1], scheduledOut: null, scheduledIn: null }];
+    expect(situation(roundTrip[0], unresolved)).not.toHaveProperty('trip.journey_arrives_eu');
+  });
+
+  it('counts EU states with their outermost regions, and Iceland, Norway, and Switzerland apart', () => {
+    const departing = (originIata: string) => {
+      const flight = leg('FI', originIata, 'EWR', '2026-11-03T08:00:00Z', '2026-11-03T16:00:00Z');
+      return situation(flight, [flight]);
+    };
+    expect(departing('CDG')).toMatchObject({ 'flight.departs_eu': true, 'flight.departs_iceland_norway_switzerland': false });
+    expect(departing('PTP')).toMatchObject({ 'flight.departs_eu': true, 'flight.departs_iceland_norway_switzerland': false });
+    expect(departing('KEF')).toMatchObject({ 'flight.departs_eu': false, 'flight.departs_iceland_norway_switzerland': true });
+    expect(departing('ZRH')).toMatchObject({ 'flight.departs_eu': false, 'flight.departs_iceland_norway_switzerland': true });
+    expect(departing('FAE')).toMatchObject({ 'flight.departs_eu': false, 'flight.departs_iceland_norway_switzerland': false });
+    expect(departing('GOH')).toMatchObject({ 'flight.departs_eu': false, 'flight.departs_iceland_norway_switzerland': false });
+  });
+
+  it('measures how far a schedule change moved the departure earlier, and 0 when it moved later', () => {
+    const flight = roundTrip[1];
+    const moved = (scheduledOut: string, scheduledIn: string) => [seen(flight, { scheduledOut, estimatedOut: scheduledOut, scheduledIn })];
+    expect(situation(flight, roundTrip, { type: 'schedule_change', observed: moved('2026-11-03T21:45:00Z', '2026-11-04T05:05:00Z') })['event.departure_moved_earlier_minutes']).toBe(90);
+    expect(situation(flight, roundTrip, { type: 'schedule_change', observed: moved('2026-11-04T01:15:00Z', '2026-11-04T08:35:00Z') })['event.departure_moved_earlier_minutes']).toBe(0);
+    expect(situation(flight, roundTrip, { type: 'schedule_change' })).not.toHaveProperty('event.departure_moved_earlier_minutes');
+    expect(situation(flight, roundTrip, { observed: moved('2026-11-03T21:45:00Z', '2026-11-04T05:05:00Z') })).not.toHaveProperty('event.departure_moved_earlier_minutes');
+  });
+
+  it('treats the changed flight as the re-routing offer for a schedule change', () => {
+    const change = (flight: ItinerarySegment, scheduledOut: string, scheduledIn: string) =>
+      situation(flight, roundTrip, { type: 'schedule_change', observed: [seen(flight, { scheduledOut, estimatedOut: scheduledOut, scheduledIn })] });
+    expect(change(roundTrip[1], '2026-11-03T21:45:00Z', '2026-11-04T05:05:00Z')).toMatchObject({
+      'event.reroute_departs_early_minutes': 90,
+      'event.reroute_arrival_delay_minutes': 0,
+    });
+    expect(change(roundTrip[1], '2026-11-04T01:15:00Z', '2026-11-04T08:35:00Z')).toMatchObject({
+      'event.reroute_departs_early_minutes': 0,
+      'event.reroute_arrival_delay_minutes': 120,
+    });
+    // A changed feeder that still makes its connection leaves the arrival in LIS as booked.
+    expect(change(roundTrip[0], '2026-11-03T19:00:00Z', '2026-11-03T21:30:00Z')).toMatchObject({
+      'event.reroute_departs_early_minutes': 0,
+      'event.reroute_arrival_delay_minutes': 0,
+    });
+    // One that lands after the connection leaves makes the arrival unknown.
+    const missed = change(roundTrip[0], '2026-11-03T22:30:00Z', '2026-11-04T01:00:00Z');
+    expect(missed['event.reroute_departs_early_minutes']).toBe(0);
+    expect(missed).not.toHaveProperty('event.reroute_arrival_delay_minutes');
+  });
+
+  it('reads a cancellation’s re-routing from a forwarded rebooking, and leaves it unset until one is known', () => {
+    // The rebooking repeats the unchanged feeder, then the new flight a day later.
+    const rebooking = [roundTrip[0], leg('TP', 'EWR', 'LIS', '2026-11-04T23:15:00Z', '2026-11-05T06:35:00Z')];
+    expect(situation(roundTrip[1], roundTrip, { type: 'cancellation', offers: [rebooking] })).toMatchObject({
+      'event.reroute_departs_early_minutes': 0,
+      'event.reroute_arrival_delay_minutes': 1440,
+    });
+    const unknown = situation(roundTrip[1], roundTrip, { type: 'cancellation' });
+    expect(unknown).not.toHaveProperty('event.reroute_departs_early_minutes');
+    expect(unknown).not.toHaveProperty('event.reroute_arrival_delay_minutes');
+    expect(situation(roundTrip[1], roundTrip, { type: 'delay', offers: [rebooking] })).not.toHaveProperty('event.reroute_departs_early_minutes');
+  });
+
+  it('reports, of several offers, the soonest arrival among those leaving within the notice limit', () => {
+    const offer = (scheduledOut: string, scheduledIn: string) => [leg('TP', 'EWR', 'LIS', scheduledOut, scheduledIn)];
+    // Told 2 days ahead, so the limit is 1 hour early. The 2-hours-early flight arrives soonest, but is outside it.
+    const offers = [offer('2026-11-03T21:15:00Z', '2026-11-04T04:35:00Z'), offer('2026-11-04T10:00:00Z', '2026-11-04T17:20:00Z'), offer('2026-11-03T22:45:00Z', '2026-11-04T06:05:00Z')];
+    expect(situation(roundTrip[1], roundTrip, { type: 'cancellation', offers })).toMatchObject({
+      'event.reroute_departs_early_minutes': 30,
+      'event.reroute_arrival_delay_minutes': 0,
+    });
+    // With no offer inside the limit, any is reported.
+    expect(situation(roundTrip[1], roundTrip, { type: 'cancellation', offers: [offers[0]] })['event.reroute_departs_early_minutes']).toBe(120);
+  });
+});
 ```
-The first departure in `roundTrip` is Nov 3 at 18:00 UTC. A booking dated Oct 1 could have been made as late as Oct 2, 12:00 UTC (the end of Oct 1 at UTC−12): 774 hours ahead. One printed as Oct 27, 09:30 could be as late as Oct 27, 21:31 UTC: 164 hours, just under a week.
+The first departure in `roundTrip` is Nov 3 at 18:00 UTC. A booking dated Oct 1 could have been made as late as Oct 2, 12:00 UTC (the end of Oct 1 at UTC−12): 774 hours ahead. One printed as Oct 27, 09:30 could be as late as Oct 27, 21:31 UTC: 164 hours, just under a week. EWR to LIS is 5,433 km, and ORD to LIS is 6,435 km, so 5,430 and 6,440 to the nearest 10.
 
 `apps/web/test/assist/scenarios.test.ts`. These are the old mock trip guides, ported as situation-to-expected-rules cases. The source is `git show archive/mobile-expo-2026-10:apps/api/lib/assist/mock-trip-guides.ts`.
 ```ts
@@ -6034,19 +6237,23 @@ function nonstop(flight: SituationInput['segment']): ItinerarySegment[] {
   return [segment];
 }
 
-const tokyo = { carrierIata: 'UA', originCountry: 'US', destinationCountry: 'JP', distanceKm: 8280, scheduledOut: '2026-11-21T18:00:00Z', scheduledIn: '2026-11-22T05:00:00Z' };
-const paris = { carrierIata: 'DL', originCountry: 'US', destinationCountry: 'FR', distanceKm: 5840, scheduledOut: '2026-11-10T23:00:00Z', scheduledIn: '2026-11-11T06:30:00Z' };
-const santorini = { carrierIata: 'A3', originCountry: 'GR', destinationCountry: 'GR', distanceKm: 230, scheduledOut: '2026-11-05T09:00:00Z', scheduledIn: '2026-11-05T09:50:00Z' };
-const lisbon = { carrierIata: 'TP', originCountry: 'US', destinationCountry: 'PT', distanceKm: 5430, scheduledOut: '2026-11-03T23:15:00Z', scheduledIn: '2026-11-04T06:35:00Z' };
-const bali = { carrierIata: 'SQ', originCountry: 'SG', destinationCountry: 'US', distanceKm: 13590, scheduledOut: '2026-11-12T01:00:00Z', scheduledIn: '2026-11-12T16:00:00Z' };
+/** An event as monitoring raises it, before any AeroAPI times or rebooking are attached. */
+const event = (type: SituationInput['event']['type'], delayMinutes: number | null): SituationInput['event'] => ({ type, delayMinutes, detectedAt: at, observed: [], offers: [] });
+
+const tokyo = { carrierIata: 'UA', originIata: 'SFO', destinationIata: 'HND', originCountry: 'US', destinationCountry: 'JP', distanceKm: 8280, scheduledOut: '2026-11-21T18:00:00Z', scheduledIn: '2026-11-22T05:00:00Z' };
+const paris = { carrierIata: 'DL', originIata: 'JFK', destinationIata: 'CDG', originCountry: 'US', destinationCountry: 'FR', distanceKm: 5840, scheduledOut: '2026-11-10T23:00:00Z', scheduledIn: '2026-11-11T06:30:00Z' };
+const santorini = { carrierIata: 'A3', originIata: 'ATH', destinationIata: 'JTR', originCountry: 'GR', destinationCountry: 'GR', distanceKm: 230, scheduledOut: '2026-11-05T09:00:00Z', scheduledIn: '2026-11-05T09:50:00Z' };
+const lisbon = { carrierIata: 'TP', originIata: 'EWR', destinationIata: 'LIS', originCountry: 'US', destinationCountry: 'PT', distanceKm: 5430, scheduledOut: '2026-11-03T23:15:00Z', scheduledIn: '2026-11-04T06:35:00Z' };
+const bali = { carrierIata: 'SQ', originIata: 'SIN', destinationIata: 'SFO', originCountry: 'SG', destinationCountry: 'US', distanceKm: 13590, scheduledOut: '2026-11-12T01:00:00Z', scheduledIn: '2026-11-12T16:00:00Z' };
 
 const scenarios: { name: string; input: SituationInput; applies: string[]; mayApply: string[] }[] = [
   {
     name: 'Tokyo: UA 875 SFO→HND cancelled, nobody took the rebooking',
     input: {
-      event: { type: 'cancellation', delayMinutes: null, detectedAt: at },
+      event: event('cancellation', null),
       segment: tokyo,
       booking: { bookedVia: null, bookedAt: null, segments: nonstop(tokyo) },
+      airports: {},
       answers: { 'passenger.accepted_alternative': false },
     },
     applies: ['fixture-us-refund-cancelled-flight'],
@@ -6056,9 +6263,10 @@ const scenarios: { name: string; input: SituationInput; applies: string[]; mayAp
   {
     name: 'Paris: DL 8606 JFK→CDG four hours late on a US carrier',
     input: {
-      event: { type: 'delay', delayMinutes: 240, detectedAt: at },
+      event: event('delay', 240),
       segment: paris,
       booking: { bookedVia: null, bookedAt: null, segments: nonstop(paris) },
+      airports: {},
       answers: {},
     },
     applies: [],
@@ -6067,9 +6275,10 @@ const scenarios: { name: string; input: SituationInput; applies: string[]; mayAp
   {
     name: 'Santorini: A3 349 ATH→JTR over three hours late',
     input: {
-      event: { type: 'delay', delayMinutes: 200, detectedAt: at },
+      event: event('delay', 200),
       segment: santorini,
       booking: { bookedVia: null, bookedAt: null, segments: nonstop(santorini) },
+      airports: {},
       answers: {},
     },
     applies: ['fixture-eu261-delay-compensation'],
@@ -6078,9 +6287,10 @@ const scenarios: { name: string; input: SituationInput; applies: string[]; mayAp
   {
     name: 'Lisbon: TP 204 EWR→LIS cancelled, rebooking answer unknown',
     input: {
-      event: { type: 'cancellation', delayMinutes: null, detectedAt: at },
+      event: event('cancellation', null),
       segment: lisbon,
       booking: { bookedVia: null, bookedAt: null, segments: nonstop(lisbon) },
+      airports: {},
       answers: {},
     },
     applies: [],
@@ -6089,13 +6299,17 @@ const scenarios: { name: string; input: SituationInput; applies: string[]; mayAp
   {
     name: 'Bali: SQ 32 SIN→SFO nearly seven hours late on a two-leg ticket',
     input: {
-      event: { type: 'delay', delayMinutes: 410, detectedAt: at },
+      event: event('delay', 410),
       segment: bali,
       booking: {
         bookedVia: null,
         bookedAt: null,
-        segments: [{ carrierIata: 'SQ', originCountry: 'ID', destinationCountry: 'SG', scheduledOut: '2026-11-11T13:00:00Z', scheduledIn: '2026-11-11T15:40:00Z' }, ...nonstop(bali)],
+        segments: [
+          { carrierIata: 'SQ', originIata: 'DPS', destinationIata: 'SIN', originCountry: 'ID', destinationCountry: 'SG', scheduledOut: '2026-11-11T13:00:00Z', scheduledIn: '2026-11-11T15:40:00Z' },
+          ...nonstop(bali),
+        ],
       },
+      airports: {},
       answers: {},
     },
     applies: ['fixture-card-trip-delay'],
@@ -6138,15 +6352,33 @@ describe('nextQuestion', () => {
     });
   });
 
+  it('asks about the airline’s new flight, arrival first, right after the rebooking question', () => {
+    const results = [
+      mayApply('eu261-cancellation', ['event.reroute_departs_early_minutes', 'event.reroute_arrival_delay_minutes', 'event.cause']),
+      mayApply('refund', ['passenger.accepted_alternative']),
+    ];
+    expect(nextQuestion(results, [])?.fact).toBe('passenger.accepted_alternative');
+    expect(nextQuestion(results, ['passenger.accepted_alternative'])?.fact).toBe('event.reroute_arrival_delay_minutes');
+    expect(nextQuestion(results, ['passenger.accepted_alternative', 'event.reroute_arrival_delay_minutes'])?.fact).toBe('event.reroute_departs_early_minutes');
+  });
+
+  it('answers each re-routing band with its smallest value, and "no offer" as the contract says', () => {
+    const arrival = nextQuestion([mayApply('x', ['event.reroute_arrival_delay_minutes'])], []);
+    expect(arrival?.options.map((o) => o.value)).toEqual(['0', '1', '120', '180', '240', '1440']);
+    const departure = nextQuestion([mayApply('x', ['event.reroute_departs_early_minutes'])], []);
+    expect(departure?.options.map((o) => o.value)).toEqual(['0', '1', '61', '121']);
+  });
+
   it('asks nothing when nothing is uncertain', () => {
     expect(nextQuestion([{ rule_id: 'x', rule_version: 1, outcome: 'applies', missing_facts: [] } as MatchResult], [])).toBeNull();
   });
 });
 
 describe('answerValue', () => {
-  it('turns yes/no answers into booleans', () => {
+  it('turns yes/no answers into booleans, and number facts into numbers', () => {
     expect(answerValue({ fact: 'passenger.accepted_alternative', value: 'false' })).toBe(false);
     expect(answerValue({ fact: 'event.cause', value: 'controllable' })).toBe('controllable');
+    expect(answerValue({ fact: 'event.reroute_arrival_delay_minutes', value: '120' })).toBe(120);
   });
 });
 ```
@@ -6163,11 +6395,20 @@ Expected: FAIL, with modules not found.
 Append to `apps/web/lib/flights/regions.ts` (Task 7 created it with `US_JURISDICTION`):
 ```ts
 
-/** EU261's territorial scope: the 27 EU states plus Iceland, Norway, Liechtenstein, and Switzerland. */
-export const EU261_SCOPE = new Set([
+/**
+ * EU member states, as the Commission's EU261 guidance defines the EU: the 27 states with their outermost
+ * regions. The Canary Islands (ES), the Azores and Madeira (PT) share their state's code; Guadeloupe,
+ * Martinique, French Guiana, Réunion, Mayotte, and Saint-Martin have codes of their own. Not the Faroe
+ * Islands (FO) or Greenland (GL), and not Iceland, Norway, or Switzerland, which have their own fact.
+ */
+export const EU_MEMBER_STATES = new Set([
   'AT', 'BE', 'BG', 'HR', 'CY', 'CZ', 'DK', 'EE', 'FI', 'FR', 'DE', 'GR', 'HU', 'IE', 'IT', 'LV', 'LT', 'LU',
-  'MT', 'NL', 'PL', 'PT', 'RO', 'SK', 'SI', 'ES', 'SE', 'IS', 'NO', 'LI', 'CH',
+  'MT', 'NL', 'PL', 'PT', 'RO', 'SK', 'SI', 'ES', 'SE',
+  'GP', 'MQ', 'GF', 'RE', 'YT', 'MF',
 ]);
+
+/** EU261 also covers departures from these three (`flight.departs_iceland_norway_switzerland`). */
+export const ICELAND_NORWAY_SWITZERLAND = new Set(['IS', 'NO', 'CH']);
 
 export const UK = new Set(['GB']);
 ```
@@ -6190,47 +6431,70 @@ export const EU_CARRIERS = new Set([
 `apps/web/lib/assist/situation.ts`:
 ```ts
 import type { FactName, Primitive, Situation } from '@elsewhere/rules/core';
-import { EU261_SCOPE, UK, US_JURISDICTION } from '@/lib/flights/regions';
+import { haversineKm } from '@/lib/flights/geo';
+import { EU_MEMBER_STATES, ICELAND_NORWAY_SWITZERLAND, UK, US_JURISDICTION } from '@/lib/flights/regions';
 import { EU_CARRIERS, US_CARRIERS } from './carriers';
 
-/** One flight on the booking. The itinerary facts are computed over all of them. */
+/** One flight on the booking. The itinerary and journey facts are computed over all of them. */
 export interface ItinerarySegment {
   carrierIata: string;
+  originIata: string;
+  destinationIata: string;
   originCountry: string | null;
   destinationCountry: string | null;
   scheduledOut: string | null;
   scheduledIn: string | null;
 }
 
+/** What AeroAPI reported about the disrupted flight: the fields of Task 9's `FlightSnapshot` read here. */
+export interface ObservedFlight {
+  diverted: boolean;
+  scheduledOut: string | null;
+  estimatedOut: string | null;
+  actualOut: string | null;
+  scheduledIn: string | null;
+}
+
 export interface SituationInput {
-  event: { type: 'cancellation' | 'delay' | 'schedule_change'; delayMinutes: number | null; detectedAt: string };
-  /** The disrupted flight. */
-  segment: {
-    carrierIata: string;
-    originCountry: string | null;
-    destinationCountry: string | null;
-    distanceKm: number | null;
-    scheduledOut: string | null;
-    scheduledIn: string | null;
+  event: {
+    type: 'cancellation' | 'delay' | 'schedule_change';
+    delayMinutes: number | null;
+    detectedAt: string;
+    /** AeroAPI's snapshots of the disrupted flight, oldest first: the one that raised the incident, then the latest. */
+    observed: ObservedFlight[];
+    /**
+     * Re-routings the airline offered, each a forwarded rebooking's flights in the order flown. Empty while none
+     * is known. A schedule change's changed flight comes from `observed`, so it is not listed here.
+     */
+    offers: ItinerarySegment[][];
   };
+  /** The disrupted flight, as booked. `distanceKm` is Task 4's great-circle distance of this flight alone. */
+  segment: ItinerarySegment & { distanceKm: number | null };
   /**
    * The booking (one ticket) the flight is on. `bookedAt` is when it was made, as the confirmation printed
    * it ("YYYY-MM-DD" or "YYYY-MM-DDTHH:mm"), or null. `segments` holds every flight on the booking, the
    * disrupted one included, in the order flown.
    */
   booking: { bookedVia: string | null; bookedAt: string | null; segments: ItinerarySegment[] };
+  /** Airport coordinates by IATA code, for the journey's distance. A missing airport leaves `flight.distance_km` unset. */
+  airports: Record<string, { latitude: number; longitude: number }>;
   answers: Record<string, Primitive>;
 }
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
+/** A longer gap between two flights is a stopover, not a connection: it ends the journey, as between outbound and return. */
+const STOPOVER = 24 * HOUR;
 
 const isUs = (country: string | null): boolean | null => (country ? US_JURISDICTION.has(country) : null);
 /** Three-valued: true if any is true, false if every one is false, otherwise unknown. */
 const anyTrue = (values: (boolean | null)[]): boolean | null => (values.some((v) => v === true) ? true : values.every((v) => v === false) ? false : null);
 /** Three-valued: false if any is false, true if every one is true, otherwise unknown. */
 const allTrue = (values: (boolean | null)[]): boolean | null => (values.some((v) => v === false) ? false : values.every((v) => v === true) ? true : null);
+const time = (iso: string | null): number | null => (iso ? Date.parse(iso) : null);
+const sameFlight = (a: ItinerarySegment, b: ItinerarySegment): boolean =>
+  a.carrierIata === b.carrierIata && a.originIata === b.originIata && a.destinationIata === b.destinationIata && time(a.scheduledOut) === time(b.scheduledOut);
 
 /**
  * The latest moment a printed booking date or local time can mean: the end of that day or minute, in the
@@ -6244,51 +6508,140 @@ function latestBookingMoment(bookedAt: string): number {
 }
 
 /**
- * Scheduled minutes of the ticket's nonstop flight between the U.S. and a foreign point, on the event's
- * journey: with an outbound and a return crossing, the one nearest in time to the disrupted flight.
- * Unknown while any flight's countries are unknown, or when the crossing's times are.
+ * The disrupted flight's journey: the flights on the booking that take the passenger, in its direction, to the
+ * final destination. A flight joins the one before it when it leaves from the airport that one reached, within
+ * 24 hours, so outbound and return are separate journeys. Null when a connection's times are unknown, or the
+ * flight is not on the booking.
  */
-function usForeignNonstopMinutes(segments: ItinerarySegment[], eventOut: string | null): number | null {
-  if (segments.some((s) => !s.originCountry || !s.destinationCountry)) return null;
-  const crossings = segments.filter((s) => US_JURISDICTION.has(s.originCountry!) !== US_JURISDICTION.has(s.destinationCountry!));
-  const gap = (s: ItinerarySegment) => Math.abs(Date.parse(s.scheduledOut!) - Date.parse(eventOut!));
-  const pick =
-    crossings.length === 1
-      ? crossings[0]
-      : crossings.length > 1 && eventOut && crossings.every((s) => s.scheduledOut)
-        ? [...crossings].sort((a, b) => gap(a) - gap(b))[0]
-        : null;
-  return pick?.scheduledOut && pick.scheduledIn ? Math.round((Date.parse(pick.scheduledIn) - Date.parse(pick.scheduledOut)) / MINUTE) : null;
+function journeyOf(segments: ItinerarySegment[], flight: ItinerarySegment): ItinerarySegment[] | null {
+  const at = segments.findIndex((s) => sameFlight(s, flight));
+  if (at < 0) return null;
+  const connects = (a: ItinerarySegment, b: ItinerarySegment): boolean | null => {
+    if (a.destinationIata !== b.originIata) return false;
+    const landed = time(a.scheduledIn);
+    const leaves = time(b.scheduledOut);
+    return landed === null || leaves === null ? null : leaves - landed <= STOPOVER;
+  };
+  let first = at;
+  while (first > 0) {
+    const joined = connects(segments[first - 1], segments[first]);
+    if (joined === null) return null;
+    if (!joined) break;
+    first -= 1;
+  }
+  let last = at;
+  while (last < segments.length - 1) {
+    const joined = connects(segments[last], segments[last + 1]);
+    if (joined === null) return null;
+    if (!joined) break;
+    last += 1;
+  }
+  return segments.slice(first, last + 1);
+}
+
+/**
+ * Scheduled minutes of the journey's nonstop flight between the U.S. and a foreign point. Unknown while any
+ * flight on the journey has an unknown country, when the journey has no such flight or more than one, or when
+ * its times are unknown.
+ */
+function usForeignNonstopMinutes(journey: ItinerarySegment[]): number | null {
+  if (journey.some((s) => !s.originCountry || !s.destinationCountry)) return null;
+  const crossings = journey.filter((s) => US_JURISDICTION.has(s.originCountry!) !== US_JURISDICTION.has(s.destinationCountry!));
+  const crossing = crossings.length === 1 ? crossings[0] : null;
+  return crossing?.scheduledOut && crossing.scheduledIn ? Math.round((Date.parse(crossing.scheduledIn) - Date.parse(crossing.scheduledOut)) / MINUTE) : null;
+}
+
+/**
+ * How long after its scheduled departure the disrupted flight left, or AeroAPI expected it to leave: the
+ * longest of every estimate and the actual time kept, so an announced delay that later shrank still counts.
+ */
+function departureDelayMinutes(scheduledOut: string | null, observed: ObservedFlight[]): number | null {
+  const scheduled = time(scheduledOut);
+  const seen = observed.flatMap((o) => [time(o.estimatedOut), time(o.actualOut)]).filter((t): t is number => t !== null);
+  return scheduled === null || seen.length === 0 ? null : Math.max(0, Math.floor((Math.max(...seen) - scheduled) / MINUTE));
+}
+
+interface OfferTimes {
+  leaves: number;
+  arrives: number | null;
+}
+
+/**
+ * When a re-routing leaves, and when it reaches the journey's final destination. A rebooking often repeats the
+ * flights that did not change, so the re-routing starts at its first flight that is not on the booking. Its
+ * arrival counts only if every flight from there connects (lands before the next one leaves) up to one that
+ * reaches the final destination.
+ */
+function offerTimes(offer: ItinerarySegment[], booked: ItinerarySegment[], finalDestination: string | null): OfferTimes | null {
+  const start = offer.findIndex((f) => !booked.some((b) => sameFlight(b, f)));
+  const leaves = start < 0 ? null : time(offer[start].scheduledOut);
+  if (leaves === null) return null;
+  for (let i = start; i < offer.length; i += 1) {
+    const landed = time(offer[i].scheduledIn);
+    if (landed === null) break;
+    if (offer[i].destinationIata === finalDestination) return { leaves, arrives: landed };
+    const next = time(offer[i + 1]?.scheduledOut ?? null);
+    if (next === null || next < landed) break;
+  }
+  return { leaves, arrives: null };
+}
+
+/**
+ * The offer the contract says to report: of those leaving no more than 1 hour (notice under 7 days) or 2 hours
+ * (notice under 14 days) early, the one that arrives soonest; if none does, any of them. Its arrival is unknown
+ * while any offer in the running hides its own, since that one might arrive sooner.
+ */
+function chooseOffer(offers: OfferTimes[], bookedOut: number, noticeDays: number): OfferTimes | null {
+  const limit = noticeDays < 7 ? HOUR : noticeDays < 14 ? 2 * HOUR : Infinity;
+  const inLimit = offers.filter((o) => bookedOut - o.leaves <= limit);
+  const running = inLimit.length > 0 ? inLimit : offers;
+  const soonest = [...running].sort((a, b) => (a.arrives ?? Infinity) - (b.arrives ?? Infinity))[0];
+  if (!soonest) return null;
+  return running.some((o) => o.arrives === null) ? { leaves: soonest.leaves, arrives: null } : soonest;
 }
 
 /** A fact is set only when we know it, so matchRules reports "may apply, needs X" rather than a wrong answer. */
 export function buildSituation(input: SituationInput): Situation {
+  const { type, observed } = input.event;
   const s: Situation = {
-    'event.type': input.event.type,
+    'event.type': type,
     'flight.carrier_iata': input.segment.carrierIata,
     'flight.carrier_is_us': US_CARRIERS.has(input.segment.carrierIata),
     'flight.carrier_is_eu': EU_CARRIERS.has(input.segment.carrierIata),
     'trip.booked_via': input.booking.bookedVia ? 'ota' : 'direct',
   };
   if (input.event.delayMinutes !== null) s['event.delay_minutes'] = input.event.delayMinutes;
-  if (input.segment.scheduledOut) {
-    s['event.notice_days'] = Math.max(0, Math.floor((Date.parse(input.segment.scheduledOut) - Date.parse(input.event.detectedAt)) / DAY));
-  }
+  const bookedOut = time(input.segment.scheduledOut);
+  const noticeDays = bookedOut === null ? null : Math.max(0, Math.floor((bookedOut - Date.parse(input.event.detectedAt)) / DAY));
+  if (noticeDays !== null) s['event.notice_days'] = noticeDays;
 
   const { originCountry: origin, destinationCountry: destination } = input.segment;
+  // Task 9 records a diversion as a delay. Where its travelers are stranded is not known.
+  const diverted = observed.some((o) => o.diverted);
   if (origin) {
     s['flight.departs_us'] = US_JURISDICTION.has(origin);
-    s['flight.departs_eu'] = EU261_SCOPE.has(origin);
+    s['flight.departs_eu'] = EU_MEMBER_STATES.has(origin);
+    s['flight.departs_iceland_norway_switzerland'] = ICELAND_NORWAY_SWITZERLAND.has(origin);
     s['flight.departs_uk'] = UK.has(origin);
-    // A cancelled or delayed flight strands its travelers at the departure airport. A diversion's airport is unknown.
-    if (input.event.type !== 'schedule_change') s['event.at_us_airport'] = US_JURISDICTION.has(origin);
+    if (!diverted) s['event.at_us_airport'] = US_JURISDICTION.has(origin);
   }
-  if (destination) s['flight.arrives_eu'] = EU261_SCOPE.has(destination);
+  if (destination) s['flight.arrives_eu'] = EU_MEMBER_STATES.has(destination);
   if (origin && destination) {
     s['flight.touches_us'] = US_JURISDICTION.has(origin) || US_JURISDICTION.has(destination);
     s['flight.is_domestic_us'] = US_JURISDICTION.has(origin) && US_JURISDICTION.has(destination);
   }
-  if (input.segment.distanceKm !== null) s['flight.distance_km'] = input.segment.distanceKm;
+  if (input.segment.distanceKm !== null) s['flight.leg_distance_km'] = input.segment.distanceKm;
+
+  if (type === 'delay') {
+    const departureDelay = departureDelayMinutes(input.segment.scheduledOut, observed);
+    if (departureDelay !== null) s['event.departure_delay_minutes'] = departureDelay;
+  }
+  // A schedule change is the same flight at a new time: AeroAPI's latest scheduled departure.
+  const latest = observed.at(-1);
+  const newOut = time(latest?.scheduledOut ?? null);
+  if (type === 'schedule_change' && bookedOut !== null && newOut !== null) {
+    s['event.departure_moved_earlier_minutes'] = Math.max(0, Math.floor((bookedOut - newOut) / MINUTE));
+  }
 
   const segments = input.booking.segments;
   if (segments.length > 1) s['flight.single_ticket'] = true;
@@ -6301,15 +6654,49 @@ export function buildSituation(input: SituationInput): Situation {
     const usCarrier = segments.map((seg) => US_CARRIERS.has(seg.carrierIata));
     if (usCarrier.every(Boolean)) s['trip.booked_with_us_carrier'] = true;
     else if (usCarrier.every((v) => !v)) s['trip.booked_with_us_carrier'] = false;
-    const nonstop = usForeignNonstopMinutes(segments, input.segment.scheduledOut);
-    if (nonstop !== null) s['trip.us_foreign_nonstop_minutes'] = nonstop;
     if (input.booking.bookedAt && segments.every((seg) => seg.scheduledOut)) {
       const firstDeparture = Math.min(...segments.map((seg) => Date.parse(seg.scheduledOut!)));
       s['trip.hours_booked_before_departure'] = Math.max(0, Math.floor((firstDeparture - latestBookingMoment(input.booking.bookedAt)) / HOUR));
     }
   }
 
-  // passenger.volunteered, passenger.accepted_alternative, and event.cause come only from the planner's answers.
+  // The journey: this flight and those it connects with, in its direction, on this booking.
+  const journey = journeyOf(segments, input.segment);
+  if (journey) {
+    const start = journey[0];
+    const end = journey[journey.length - 1];
+    if (start.originCountry) s['trip.journey_departs_eu'] = EU_MEMBER_STATES.has(start.originCountry);
+    if (end.destinationCountry) s['trip.journey_arrives_eu'] = EU_MEMBER_STATES.has(end.destinationCountry);
+    const from = input.airports[start.originIata];
+    const to = input.airports[end.destinationIata];
+    // To the nearest 10 km, as Task 4 rounds a single flight's distance.
+    if (from && to) s['flight.distance_km'] = Math.round(haversineKm(from, to) / 10) * 10;
+    const nonstop = usForeignNonstopMinutes(journey);
+    if (nonstop !== null) s['trip.us_foreign_nonstop_minutes'] = nonstop;
+  }
+
+  // The re-routing offered after a cancellation or a schedule change: set only when an offer is known.
+  if ((type === 'cancellation' || type === 'schedule_change') && bookedOut !== null && noticeDays !== null) {
+    const offers = [...input.event.offers];
+    if (type === 'schedule_change' && latest?.scheduledOut) {
+      // The changed flight itself counts as an offer, with the rest of the journey as booked.
+      const changed = { ...input.segment, scheduledOut: latest.scheduledOut, scheduledIn: latest.scheduledIn };
+      offers.push(journey ? journey.map((f) => (sameFlight(f, input.segment) ? changed : f)) : [changed]);
+    }
+    const end = journey?.[journey.length - 1] ?? null;
+    const timed = offers.map((o) => offerTimes(o, segments, end?.destinationIata ?? null)).filter((o): o is OfferTimes => o !== null);
+    const offer = chooseOffer(timed, bookedOut, noticeDays);
+    if (offer) {
+      s['event.reroute_departs_early_minutes'] = Math.max(0, Math.floor((bookedOut - offer.leaves) / MINUTE));
+      const plannedArrival = time(end?.scheduledIn ?? null);
+      if (offer.arrives !== null && plannedArrival !== null) {
+        s['event.reroute_arrival_delay_minutes'] = Math.max(0, Math.floor((offer.arrives - plannedArrival) / MINUTE));
+      }
+    }
+  }
+
+  // passenger.volunteered, passenger.accepted_alternative, and event.cause come only from the planner's answers,
+  // and so do the re-routing facts while no offer is known.
   for (const [fact, value] of Object.entries(input.answers)) s[fact as FactName] = value;
   return s;
 }
@@ -6318,7 +6705,7 @@ export function buildSituation(input: SituationInput): Situation {
 
 `apps/web/lib/assist/questions.ts`:
 ```ts
-import type { MatchResult, Primitive } from '@elsewhere/rules/core';
+import { FACTS, isFactName, type MatchResult, type Primitive } from '@elsewhere/rules/core';
 
 export interface PlannerQuestion {
   fact: string;
@@ -6331,12 +6718,36 @@ export interface PlannerAnswer {
   value: string;
 }
 
+/**
+ * For a number fact, each option's value is the smallest number in its band, so an answer never makes a rule
+ * apply that the real time might not.
+ */
 const ASKABLE: Record<string, Omit<PlannerQuestion, 'fact'>> = {
   'passenger.accepted_alternative': {
     prompt: 'Did anyone accept the airline’s new flight or a travel credit?',
     options: [
       { value: 'false', label: 'No, not yet' },
       { value: 'true', label: 'Yes, we accepted it' },
+    ],
+  },
+  'event.reroute_arrival_delay_minutes': {
+    prompt: 'When does the airline’s new flight get you to your final destination, compared with your original arrival?',
+    options: [
+      { value: '0', label: 'At or before the original time' },
+      { value: '1', label: 'Less than 2 hours later' },
+      { value: '120', label: '2 to 3 hours later' },
+      { value: '180', label: '3 to 4 hours later' },
+      { value: '240', label: '4 hours or more later' },
+      { value: '1440', label: 'The airline hasn’t offered a new flight' },
+    ],
+  },
+  'event.reroute_departs_early_minutes': {
+    prompt: 'Does the airline’s new flight leave earlier than your original flight?',
+    options: [
+      { value: '0', label: 'No, or no new flight was offered' },
+      { value: '1', label: 'Up to 1 hour earlier' },
+      { value: '61', label: 'More than 1 hour, up to 2 hours earlier' },
+      { value: '121', label: 'More than 2 hours earlier' },
     ],
   },
   'passenger.volunteered': {
@@ -6356,8 +6767,17 @@ const ASKABLE: Record<string, Omit<PlannerQuestion, 'fact'>> = {
   },
 };
 
-/** The planner gets one question at a time, in this order, and only for facts a traveler can answer. */
-export const ASK_ORDER = ['passenger.accepted_alternative', 'passenger.volunteered', 'event.cause'] as const;
+/**
+ * The planner gets one question at a time, in this order, and only for facts a traveler can answer. The
+ * re-routing questions come right after the rebooking one, while the airline's offer is in front of them.
+ */
+export const ASK_ORDER = [
+  'passenger.accepted_alternative',
+  'event.reroute_arrival_delay_minutes',
+  'event.reroute_departs_early_minutes',
+  'passenger.volunteered',
+  'event.cause',
+] as const;
 
 export function nextQuestion(results: MatchResult[], alreadyAsked: string[]): PlannerQuestion | null {
   const missing = new Set(results.filter((r) => r.outcome === 'may_apply').flatMap((r) => r.missing_facts as string[]));
@@ -6368,6 +6788,7 @@ export function nextQuestion(results: MatchResult[], alreadyAsked: string[]): Pl
 export function answerValue(answer: PlannerAnswer): Primitive {
   if (answer.value === 'true') return true;
   if (answer.value === 'false') return false;
+  if (isFactName(answer.fact) && FACTS[answer.fact].type === 'number') return Number(answer.value);
   return answer.value;
 }
 ```
@@ -6381,7 +6802,7 @@ Expected: PASS, and typecheck is clean. The Lisbon scenario's three `may_apply` 
 - **The refund rule** is missing `passenger.accepted_alternative`, which is askable.
 - **EU261 and the card benefit** are missing `event.delay_minutes`, because a cancellation has none. That fact isn't askable, so those rules stay out of the playbook.
 
-The test sorts the IDs, so order does not matter. None of the fixture rules reads the new booking-level facts, so all five scenarios match exactly as before them.
+The test sorts the IDs, so order does not matter. None of the fixture rules reads the booking-level facts or 1bc652c's EU261 facts, so all five scenarios match exactly as before them. The fixture's EU261 rule reads `flight.departs_eu`, which no longer counts Iceland, Norway, or Switzerland, and no scenario departs from them. Track A's own data cases pin the real EU261 rules against these facts.
 
 - [ ] **Step 6: Commit**
 
@@ -6390,15 +6811,23 @@ git add apps/web
 git commit -F - <<'EOF'
 Turn flight events into rule facts and pick one question to ask
 
-A cancellation or delay becomes the situation the rules match on: the
-flight's countries, carrier, and distance, and the booking-level facts
-from every flight on the ticket (whether it touches the U.S., whether
-it is a domestic itinerary, its U.S.-foreign nonstop, the booking
-airline, and a lower bound on how far ahead it was booked). Unknowns
-stay unknown. The old mock trip guides are now five fixture scenarios.
-When a rule may apply because a traveler-answerable fact is missing,
-the planner gets exactly one question, rebooking first, and "did anyone
-volunteer their seat" is one of them.
+A cancellation, delay, or schedule change becomes the situation the
+rules match on: the flight's countries, carrier, and distance, and the
+booking-level facts from every flight on the ticket (whether it touches
+the U.S., whether it is a domestic itinerary, its U.S.-foreign nonstop,
+the booking airline, and a lower bound on how far ahead it was booked).
+EU261's facts come from the same data: the flight's own departure delay
+(the longer of the airline's estimate and the actual) and distance, the
+EU scope and distance of its journey in this direction, how far a
+schedule change moved the departure, and the re-routing the airline
+offered, from a forwarded rebooking or the changed flight itself. The
+EU is its 27 member states with their outermost regions; Iceland,
+Norway, and Switzerland have their own fact. Unknowns stay unknown. The
+old mock trip guides are now five fixture scenarios. When a rule may
+apply because a traveler-answerable fact is missing, the planner gets
+exactly one question, rebooking first, then when the airline's new
+flight arrives and leaves; "did anyone volunteer their seat" is one of
+them too.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01CZeaGyqM4LkMDPkaein2Sc
@@ -6793,18 +7222,24 @@ EOF
 
 **Interfaces:**
 - Consumes:
-  - Task 10: `buildSituation`, `ItinerarySegment`, `nextQuestion`, `answerValue`
+  - Task 10: `buildSituation`, `ItinerarySegment`, `ObservedFlight`, `nextQuestion`, `answerValue`
+  - Task 4: `aeroApi` (airport coordinates for the journey's distance)
   - Task 11: `generatePlaybook`, `PlaybookSchema`
   - Task 2: `queueNotifications`, `incidentNotice`, `questionNotice`, `reviewHoldNotice`
-  - Task 9: tokens and ports
-  - Task 5: `bookings.booked_at`
+  - Task 9: tokens and ports, and the `FlightSnapshot` that `recordFlightSnapshot` stores in `incidents.raw_payload` and `booking_segments.last_status`
+  - Task 5: `bookings.booked_at`, and forwarded bookings saved one per confirmation code plus flights
   - `getLibrary()`, `matchRules`
 - Produces:
   - **SQL:**
     - `trips.hand_run boolean not null default false`. Only the service role writes it: `/admin`'s comp action (Task 16). C1's webhook also writes `pass_status = 'comp'` for a 100% promotion code, so `comp` alone doesn't mean hand-run.
     - `playbooks.held_for_review boolean not null default false`. The read policy hides a held playbook from everyone but the service role, the planner included.
   - **Assessment** (`lib/assist/assess.ts`, pure):
-    - `AssessmentInput = { incident; segment; booking: { booked_via: string | null; booked_at: string | null; segments: { carrier_iata; origin_country; destination_country; scheduled_out; scheduled_in }[] }; asked: string[]; rules: Rule[] }`. `booking.segments` is every flight on the booking, in order, for Task 10's itinerary facts.
+    - `LegRow = { carrier_iata; origin_iata; destination_iata; origin_country; destination_country; scheduled_out; scheduled_in }`: one flight, as `booking_segments` stores it
+    - `AssessmentInput = { incident: { …; raw_payload: unknown }; segment: LegRow & { flight_number; departure_local; distance_km; last_status: unknown }; booking: { booked_via: string | null; booked_at: string | null; segments: LegRow[] }; offers: LegRow[][]; airports: Record<string, { latitude: number; longitude: number }>; asked: string[]; rules: Rule[] }`. These fields feed Task 10's facts:
+      - `booking.segments` is every flight on the booking, in order, for the itinerary and journey facts.
+      - `raw_payload` and `last_status` are the FlightSnapshots at detection and latest, for the departure delay and the schedule change.
+      - `offers` holds the forwarded rebookings, for the re-routing facts.
+      - `airports` holds coordinates, for the journey's distance.
     - `Assessment = { situation; applying: Rule[]; reviewing: Rule[]; question: PlannerQuestion | null; eventSummary; extraNumbers: string[] }`, which `generatePlaybook` accepts as its `PlaybookInput`
     - `assess(input): Assessment`
     - `summarizeEvent({ carrierIata, flightNumber, originIata, departureLocal, eventType, delayMinutes }): string`
@@ -6851,6 +7286,12 @@ describe('summarizeEvent', () => {
     );
     expect(summarizeEvent({ carrierIata: 'A3', flightNumber: '349', originIata: 'ATH', departureLocal: '2026-11-05T11:00', eventType: 'delay', delayMinutes: 200 })).toBe(
       'A3 349 from ATH on Nov 5 is running 3 h 20 min late.',
+    );
+    expect(summarizeEvent({ carrierIata: 'A3', flightNumber: '349', originIata: 'ATH', departureLocal: '2026-11-05T11:00', eventType: 'delay', delayMinutes: null })).toBe(
+      'A3 349 from ATH on Nov 5 was diverted.',
+    );
+    expect(summarizeEvent({ carrierIata: 'TP', flightNumber: '204', originIata: 'EWR', departureLocal: '2026-11-03T18:15', eventType: 'schedule_change', delayMinutes: null })).toBe(
+      'TP 204 from EWR on Nov 3 was moved to a new time.',
     );
   });
 });
@@ -7021,31 +7462,45 @@ Expected: PASS, for both DB test files.
 ```ts
 import { matchRules, type Primitive, type Rule, type Situation } from '@elsewhere/rules/core';
 import { nextQuestion, type PlannerQuestion } from './questions';
-import { buildSituation } from './situation';
+import { buildSituation, type ItinerarySegment, type ObservedFlight } from './situation';
 
 const day = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
 
 export function summarizeEvent(e: { carrierIata: string; flightNumber: string; originIata: string; departureLocal: string; eventType: string; delayMinutes: number | null }): string {
   const flight = `${e.carrierIata} ${e.flightNumber} from ${e.originIata} on ${day.format(new Date(`${e.departureLocal.slice(0, 10)}T00:00:00Z`))}`;
   if (e.eventType === 'cancellation') return `${flight} was cancelled.`;
-  if (e.eventType === 'schedule_change') return `${flight} was diverted or changed.`;
-  const minutes = e.delayMinutes ?? 0;
-  return `${flight} is running ${Math.floor(minutes / 60)} h ${minutes % 60} min late.`;
+  if (e.eventType === 'schedule_change') return `${flight} was moved to a new time.`;
+  // Task 9 records a diversion as a delay whose length isn't known yet.
+  if (e.delayMinutes === null) return `${flight} was diverted.`;
+  return `${flight} is running ${Math.floor(e.delayMinutes / 60)} h ${e.delayMinutes % 60} min late.`;
 }
 
 export function incidentNumbers(delayMinutes: number | null): string[] {
   return delayMinutes === null ? [] : [String(delayMinutes), String(Math.floor(delayMinutes / 60))];
 }
 
+/** One flight, as `booking_segments` stores it. */
+export interface LegRow {
+  carrier_iata: string;
+  origin_iata: string;
+  destination_iata: string;
+  origin_country: string | null;
+  destination_country: string | null;
+  scheduled_out: string | null;
+  scheduled_in: string | null;
+}
+
 export interface AssessmentInput {
-  incident: { id: string; event_type: 'cancellation' | 'delay' | 'schedule_change'; delay_minutes: number | null; detected_at: string; facts: Record<string, Primitive> };
-  segment: { carrier_iata: string; flight_number: string; origin_iata: string; departure_local: string; origin_country: string | null; destination_country: string | null; distance_km: number | null; scheduled_out: string | null; scheduled_in: string | null };
+  /** `raw_payload` is the FlightSnapshot that raised the incident (Task 9), or `{}`. */
+  incident: { id: string; event_type: 'cancellation' | 'delay' | 'schedule_change'; delay_minutes: number | null; detected_at: string; facts: Record<string, Primitive>; raw_payload: unknown };
+  /** The disrupted flight. `last_status` is the latest FlightSnapshot of it (Task 9), or null. */
+  segment: LegRow & { flight_number: string; departure_local: string; distance_km: number | null; last_status: unknown };
   /** The booking the segment is on: when it was made (as printed), and every one of its flights, in order. */
-  booking: {
-    booked_via: string | null;
-    booked_at: string | null;
-    segments: { carrier_iata: string; origin_country: string | null; destination_country: string | null; scheduled_out: string | null; scheduled_in: string | null }[];
-  };
+  booking: { booked_via: string | null; booked_at: string | null; segments: LegRow[] };
+  /** Forwarded rebookings of this booking, each its flights in order. Empty while none is known. */
+  offers: LegRow[][];
+  /** Airport coordinates by IATA code (AeroAPI), for the journey's distance. */
+  airports: Record<string, { latitude: number; longitude: number }>;
   asked: string[];
   rules: Rule[];
 }
@@ -7059,29 +7514,32 @@ export interface Assessment {
   extraNumbers: string[];
 }
 
+const leg = (row: LegRow): ItinerarySegment => ({
+  carrierIata: row.carrier_iata,
+  originIata: row.origin_iata,
+  destinationIata: row.destination_iata,
+  originCountry: row.origin_country,
+  destinationCountry: row.destination_country,
+  scheduledOut: row.scheduled_out,
+  scheduledIn: row.scheduled_in,
+});
+
+/** A stored FlightSnapshot, as opposed to `{}` or null. */
+const isObserved = (value: unknown): value is ObservedFlight => typeof value === 'object' && value !== null && 'scheduledOut' in value;
+
 /** Pure: everything an incident needs, from loaded rows. */
 export function assess(input: AssessmentInput): Assessment {
   const situation = buildSituation({
-    event: { type: input.incident.event_type, delayMinutes: input.incident.delay_minutes, detectedAt: input.incident.detected_at },
-    segment: {
-      carrierIata: input.segment.carrier_iata,
-      originCountry: input.segment.origin_country,
-      destinationCountry: input.segment.destination_country,
-      distanceKm: input.segment.distance_km,
-      scheduledOut: input.segment.scheduled_out,
-      scheduledIn: input.segment.scheduled_in,
+    event: {
+      type: input.incident.event_type,
+      delayMinutes: input.incident.delay_minutes,
+      detectedAt: input.incident.detected_at,
+      observed: [input.incident.raw_payload, input.segment.last_status].filter(isObserved),
+      offers: input.offers.map((offer) => offer.map(leg)),
     },
-    booking: {
-      bookedVia: input.booking.booked_via,
-      bookedAt: input.booking.booked_at,
-      segments: input.booking.segments.map((s) => ({
-        carrierIata: s.carrier_iata,
-        originCountry: s.origin_country,
-        destinationCountry: s.destination_country,
-        scheduledOut: s.scheduled_out,
-        scheduledIn: s.scheduled_in,
-      })),
-    },
+    segment: { ...leg(input.segment), distanceKm: input.segment.distance_km },
+    booking: { bookedVia: input.booking.booked_via, bookedAt: input.booking.booked_at, segments: input.booking.segments.map(leg) },
+    airports: input.airports,
     answers: input.incident.facts,
   });
   const relevant = input.rules.filter((rule) => rule.domain === 'flights' || rule.domain === 'money');
@@ -7114,14 +7572,13 @@ import { assess } from '@/lib/assist/assess';
 
 describe('assess', () => {
   const rules = (fixture as unknown as RulesLibrary).rules as Rule[];
+  const tp204 = { carrier_iata: 'TP', origin_iata: 'EWR', destination_iata: 'LIS', origin_country: 'US', destination_country: 'PT', scheduled_out: '2026-11-03T23:15:00Z', scheduled_in: '2026-11-04T06:35:00Z' };
   const base = {
-    incident: { id: 'inc', event_type: 'cancellation' as const, delay_minutes: null, detected_at: '2026-11-01T12:00:00Z', facts: {} },
-    segment: { carrier_iata: 'TP', flight_number: '204', origin_iata: 'EWR', departure_local: '2026-11-03T18:15', origin_country: 'US', destination_country: 'PT', distance_km: 5430, scheduled_out: '2026-11-03T23:15:00Z', scheduled_in: '2026-11-04T06:35:00Z' },
-    booking: {
-      booked_via: null,
-      booked_at: null,
-      segments: [{ carrier_iata: 'TP', origin_country: 'US', destination_country: 'PT', scheduled_out: '2026-11-03T23:15:00Z', scheduled_in: '2026-11-04T06:35:00Z' }],
-    },
+    incident: { id: 'inc', event_type: 'cancellation' as const, delay_minutes: null, detected_at: '2026-11-01T12:00:00Z', facts: {}, raw_payload: {} },
+    segment: { ...tp204, flight_number: '204', departure_local: '2026-11-03T18:15', distance_km: 5430, last_status: null },
+    booking: { booked_via: null, booked_at: null, segments: [tp204] },
+    offers: [],
+    airports: {},
     asked: [],
     rules,
   };
@@ -7132,6 +7589,33 @@ describe('assess', () => {
     expect(answered.applying.map((r) => r.id)).toEqual(['fixture-us-refund-cancelled-flight']);
     expect(answered.question).toBeNull();
   });
+
+  it('reads AeroAPI’s snapshots, the forwarded rebooking, and the airports into the EU261 facts', () => {
+    // Task 9's FlightSnapshot: the one that raised the incident is in raw_payload, the latest in last_status.
+    const snapshot = (estimatedOut: string, actualOut: string | null) => ({
+      faFlightId: 'TAP204-1',
+      cancelled: false,
+      diverted: false,
+      scheduledOut: tp204.scheduled_out,
+      estimatedOut,
+      actualOut,
+      scheduledIn: tp204.scheduled_in,
+      estimatedIn: null,
+      actualIn: null,
+      arrivalDelayMinutes: null,
+    });
+    const delayed = assess({
+      ...base,
+      incident: { ...base.incident, event_type: 'delay', delay_minutes: 200, raw_payload: { ...snapshot('2026-11-04T03:15:00Z', null), source: 'alert' } },
+      segment: { ...base.segment, last_status: snapshot('2026-11-04T02:45:00Z', '2026-11-04T02:45:00Z') },
+      airports: { EWR: { latitude: 40.6925, longitude: -74.1687 }, LIS: { latitude: 38.7813, longitude: -9.13592 } },
+    });
+    expect(delayed.situation).toMatchObject({ 'event.departure_delay_minutes': 240, 'flight.leg_distance_km': 5430, 'flight.distance_km': 5430, 'trip.journey_arrives_eu': true });
+
+    const rebooked = assess({ ...base, offers: [[{ ...tp204, scheduled_out: '2026-11-04T23:15:00Z', scheduled_in: '2026-11-05T06:35:00Z' }]] });
+    expect(rebooked.situation).toMatchObject({ 'event.reroute_departs_early_minutes': 0, 'event.reroute_arrival_delay_minutes': 1440 });
+    expect(assess(base).situation).not.toHaveProperty('event.reroute_arrival_delay_minutes');
+  });
 });
 ```
 
@@ -7140,34 +7624,53 @@ describe('assess', () => {
 import 'server-only';
 import type { Primitive } from '@elsewhere/rules/core';
 import { appUrl } from '@/lib/env';
+import { aeroApi } from '@/lib/flights/aeroapi';
 import { incidentNotice, questionNotice, reviewHoldNotice } from '@/lib/notify/templates';
 import { queueNotifications } from '@/lib/notify/queue';
 import { getLibrary } from '@/lib/rules/library';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { assess, type Assessment } from './assess';
+import { assess, type Assessment, type LegRow } from './assess';
 import { generatePlaybook } from './playbook';
 import { answerValue, type PlannerAnswer, type PlannerQuestion } from './questions';
+
+const LEG = 'carrier_iata, origin_iata, destination_iata, origin_country, destination_country, scheduled_out, scheduled_in';
 
 async function loadIncident(incidentId: string) {
   const admin = createAdminClient();
   const { data: incident } = await admin
     .from('incidents')
-    .select('id, trip_id, segment_id, event_type, delay_minutes, detected_at, facts, affected_user_ids, trips!inner(name, pass_status)')
+    .select('id, trip_id, segment_id, event_type, delay_minutes, detected_at, facts, raw_payload, affected_user_ids, trips!inner(name, pass_status)')
     .eq('id', incidentId)
     .single();
   if (!incident) throw new Error(`incident ${incidentId} not found`);
+  // last_status is AeroAPI's latest snapshot of the flight; raw_payload (above) is the one that raised the incident.
   const { data: segment } = await admin
     .from('booking_segments')
-    .select('booking_id, carrier_iata, flight_number, origin_iata, departure_local, origin_country, destination_country, distance_km, scheduled_out, scheduled_in')
+    .select(`booking_id, flight_number, departure_local, distance_km, last_status, ${LEG}`)
     .eq('id', incident.segment_id)
     .single();
-  // The itinerary facts need every flight on the booking, with its countries and scheduled times.
-  const { data: booking } = await admin.from('bookings').select('booked_via, booked_at').eq('id', segment!.booking_id).single();
-  const { data: legs } = await admin
-    .from('booking_segments')
-    .select('carrier_iata, origin_country, destination_country, scheduled_out, scheduled_in')
-    .eq('booking_id', segment!.booking_id)
-    .order('position');
+  // The itinerary and journey facts need every flight on the booking, with its airports, countries, and scheduled times.
+  const { data: booking } = await admin.from('bookings').select('booked_via, booked_at, confirmation_code').eq('id', segment!.booking_id).single();
+  const { data: legs } = await admin.from('booking_segments').select(LEG).eq('booking_id', segment!.booking_id).order('position');
+  // A forwarded rebooking is saved as its own booking (Task 5 dedupes on the code plus the flights), and an airline
+  // keeps the record locator when it rebooks. So the offered re-routings are the trip's other bookings with this code.
+  let offers: LegRow[][] = [];
+  if (booking?.confirmation_code) {
+    const { data: rebookings } = await admin
+      .from('bookings')
+      .select(`id, booking_segments(position, ${LEG})`)
+      .eq('trip_id', incident.trip_id)
+      .eq('confirmation_code', booking.confirmation_code)
+      .neq('id', segment!.booking_id);
+    offers = (rebookings ?? []).map((b) => [...b.booking_segments].sort((x, y) => x.position - y.position).map(({ position: _position, ...leg }) => leg));
+  }
+  // Coordinates for the journey's great-circle distance. A failed lookup only leaves flight.distance_km unset.
+  const api = await aeroApi();
+  const codes = [...new Set((legs ?? []).flatMap((l) => [l.origin_iata, l.destination_iata]))];
+  const found = await Promise.all(codes.map(async (code) => [code, await api.airport(code).catch(() => null)] as const));
+  const airports = Object.fromEntries(
+    found.flatMap(([code, a]) => (a?.latitude != null && a.longitude != null ? [[code, { latitude: a.latitude, longitude: a.longitude }]] : [])),
+  );
   const { data: asked } = await admin.from('incident_events').select('detail').eq('incident_id', incidentId).eq('kind', 'question_asked');
   const trip = Array.isArray(incident.trips) ? incident.trips[0] : incident.trips;
   return {
@@ -7175,6 +7678,8 @@ async function loadIncident(incidentId: string) {
     incident,
     segment: segment!,
     booking: { booked_via: booking?.booked_via ?? null, booked_at: booking?.booked_at ?? null, segments: legs ?? [] },
+    offers,
+    airports,
     asked: (asked ?? []).map((e) => (e.detail as { fact: string }).fact),
     trip,
   };
@@ -7186,6 +7691,8 @@ export async function assessIncident(incidentId: string): Promise<Assessment & {
     incident: { ...loaded.incident, facts: (loaded.incident.facts ?? {}) as Record<string, Primitive> },
     segment: loaded.segment,
     booking: loaded.booking,
+    offers: loaded.offers,
+    airports: loaded.airports,
     asked: loaded.asked,
     rules: getLibrary().rules,
   });
@@ -8856,8 +9363,15 @@ import { approveQuarantinedMail } from './feed-actions';
 2. Directly after the `type SearchParams = …;` line, add:
 ```tsx
 
+// Task 9 records a diversion as a delay whose length isn't known yet.
 const summaryFor = (row: { event_type: string; delay_minutes: number | null }) =>
-  row.event_type === 'cancellation' ? 'A flight was cancelled.' : row.event_type === 'delay' ? `A flight is running ${Math.floor((row.delay_minutes ?? 0) / 60)} h late.` : 'A flight changed.';
+  row.event_type === 'cancellation'
+    ? 'A flight was cancelled.'
+    : row.event_type === 'delay'
+      ? row.delay_minutes === null
+        ? 'A flight was diverted.'
+        : `A flight is running ${Math.floor(row.delay_minutes / 60)} h late.`
+      : 'A flight changed.';
 ```
 
 3. Replace the whole `TripContent` function with this, and add `FeedItem` directly after it. The forwarding-address lines are C1's, unchanged:
@@ -10517,7 +11031,12 @@ The eval data is real confirmations and real past disruptions, shared with conse
   - the files it names
   - `expected.json`: the bookings, hand-checked
 - **`incidents/<case>.json`:** at least 50 past cancellations and delays, the spec's replay set. Each case:
-  - holds `{ incident, segment, booking }` in the `AssessmentInput` shape (Task 12). `booking` is `{ booked_via, booked_at, segments }`: `booked_at` is the booking date as the confirmation printed it, or `null`, and `segments` lists every flight on the ticket in order, each with `carrier_iata`, `origin_country`, `destination_country`, `scheduled_out`, and `scheduled_in`. The booking-level facts (Task 10) come from these.
+  - holds `{ incident, segment, booking, offers, airports }` in the `AssessmentInput` shape (Task 12). Every flight, wherever it appears, is a `LegRow`: `carrier_iata`, `origin_iata`, `destination_iata`, `origin_country`, `destination_country`, `scheduled_out`, and `scheduled_in`. The booking-level, journey, and EU261 facts (Task 10) come from these fields:
+    - `booking` is `{ booked_via, booked_at, segments }`. `booked_at` is the booking date as the confirmation printed it, or `null`. `segments` lists every flight on the ticket in order, the disrupted one included.
+    - `segment` is the disrupted flight as booked: a `LegRow` plus `flight_number`, `departure_local`, `distance_km` (that flight alone), and `last_status`.
+    - `incident.raw_payload` and `segment.last_status` hold AeroAPI's view of the flight at detection and at its latest, as Task 9's `FlightSnapshot`, or `{}` and `null` when there is none. A delay case needs `estimatedOut` or `actualOut` for `event.departure_delay_minutes`. A schedule-change case needs the new `scheduledOut` and `scheduledIn`.
+    - `offers` lists the airline's rebookings, each with its flights in order, or `[]` when none was sent.
+    - `airports` maps each IATA code on the booking to `{ latitude, longitude }`, for `flight.distance_km`.
   - puts the planner's answers in `incident.facts`, including `passenger.volunteered` where it matters
   - lists `expected_rule_ids`: the verified rules that should apply, hand-checked
 
@@ -11639,7 +12158,7 @@ EOF
 | **Monitoring:** starts on an active or comped pass; an AeroAPI alert per segment, delivered to the path-secret route; a polling safety net; dedupe on the provider event; checks and a briefing at T-72h; ends at trip end + 7 days. A failed start never fails the Stripe webhook; the run tokens make `/admin`'s restart safe, and polling restarts any incident never notified. | 4, 9, 12, 16 |
 | **AeroAPI down or alert registration failing:** polling with exponential backoff; persistent failure becomes an `/admin` alert | 9, 16 |
 | **Flight not found:** an action item to the planner | 4 |
-| **The situation builder fills the contract's facts** where the data allows: `flight.departs_us` (Track A's Task 18 amendment); `trip.itinerary_domestic_us` and `trip.us_foreign_nonstop_minutes` (30b549f); `event.at_us_airport`, `trip.touches_us`, `trip.booked_with_us_carrier`, and a lower bound for `trip.hours_booked_before_departure` (bd7e847). `passenger.volunteered` is a planner question. Unit tests pin each fact and its unknown case, and the scenarios pin the fixture matches. | 3, 10, 12 |
+| **The situation builder fills the contract's facts** where the data allows: `flight.departs_us` (Track A's Task 18 amendment); `trip.itinerary_domestic_us` and `trip.us_foreign_nonstop_minutes` (30b549f); `event.at_us_airport`, `trip.touches_us`, `trip.booked_with_us_carrier`, and a lower bound for `trip.hours_booked_before_departure` (bd7e847); EU261's `event.departure_delay_minutes`, `event.departure_moved_earlier_minutes`, the two `event.reroute_*` facts, `flight.leg_distance_km`, the journey's `flight.distance_km`, `flight.departs_iceland_norway_switzerland`, and `trip.journey_departs_eu` / `trip.journey_arrives_eu`, with `flight.departs_eu` / `flight.arrives_eu` on the 27 member states (1bc652c). `passenger.volunteered` and an unknown re-routing are planner questions. Unit tests pin each fact and its unknown case, and the scenarios pin the fixture matches. | 3, 9, 10, 12 |
 | **One targeted question when a fact is unknown;** the answer resumes the workflow through a hook | 10, 12 |
 | **Playbooks:** only verified rules are cited, and `needs_review` rules appear in caveats as "being re-checked". The deterministic citation check catches a missing ID, a rule outside the allowed set, and any amount or duration not in the rule. A failed draft regenerates once, then falls back to the template. | 11 |
 | **Options and the vote:** schedule data is labelled "availability not confirmed — ask the airline" | 13 |
@@ -11691,6 +12210,15 @@ EOF
    - **Facts:** Task 10 now derives the bd7e847 facts from every flight on the booking, and Task 3 extracts the booking date they need.
    - **Robustness:** every place a paid trip, an alert, or a forwarded email could be lost to a failed `start` now recovers. Writes are checked, `last_status` is saved last, the cron routes refuse an unset secret, and code sends and trip creation are rate-limited before trips open.
 
+9. **Contract 1bc652c's EU261 facts (2026-10-02).** Track A's Task 21 legal review added eight facts and redefined three. C2 now derives them, and every one is checked against Track A's `facts.ts` at c1f4348:
+   - **Task 10** derives the departure delay as the longer of AeroAPI's estimate and the actual, for that flight only. It also derives the leg distance (Task 4's `distance_km`), the journey's distance and EU ends, how far a schedule change moved the departure, and the offered re-routing. Each fact is unset while unknown, and each has a unit test for both cases.
+   - **Region sets:** `EU261_SCOPE` (which wrongly held IS, NO, LI, and CH) is replaced by `EU_MEMBER_STATES`, the 27 states with GP, MQ, GF, RE, YT, and MF, and by `ICELAND_NORWAY_SWITZERLAND`.
+   - **Flight distance:** `flight.distance_km` now means the journey's first airport to its final destination, so it no longer copies the disrupted flight's own distance.
+   - **One journey helper.** `journeyOf` serves the journey facts and `trip.us_foreign_nonstop_minutes` alike.
+   - **Questions:** an unknown re-routing becomes two planner questions, asked right after the rebooking question. Each answer band maps to its smallest value, and `answerValue` returns numbers for number facts.
+   - **Event types (Task 9).** A diversion was a `schedule_change`, which now means the same flight at another time. It is a delay of unknown length instead. A departure moved an hour or more from the booked time is now detected as a schedule change; before, nothing raised one. Task 12's summary and Task 15's feed line say "diverted" and "moved to a new time".
+   - **Loading (Task 12).** `loadIncident` now loads AeroAPI's snapshots (`raw_payload`, `last_status`), the trip's other bookings with the same record locator as offers, and airport coordinates. Task 17's replay cases carry the same fields.
+
 ### Deliberate deviations from the spec (kept)
 
 - **AeroAPI alerts are recorded directly by the webhook route,** instead of resuming a hook raced against `sleep` (Task 9). Both paths share one dedupe key.
@@ -11698,6 +12226,10 @@ EOF
 - **Comps:** `/admin` writes a `comp` pass directly, instead of using a Stripe 100% promotion code (Task 16), and marks the trip `hand_run`. `pass_status = comp` keeps comps out of the paid metrics. The review hold keys on `hand_run`, so a promotion-code comp from C1's webhook is never held.
 - **SMS reaches only members who signed in by phone.** An email account has no phone on its profile, so it gets every alert by email. Adding and verifying a phone for an email account waits for v2 (Task 1).
 - **The sender allow list trusts the `From` header** (Task 6). Resend gives no SPF or DKIM verdict. A forger also needs the trip's unguessable address, and anything unclear waits for the planner.
+- **Journeys are split by a 24-hour rule** (Task 10). A flight joins the previous one when it leaves the airport that one reached within 24 hours, the international ticketing convention for a stopover. The contract defines a journey but not where it breaks. An unusual itinerary, such as a planned stopover under a day on the way out, is read as one journey.
+- **Offers are the trip's other bookings with the same record locator** (Task 12). Airlines usually keep the locator when they rebook. A rebooking on a new locator is not seen, and the planner is asked instead. The arrival of an offer that doesn't reach the final destination by itself is left unknown, rather than stitched onto the remaining booked flights.
+- **A diversion is a delay of unknown length** (Task 9). The contract calls an air return that does not continue a cancellation. AeroAPI's `diverted` flag can't tell the two apart, so C2 never claims one.
+- **A schedule change is a departure moved at least an hour** (Task 9, `RETIME_MINUTES`). Smaller moves are schedule-data noise. The EU261 rule's earliest threshold is a move of more than 60 minutes.
 - **`trip.hours_booked_before_departure` is a lower bound** (Task 10). Confirmations rarely print a time zone, so C2 measures from the latest moment the printed booking time can mean. It never overclaims an "at least N hours ahead" rule, and may miss one booked within a day of the threshold.
 - **Schedule suggestions for a vote are not cached** (Task 13). The AeroAPI call runs only for the planner or an affected member, only until the incident has a vote, inside a `try`.
 - **The e2e replaces providers with guarded seams** rather than provider test modes, and SMS is not exercised while it is off (Task 17). Task 18 Step 19 covers SMS live.
@@ -11743,6 +12275,7 @@ This plan was written without running any of it. The executor should know which 
 - **Vercel AI Gateway:** the `budgets` and `api-keys` flags. Task 18 runs `--help` first.
 - **Twilio and Supabase console labels.**
 - **AeroAPI:** the tier names and prices.
+- **AeroAPI schedule data:** that a retimed flight shows its new `scheduled_out`, and is still found by the poll's 6-hour window around the booked departure. A retime of more than 6 hours reaches C2 only through an alert. For diversions, FlightAware's forum says a diverted flight appears as a second entry and `destination` is not reliably the diversion airport. That is why Task 9 does not try to detect an air return.
 - **Workflow:** that `sleep(Date)` and `wakeUp` behave in `@workflow/vitest` as they already do for the existing Task 9 test. `createHook().getConflict()` is in `@workflow/core` 5.0.1's types; the trip and incident run tokens use it the way the segment monitor does.
 - **Vercel Firewall:** that `checkRateLimit` reads the client IP from `headers()` inside a server action, and that rate-limit rules are on the Pro plan. Task 18 checks the limit by hand before opening trips.
 - **Twilio:** the SMS Pumping Protection and Geo permissions console labels.
