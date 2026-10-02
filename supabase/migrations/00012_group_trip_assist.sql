@@ -457,8 +457,10 @@ create table public.notifications (
   urgent boolean not null default false,
   send_after timestamptz not null default now(),
   provider_message_id text,
-  status text not null default 'queued' check (status in ('queued', 'sent', 'delivered', 'failed', 'skipped')),
+  status text not null default 'queued' check (status in ('queued', 'sending', 'sent', 'delivered', 'failed', 'skipped')),
   related_entity_id uuid,
+  claimed_at timestamptz,
+  attempts int not null default 0,
   created_at timestamptz not null default now()
 );
 
@@ -576,6 +578,32 @@ $$;
 revoke execute on function public.attribution_summary(timestamptz) from public, anon, authenticated;
 grant execute on function public.attribution_summary(timestamptz) to service_role;
 
+-- Atomically claims due notifications for sending, so overlapping runs never send the same row.
+-- Rows stuck in 'sending' for over 10 minutes are crash leftovers and are reclaimed (at-least-once).
+create or replace function public.claim_due_notifications(p_now timestamptz, p_limit int)
+returns table (id uuid, channel text, subject text, body text, attempts int, email text, phone text, sms_opt_in boolean)
+language sql security definer set search_path = public as $$
+  with due as (
+    select n.id from public.notifications n
+     where (n.status = 'queued' and n.send_after <= p_now)
+        or (n.status = 'sending' and n.claimed_at < p_now - interval '10 minutes')
+     order by n.created_at
+     limit p_limit
+     for update skip locked
+  ), claimed as (
+    update public.notifications n
+       set status = 'sending', claimed_at = p_now
+      from due
+     where n.id = due.id
+    returning n.id, n.user_id, n.channel, n.subject, n.body, n.attempts, n.created_at
+  )
+  select c.id, c.channel, c.subject, c.body, c.attempts, p.email, p.phone, p.sms_opt_in
+    from claimed c join public.profiles p on p.id = c.user_id
+   order by c.created_at;
+$$;
+revoke execute on function public.claim_due_notifications(timestamptz, int) from public, anon, authenticated;
+grant execute on function public.claim_due_notifications(timestamptz, int) to service_role;
+
 -- 10. Indexes for RLS predicates and foreign keys ----------------------------------
 create index trip_members_user_idx on public.trip_members (user_id);
 create index inbound_messages_trip_idx on public.inbound_messages (trip_id);
@@ -593,6 +621,8 @@ create index expenses_trip_idx on public.expenses (trip_id);
 create index settlements_trip_idx on public.settlements (trip_id);
 create index passes_trip_idx on public.passes (trip_id);
 create index notifications_user_idx on public.notifications (user_id);
+create index notifications_provider_message_idx on public.notifications (provider_message_id) where provider_message_id is not null;
+create index notifications_due_idx on public.notifications (status, send_after) where status in ('queued', 'sending');
 
 -- 11. Column-level grants -------------------------------------------------------------
 -- RLS policies decide which rows; these grants decide which columns authenticated users may write.

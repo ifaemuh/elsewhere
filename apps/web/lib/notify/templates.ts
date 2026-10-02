@@ -4,10 +4,19 @@ export interface Rendered {
   sms: string;
 }
 
+/** Replaces the typographic characters that would push an SMS from GSM-7 to UCS-2 (70 characters a segment). */
+function gsm(text: string): string {
+  return text.replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/[–—]/g, '-').replace(/…/g, '...');
+}
+
 function sms(body: string, url: string): string {
   const prefix = 'Elsewhere: ';
+  const text = gsm(body);
   const room = 320 - prefix.length - url.length - 1;
-  return `${prefix}${body.length > room ? `${body.slice(0, room - 1)}…` : body} ${url}`;
+  if (room < 4) return `${prefix}${url}`;
+  // Count code points, not UTF-16 units, so an emoji is never cut in half.
+  const chars = Array.from(text);
+  return `${prefix}${chars.length > room ? `${chars.slice(0, room - 3).join('')}...` : text} ${url}`;
 }
 
 export function incidentNotice({ tripName, headline, url }: { tripName: string; headline: string; url: string }): Rendered {

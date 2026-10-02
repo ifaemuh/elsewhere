@@ -29,7 +29,9 @@ export async function deliver(delivery: Delivery): Promise<{ providerMessageId: 
       subject: delivery.subject ?? 'Elsewhere',
       text: delivery.body,
     });
-    if (error || !data) throw new Error(`email failed: ${error?.message ?? 'no id'}`);
+    if (error || !data) {
+      throw Object.assign(new Error(`email failed: ${error?.message ?? 'no id'}`), { statusCode: error?.statusCode ?? undefined });
+    }
     return { providerMessageId: data.id };
   }
   const client = twilio(requireEnv('TWILIO_ACCOUNT_SID'), requireEnv('TWILIO_AUTH_TOKEN'));

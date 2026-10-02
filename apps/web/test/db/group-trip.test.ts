@@ -87,3 +87,51 @@ describe('profile columns (Task 1)', () => {
     await rejects(() => asUser(db, MEMBER, () => db.query("update public.profiles set email = 'evil@example.test' where id = $1", [MEMBER])), /permission denied/);
   });
 });
+
+describe('claim_due_notifications (Task 2)', () => {
+  const NOW = '2026-11-04T15:00:00Z';
+  async function seed(n: number, extra = '') {
+    await db.exec('delete from public.notifications');
+    for (let i = 0; i < n; i += 1) {
+      await db.query(
+        `insert into public.notifications (user_id, channel, template, body, send_after, created_at ${extra ? ', status, claimed_at' : ''})
+         values ($1, 'email', 't', $2, '2026-11-04T14:00:00Z', now() + ($3 || ' seconds')::interval ${extra ? ', ' + extra : ''})`,
+        [MEMBER, `b${i}`, String(i)],
+      );
+    }
+  }
+  const claim = (limit: number) => asService(db, () => db.query<{ id: string; email: string }>('select * from public.claim_due_notifications($1, $2)', [NOW, limit]));
+
+  it('never returns the same row to two concurrent claims', async () => {
+    await seed(6);
+    const [a, b] = await Promise.all([claim(4), claim(4)]);
+    const ids = [...a.rows, ...b.rows].map((r) => r.id);
+    expect(ids).toHaveLength(6);
+    expect(new Set(ids).size).toBe(6);
+    expect(a.rows[0].email).toBe('sam@example.test');
+    expect((await claim(4)).rows).toHaveLength(0);
+  });
+
+  it('skips rows that are not yet due', async () => {
+    await seed(1);
+    await db.exec("update public.notifications set send_after = '2026-11-04T16:00:00Z'");
+    expect((await claim(10)).rows).toHaveLength(0);
+  });
+
+  it('reclaims a stale sending row but not a fresh one', async () => {
+    await seed(1, "'sending', '2026-11-04T14:30:00Z'::timestamptz");
+    expect((await claim(10)).rows).toHaveLength(1);
+    await seed(1, "'sending', '2026-11-04T14:55:00Z'::timestamptz");
+    expect((await claim(10)).rows).toHaveLength(0);
+  });
+
+  it('is executable by the service role only', async () => {
+    await rejects(() => asUser(db, MEMBER, () => db.query('select * from public.claim_due_notifications($1, 1)', [NOW])), /permission denied/);
+    await db.exec('set role anon');
+    try {
+      await rejects(() => db.query('select * from public.claim_due_notifications($1, 1)', [NOW]), /permission denied/);
+    } finally {
+      await db.exec('reset role');
+    }
+  });
+});

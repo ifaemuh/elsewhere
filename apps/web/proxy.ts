@@ -12,7 +12,7 @@ export async function proxy(request: NextRequest) {
 export const config = {
   matcher: [
     {
-      source: '/((?!_next/static|_next/image|favicon.ico|characters/|\\.well-known/workflow/|api/webhooks/).*)',
+      source: '/((?!_next/static|_next/image|favicon.ico|characters/|\\.well-known/workflow/|api/webhooks/|api/cron/).*)',
     },
   ],
 };
