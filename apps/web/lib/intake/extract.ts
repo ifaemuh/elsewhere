@@ -2,7 +2,7 @@ import 'server-only';
 import { generateText, Output, type LanguageModel, type UserContent } from 'ai';
 import { z } from 'zod';
 import { model as defaultModel, NO_TRAINING } from '@/lib/ai/models';
-import { normalizeBooking, type NormalizedBooking } from './normalize';
+import { groundBooking, normalizeBooking, type NormalizedBooking } from './normalize';
 
 export const ExtractedSegmentSchema = z.object({
   carrier_iata: z.string().describe('Two-character IATA airline code, e.g. "TP"'),
@@ -63,13 +63,34 @@ function htmlToText(html: string): string {
     .trim();
 }
 
+export const MAX_IMAGES = 5;
+export const MAX_PDFS = 3;
+export const MAX_FILE_BYTES = 4 * 1024 * 1024;
+const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
+const PDF_TYPES = new Set(['application/pdf']);
+
+function boundFiles(files: ExtractionInput['images'], label: string, allowed: Set<string>, max: number, problems: string[]) {
+  const kept: ExtractionInput['images'] = [];
+  for (const file of files) {
+    if (!allowed.has(file.mediaType.toLowerCase())) problems.push(`a ${label} was skipped: unsupported type`);
+    else if (file.data.byteLength > MAX_FILE_BYTES) problems.push(`a ${label} was skipped: larger than 4 MB`);
+    else if (kept.length >= max) problems.push(`a ${label} was skipped: more than ${max} attached`);
+    else kept.push(file);
+  }
+  return kept;
+}
+
 /** Never log or echo the input: it is raw, untrusted email content. */
 export async function extractBookings(input: ExtractionInput, opts: { model?: LanguageModel } = {}): Promise<NormalizedBooking[]> {
-  const body = (input.text ?? (input.html ? htmlToText(input.html) : '')).slice(0, 60_000);
+  const attachmentProblems: string[] = [];
+  const images = boundFiles(input.images, 'image', IMAGE_TYPES, MAX_IMAGES, attachmentProblems);
+  const pdfs = boundFiles(input.pdfs, 'PDF', PDF_TYPES, MAX_PDFS, attachmentProblems);
+  const body = (input.text?.trim() || (input.html ? htmlToText(input.html) : '')).slice(0, 60_000);
+  if (!body && images.length === 0 && pdfs.length === 0) return [];
   const content: UserContent = [
     { type: 'text', text: body ? `Email content:\n${body}` : 'Extract the booking from the attached image or document.' },
-    ...input.images.map((image) => ({ type: 'image' as const, image: image.data, mediaType: image.mediaType })),
-    ...input.pdfs.map((pdf) => ({ type: 'file' as const, data: pdf.data, mediaType: pdf.mediaType })),
+    ...images.map((image) => ({ type: 'image' as const, image: image.data, mediaType: image.mediaType })),
+    ...pdfs.map((pdf) => ({ type: 'file' as const, data: pdf.data, mediaType: pdf.mediaType })),
   ];
   const { output } = await generateText({
     model: opts.model ?? (await defaultModel('extraction')),
@@ -78,5 +99,8 @@ export async function extractBookings(input: ExtractionInput, opts: { model?: La
     messages: [{ role: 'user', content }],
     providerOptions: NO_TRAINING,
   });
-  return output.bookings.map(normalizeBooking);
+  return output.bookings.map((raw) => {
+    const grounded = groundBooking(normalizeBooking(raw), body || null);
+    return { ...grounded, problems: [...grounded.problems, ...attachmentProblems] };
+  });
 }
