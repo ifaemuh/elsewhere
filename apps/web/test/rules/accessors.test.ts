@@ -71,3 +71,59 @@ describe('present', () => {
     expect(formatIsoDate('2026-10-20')).toBe('Oct 20, 2026');
   });
 });
+
+describe('resolveRulePage gone cases', () => {
+  const retired = findRule(library, 'fixture-old-refund-rule')!;
+  const withRules = (...rules: typeof library.rules): RulesLibrary => ({ ...library, rules: [...library.rules, ...rules] });
+
+  it('is gone for a retired rule with no replaced_by', () => {
+    const { replaced_by: _omit, ...rest } = retired;
+    const lib = withRules({ ...rest, id: 'retired-orphan' });
+    expect(resolveRulePage(lib, 'retired-orphan')).toEqual({ kind: 'gone' });
+  });
+
+  it('is gone when replaced_by points at a draft', () => {
+    const lib = withRules({ ...retired, id: 'retired-to-draft', replaced_by: 'fixture-draft-rule' });
+    expect(resolveRulePage(lib, 'retired-to-draft')).toEqual({ kind: 'gone' });
+  });
+
+  it('is gone when replaced_by points at another retired rule', () => {
+    const lib = withRules({ ...retired, id: 'retired-to-retired', replaced_by: 'fixture-old-refund-rule' });
+    expect(resolveRulePage(lib, 'retired-to-retired')).toEqual({ kind: 'gone' });
+  });
+});
+
+describe('needsReviewSince history runs', () => {
+  const base = findRule(library, 'fixture-tarmac-delay')!;
+  const h = (status: string, date: string) => ({ version: 1, status, date }) as (typeof base.history)[number];
+
+  it('returns the start of the latest needs_review run', () => {
+    const rule = {
+      ...base,
+      history: [h('draft', '2026-10-01'), h('needs_review', '2026-10-02'), h('verified', '2026-10-03'), h('needs_review', '2026-10-10'), h('needs_review', '2026-10-12')],
+    };
+    expect(needsReviewSince(rule)).toBe('2026-10-10');
+  });
+
+  it('returns null when the latest history entry is not needs_review', () => {
+    const rule = { ...base, history: [h('needs_review', '2026-10-02'), h('verified', '2026-10-03')] };
+    expect(needsReviewSince(rule)).toBeNull();
+  });
+});
+
+describe('accessors do not mutate the library', () => {
+  it('leaves the library deep-equal after every accessor runs', () => {
+    const lib = structuredClone(library);
+    const before = structuredClone(lib);
+    publishedRules(lib);
+    staticRuleIds(lib);
+    for (const rule of lib.rules) {
+      resolveRulePage(lib, rule.id);
+      needsReviewSince(rule);
+      sourcesFor(lib, rule);
+      entitlementLines(rule);
+    }
+    verifiedRulesIn(lib, 'flights');
+    expect(lib).toEqual(before);
+  });
+});
