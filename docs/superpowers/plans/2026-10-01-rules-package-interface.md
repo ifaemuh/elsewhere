@@ -146,6 +146,7 @@ export const FACTS: {
   'event.delay_minutes': FactDef;        // number
   'event.notice_days': FactDef;          // number
   'event.cause': FactDef;                // enum: controllable, uncontrollable, unknown
+  'event.at_us_airport': FactDef;        // boolean — the disruption happened at a US airport (incl. territories); tarmac_delay: where the aircraft was held
   'flight.carrier_iata': FactDef;        // string
   'flight.carrier_is_us': FactDef;       // boolean
   'flight.touches_us': FactDef;          // boolean
@@ -158,6 +159,7 @@ export const FACTS: {
   'flight.single_ticket': FactDef;       // boolean
   'flight.departs_us': FactDef;          // boolean
   'passenger.accepted_alternative': FactDef;            // boolean
+  'passenger.volunteered': FactDef;                     // boolean — gave up a seat by answering the airline's call for volunteers (14 CFR 250.2b)
   'passenger.nationality': FactDef;                     // string (ISO 3166 alpha-2)
   'passenger.passport_months_valid_after_return': FactDef; // number
   'passenger.has_real_id': FactDef;                     // boolean
@@ -165,7 +167,9 @@ export const FACTS: {
   'trip.destination_country': FactDef;   // string (ISO 3166 alpha-2)
   'trip.booked_via': FactDef;            // enum: direct, ota
   'trip.hours_since_booking': FactDef;   // number
-  'trip.days_until_departure': FactDef;  // number
+  'trip.hours_booked_before_departure': FactDef; // number — hours between when the booking was made and the first flight's scheduled departure
+  'trip.touches_us': FactDef;            // boolean — any flight on the booking departs from or arrives at a US airport
+  'trip.booked_with_us_carrier': FactDef; // boolean — the airline the booking was made with is a US airline
   'trip.itinerary_domestic_us': FactDef;  // boolean — every flight on the ticket is within the US (14 CFR 260 "domestic itinerary")
   'trip.us_foreign_nonstop_minutes': FactDef; // number — scheduled minutes of the ticket's nonstop flight between the US and a foreign point
   'lodging.kind': FactDef;               // enum: hotel, short_term_rental
@@ -173,6 +177,14 @@ export const FACTS: {
 };
 
 export type FactName = keyof typeof FACTS;
+
+// Amendment (2026-10-02, Track A Task 20 legal review): descriptions in src/facts.ts also define
+// event.type `denied_boarding` (oversold flight, confirmed reservation; not documents/conduct/
+// safety/cancellation), event.delay_minutes for denied_boarding (planned arrival of the offered
+// replacement vs the original, at the first stopover >4h or final destination; no replacement
+// offered = 240+), trip.booked_via `ota` (any online agency, travel agent or other third party),
+// and say "including territories and possessions" on every US-airport fact.
+// trip.days_until_departure is removed (replaced by trip.hours_booked_before_departure).
 export type Situation = Partial<Record<FactName, Primitive>>;
 
 /** Throws FactValueError if a value doesn't fit its FactDef. */
