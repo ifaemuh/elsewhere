@@ -4627,6 +4627,8 @@ The next tracker run prunes `Elsewhere Canary.json` from the declarations repo. 
 
 ### Task 18: Two facts the first rules need
 
+> **Controller note (2026-10-02), contract 30b549f:** `flight.scheduled_duration_minutes` was replaced by the itinerary facts `trip.itinerary_domestic_us` and `trip.us_foreign_nonstop_minutes`, because 14 CFR 260.2 sets its thresholds per itinerary. Where this task says `flight.scheduled_duration_minutes` or uses `flight.is_domestic_us` for a Part 260 threshold, use the itinerary facts instead.
+
 Part 250 (bumping) covers flights departing the US, and `flight.touches_us` can't express that. Part 260's "significantly delayed bag" thresholds depend on how long the flight is scheduled to take. Per the contract, the interface change lands first, in its own commit.
 
 **Files:**
@@ -4720,6 +4722,8 @@ The same acceptance checks apply to every rule:
 Before writing the first rule of each task, check the Federal Register for pending changes to that task's CFR parts. DOT published "Airline Refunds and Other Consumer Protections" and "One-Page Document on Passenger Rights" in 2026. Mention anything pending in the PR's "Unsure about" line.
 
 ### Task 19: Rules 1–4, the 14 CFR Part 260 refund family
+
+> **Controller note (2026-10-02), contract 30b549f:** `flight.scheduled_duration_minutes` was replaced by the itinerary facts `trip.itinerary_domestic_us` and `trip.us_foreign_nonstop_minutes`, because 14 CFR 260.2 sets its thresholds per itinerary. Where this task says `flight.scheduled_duration_minutes` or uses `flight.is_domestic_us` for a Part 260 threshold, use the itinerary facts instead.
 
 **Files:**
 - Create: `packages/rules/data/flights/{us-dot-refund-cancelled-flight,us-dot-refund-significant-change,us-dot-bag-fee-refund-delayed-bag,us-dot-refund-service-not-provided}.yaml` and the matching `packages/rules/test/data-cases/<id>.yaml`
