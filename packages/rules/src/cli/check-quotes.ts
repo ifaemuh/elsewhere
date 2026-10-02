@@ -26,7 +26,8 @@ try {
 } catch (error) {
   if (error instanceof RulesValidationError) {
     console.error(error.message);
-    process.exit(1);
+    // 3 = rules or sources failed to load; distinct from 1 (quote or supports issues found).
+    process.exit(3);
   }
   throw error;
 }
@@ -48,7 +49,10 @@ for (const message of supportIssues) console.log(message);
 if (values['write-needs-review']) {
   const today = new Date().toISOString().slice(0, 10);
   for (const { rule, file } of entries) {
-    const failingSources = [...new Set(quoteIssues.filter((i) => i.rule_id === rule.id).map((i) => i.source_key))];
+    // Only a quote that is absent from fetched text flips a rule; a missing source is an outage.
+    const failingSources = [
+      ...new Set(quoteIssues.filter((i) => i.rule_id === rule.id && i.reason === 'not_found').map((i) => i.source_key)),
+    ];
     if (rule.status !== 'verified' || failingSources.length === 0) continue;
     const updated = markNeedsReview(readFileSync(file, 'utf8'), {
       version: rule.version,
@@ -62,5 +66,7 @@ if (values['write-needs-review']) {
 }
 
 const total = quoteIssues.length + supportIssues.length;
+const missing = quoteIssues.filter((i) => i.reason === 'source_missing').length;
 console.log(total ? `${total} issue(s) in ${entries.length} rule(s)` : `All quotes found in ${entries.length} rule(s)`);
+if (missing) console.log(`${missing} quote(s) not checked because their source text is missing (no rule status changed for these)`);
 process.exit(total ? 1 : 0);

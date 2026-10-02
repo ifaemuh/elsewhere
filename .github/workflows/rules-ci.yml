@@ -43,6 +43,7 @@ jobs:
           repository: ifaemuh/elsewhere-sources-versions
           token: ${{ secrets.SOURCES_REPOS_TOKEN }}
           path: .sources-versions
+          persist-credentials: false
 
       - name: Every quote must be in its source's tracked text
         run: npm run rules:check-quotes -w @elsewhere/rules -- --versions "$GITHUB_WORKSPACE/.sources-versions"

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -135,6 +135,39 @@ test('rules:check-quotes reports sources with no tracked text', () => {
   const result = run('check-quotes.ts', [...fixtureArgs(fixtureData()), '--versions', mkdtempSync(join(tmpdir(), 'empty-'))]);
   assert.equal(result.status, 1);
   assert.match(result.stdout, /source_missing/);
+});
+
+test('rules:check-quotes --write-needs-review never flips a rule for a missing source', () => {
+  const dataDir = fixtureData();
+  const before = new Map(['flights/fx-missed-connection-single-ticket.yaml', 'flights/fx-us-refund-cancelled-flight.yaml'].map((f) => [f, readFileSync(join(dataDir, f), 'utf8')]));
+  const args = [...fixtureArgs(dataDir), '--versions', mkdtempSync(join(tmpdir(), 'empty-')), '--write-needs-review'];
+  const result = run('check-quotes.ts', args);
+  assert.equal(result.status, 1);
+  assert.match(result.stdout, /source_missing/);
+  assert.match(result.stdout, /\d+ quote\(s\) not checked because their source text is missing/);
+  assert.doesNotMatch(result.stdout, /status set to needs_review/);
+  for (const [f, text] of before) assert.equal(readFileSync(join(dataDir, f), 'utf8'), text);
+});
+
+test('rules:check-quotes flips on not_found only and names only that source', () => {
+  const dataDir = fixtureData();
+  const versions = fixtureVersions();
+  // fx-carrier-coc present but quote broken; fx-dot-refunds text missing entirely
+  const coc = join(versions, 'Example Air/Conditions of Carriage.md');
+  writeFileSync(coc, readFileSync(coc, 'utf8').replace('no extra charge', 'a $75 fee'));
+  rmSync(join(versions, 'eCFR/title-14-part-260.md'));
+  const file = join(dataDir, 'flights/fx-missed-connection-single-ticket.yaml');
+  const text = readFileSync(file, 'utf8');
+  // add a second source ref so one rule has both failure kinds
+  const doc = parseDocument(text);
+  const refs = doc.get('sources') as any;
+  refs.add(doc.createNode({ id: 's2', source: 'fx-dot-refunds', quotes: [{ text: 'prompt refund', supports: ['summary'] }] }));
+  writeFileSync(file, doc.toString({ lineWidth: 0 }));
+  const result = run('check-quotes.ts', [...fixtureArgs(dataDir), '--versions', versions, '--write-needs-review']);
+  assert.equal(result.status, 1, result.stderr);
+  const after = parse(readFileSync(file, 'utf8'));
+  assert.equal(after.status, 'needs_review');
+  assert.equal(after.history.at(-1).note, 'quote not found in fx-carrier-coc');
 });
 
 test('rules:check-quotes requires --versions', () => {

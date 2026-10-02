@@ -17,6 +17,7 @@ jobs:
   backstop:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    if: github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v4
 
@@ -33,20 +34,21 @@ jobs:
           repository: ifaemuh/elsewhere-sources-versions
           token: ${{ secrets.SOURCES_REPOS_TOKEN }}
           path: .sources-versions
+          persist-credentials: false
 
       - name: Flip verified rules whose quotes no longer match
         id: check
         run: |
-          # Exit 1 with "issue(s)" in the output is the expected "quotes missing" result.
-          # Any other failure (usage, validation, crash) must fail the job, but only after
-          # the PR step has had a chance to publish whatever was flipped.
+          # Exit 0 = clean, 1 = quote or supports issues found (expected; --write-needs-review
+          # flips verified rules whose quote is absent from fetched text, never on a missing source).
+          # Anything else (2 usage, 3 load failure, crash) fails the job after the PR step.
           rc=0
           npm run -s rules:check-quotes -w @elsewhere/rules -- \
             --versions "$GITHUB_WORKSPACE/.sources-versions" --write-needs-review > "$RUNNER_TEMP/backstop.txt" || rc=$?
           cat "$RUNNER_TEMP/backstop.txt"
-          if [ "$rc" -ne 0 ] && { [ "$rc" -ne 1 ] || ! grep -q 'issue(s) in' "$RUNNER_TEMP/backstop.txt"; }; then
+          if [ "$rc" -gt 1 ]; then
             echo "failed=true" >> "$GITHUB_OUTPUT"
-            echo "rules:check-quotes exited with $rc without a normal issue report."
+            echo "rules:check-quotes exited with $rc."
           fi
 
       - name: Open a PR when any rule was flipped
@@ -58,17 +60,23 @@ jobs:
             echo "No rule flipped."
             exit 0
           fi
-          branch="rules/backstop-$(date -u +%F)"
-          if git ls-remote --exit-code --heads origin "$branch" > /dev/null; then
-            echo "$branch already exists."
+          open=$(gh pr list --label rules-backstop --state open --json number --jq length)
+          if [ "$open" -gt 0 ]; then
+            echo "::notice::A rules-backstop PR is already open; flipped rules were not republished. Merge or close it so the next run can open a new one."
             exit 0
           fi
+          today=$(date -u +%F)
+          branch="rules/backstop-$today"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git switch -c "$branch"
-          git add packages/rules/data
-          git commit -m "Flag rules whose quotes no longer match their sources" -m "$(cat "$RUNNER_TEMP/backstop.txt")"
-          git push -u origin "$branch" || { git pull --rebase origin "$branch" 2>/dev/null; git push -u origin "$branch"; }
+          if git ls-remote --exit-code --heads origin "$branch" > /dev/null; then
+            echo "::notice::$branch exists with no open PR; opening the PR from it."
+          else
+            git switch -c "$branch"
+            git add packages/rules/data
+            git commit -m "Flag rules whose quotes no longer match their sources" -m "$(cat "$RUNNER_TEMP/backstop.txt")"
+            git push -u origin "$branch" || { git pull --rebase origin "$branch"; git push -u origin "$branch"; }
+          fi
           gh label create rules-backstop --force --color D93F0B --description "Nightly quote backstop"
           {
             echo "The nightly quote check could not find these quotes in the latest tracked source text."
@@ -79,7 +87,7 @@ jobs:
             echo '```'
           } > "$RUNNER_TEMP/body.md"
           gh pr create --base main --head "$branch" --label rules-backstop \
-            --title "Rules backstop: quotes not found ($(date -u +%F))" --body-file "$RUNNER_TEMP/body.md"
+            --title "Rules backstop: quotes not found ($today)" --body-file "$RUNNER_TEMP/body.md"
 
       - name: Fail the run if the quote check itself failed
         if: ${{ !cancelled() && steps.check.outputs.failed == 'true' }}
