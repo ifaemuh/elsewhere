@@ -95,7 +95,7 @@ Risks accepted with eyes open:
 
 | Verdict | Features |
 |---|---|
-| **Core** | Trip intake, travelers, travel admin (passport/PreCheck/Global Entry, GovSwift-style partner referral), action items, votes, schedule + participation, payments summary (settled via Venmo/Cash App links), travel credits as assets, notifications |
+| **Core** | Trip intake, travelers, travel admin (passport/PreCheck/Global Entry: official free routes with deadline math, plus an expedited-passport affiliate; GovSwift partnership deferred), action items, votes, schedule + participation, payments summary (settled via Venmo/Cash App links), travel credits as assets, notifications |
 | **Reshaped** | In-app chat becomes links into existing chats. The Discover feed is dropped, but `discover/enrich` stays to turn a pasted TikTok link into a place. Calendar becomes an .ics export. The photo recap reel arrives later, built from photos people pick |
 | **Parked** | Booking checkout and package generator, financing/BNPL, social graph, AI selfie previews. The previews return later as "turn your friend group into the cast" |
 
@@ -141,8 +141,9 @@ is cut for bandwidth.
 
 1. **Uncommitted mobile work on `codex/discover-reels-glass`.** Before Expo is archived,
    decide whether to commit it as a final snapshot or discard it.
-2. **GovSwift and Mischa's company.** Confirm whether they are the same company and who
-   to contact for the travel-admin referral.
+2. **GovSwift (Mischa works there): partnership deferred** (decided 2026-10-01). Travel
+   admin ships with official routes and an expedited-passport affiliate. Revisit GovSwift
+   for referral terms and application-status callbacks once the core is live.
 3. **Price points** for the payment test (proposed in the track C spec).
 4. **OpenAI API key** in `apps/api/.env` is out of credits. Image generation now runs on
    Replicate, so top it up only if an OpenAI model is needed.

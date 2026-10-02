@@ -129,7 +129,7 @@ so nothing user-owned is lost.
 | `trips` | Drop `destination_id`, `traveler_count`, `total_cost`, all `booking_flow_*`. Add `name` (`Place Year`), `inbound_code` (unique, random), `join_token_hash`, `pass_status` (`none`, `active`, `comp`) |
 | `travelers` → `trip_members` | Renamed. Adds `role` (`planner`, `member`), `display_name`, `invite_state`, `joined_at`. `payment_state` moves to expenses |
 | `travel_document_records` → `member_documents` | Drop `encrypted_reference`; we never hold document numbers. Columns: `user_id`, `kind` (`passport`, `real_id`, `global_entry`, `tsa_precheck`), `issuing_country`, `expires_on`. Owner-only RLS |
-| `travel_admin_partner_routes` | Kept as-is for the passport, Global Entry, and PreCheck referral (GovSwift-style partner) |
+| `travel_admin_partner_routes` | Kept, repurposed: per document kind, the official route URL (State Department online renewal, TSA PreCheck enrollment, CBP Global Entry) and an optional affiliate route URL with its disclosure (expedited passport). The GovSwift partnership is deferred, so there are no partner API or status callbacks |
 | `experiment_assignments`, `funnel_telemetry_events`, `attribution_touchpoints` | Kept for the payment test. Add `anonymous_id` so visitors are tracked before sign-in |
 
 **New:**
