@@ -128,4 +128,27 @@ describe('groundBooking', () => {
     expect(result.confidence).toBeLessThan(CONFIDENCE_THRESHOLD);
     expect(result.problems.length).toBeGreaterThan(0);
   });
+
+  it('does not crash on regex-significant flight data, and treats it as ungrounded', () => {
+    for (const bad of ['(204)', '[']) {
+      const b = normalizeBooking({ ...raw, segments: [{ ...raw.segments[0], flight_number: bad, carrier_iata: bad === '[' ? '[' : 'TP' }] });
+      const result = groundBooking(b, 'ABC123 DOE JONES TP 204 (204) [');
+      expect(result.confidence).toBeLessThanOrEqual(0.5);
+    }
+  });
+
+  it('matches flight numbers on a boundary, with spacing and leading zeros', () => {
+    const b = normalizeBooking(raw);
+    expect(groundBooking(b, 'ABC123 DOE JONES TP 204').confidence).toBe(0.95);
+    expect(groundBooking(b, 'ABC123 DOE JONES TP0204').confidence).toBe(0.95);
+    expect(groundBooking(b, 'ABC123 DOE JONES tp204').confidence).toBe(0.95);
+    expect(groundBooking(b, 'ABC123 DOE JONES TP2040').confidence).toBe(0.5);
+  });
+
+  it('records a problem when arrival is not a real time', () => {
+    const b = normalizeBooking({ ...raw, segments: [{ ...raw.segments[0], arrival_local: '2026-02-30T10:00' }] });
+    expect(b.segments[0].arrivalLocal).toBeNull();
+    expect(b.problems).toContain('segment 1: arrival is not a real date and time');
+    expect(b.confidence).toBe(0.95);
+  });
 });

@@ -68,6 +68,8 @@ export function scrubSensitive(text: string): string {
     .trim();
 }
 
+const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 const compact = (value: string) =>
   value
     .normalize('NFD')
@@ -95,7 +97,10 @@ export function groundBooking(booking: NormalizedBooking, sourceText: string | n
     problems.push('confirmation code is not in the message text');
   }
   booking.segments.forEach((segment, index) => {
-    if (!new RegExp(`${compact(segment.carrierIata)}0*${segment.flightNumber}`).test(source)) {
+    // Model-supplied values never reach a regex unless they are plainly an airline code and a number.
+    const valid = /^[A-Z0-9]{2}$/.test(segment.carrierIata) && /^\d{1,4}$/.test(segment.flightNumber);
+    const found = valid && new RegExp(`\\b${escapeRegExp(segment.carrierIata)}\\s*0*${escapeRegExp(segment.flightNumber)}(?!\\d)`, 'i').test(sourceText);
+    if (!found) {
       grounded = false;
       problems.push(`segment ${index + 1}: flight number is not in the message text`);
     }
@@ -160,13 +165,15 @@ export function normalizeBooking(raw: z.infer<typeof ExtractedBookingSchema>): N
     if (!/^[A-Z]{3}$/.test(destinationIata)) problems.push(`segment ${n}: destination "${segment.destination_iata}" is not an airport code`);
     if (!isRealDateTime(segment.departure_local)) problems.push(`segment ${n}: departure "${segment.departure_local}" is not a date and time`);
     if (problems.length > 0) segmentsOk = false;
+    const arrivalOk = !segment.arrival_local || isRealDateTime(segment.arrival_local);
+    if (!arrivalOk) problems.push(`segment ${n}: arrival is not a real date and time`);
     return {
       carrierIata,
       flightNumber,
       originIata,
       destinationIata,
       departureLocal: segment.departure_local,
-      arrivalLocal: segment.arrival_local && isRealDateTime(segment.arrival_local) ? segment.arrival_local : null,
+      arrivalLocal: segment.arrival_local && arrivalOk ? segment.arrival_local : null,
     };
   });
 

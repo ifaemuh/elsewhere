@@ -47,7 +47,7 @@ describe('model', () => {
     writeFileSync(path.join(dir, 'extraction.json'), JSON.stringify({ bookings: [booking] }));
     process.env.ELSEWHERE_AI_FAKE_DIR = dir;
     process.env.VERCEL_ENV = 'preview';
-    const bookings = await extractBookings({ text: 'ABC123 DOE/PAT TP 204', html: null, images: [], pdfs: [] });
+    const { bookings } = await extractBookings({ text: 'ABC123 DOE/PAT TP 204', html: null, images: [], pdfs: [] });
     expect(bookings).toHaveLength(1);
     expect(bookings[0].dedupeKey).toBe('flight|ABC123|TP204@2026-11-03');
   });

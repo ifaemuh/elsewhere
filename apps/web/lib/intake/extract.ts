@@ -81,12 +81,12 @@ function boundFiles(files: ExtractionInput['images'], label: string, allowed: Se
 }
 
 /** Never log or echo the input: it is raw, untrusted email content. */
-export async function extractBookings(input: ExtractionInput, opts: { model?: LanguageModel } = {}): Promise<NormalizedBooking[]> {
+export async function extractBookings(input: ExtractionInput, opts: { model?: LanguageModel } = {}): Promise<{ bookings: NormalizedBooking[]; problems: string[] }> {
   const attachmentProblems: string[] = [];
   const images = boundFiles(input.images, 'image', IMAGE_TYPES, MAX_IMAGES, attachmentProblems);
   const pdfs = boundFiles(input.pdfs, 'PDF', PDF_TYPES, MAX_PDFS, attachmentProblems);
   const body = (input.text?.trim() || (input.html ? htmlToText(input.html) : '')).slice(0, 60_000);
-  if (!body && images.length === 0 && pdfs.length === 0) return [];
+  if (!body && images.length === 0 && pdfs.length === 0) return { bookings: [], problems: attachmentProblems };
   const content: UserContent = [
     { type: 'text', text: body ? `Email content:\n${body}` : 'Extract the booking from the attached image or document.' },
     ...images.map((image) => ({ type: 'image' as const, image: image.data, mediaType: image.mediaType })),
@@ -99,8 +99,5 @@ export async function extractBookings(input: ExtractionInput, opts: { model?: La
     messages: [{ role: 'user', content }],
     providerOptions: NO_TRAINING,
   });
-  return output.bookings.map((raw) => {
-    const grounded = groundBooking(normalizeBooking(raw), body || null);
-    return { ...grounded, problems: [...grounded.problems, ...attachmentProblems] };
-  });
+  return { bookings: output.bookings.map((raw) => groundBooking(normalizeBooking(raw), body || null)), problems: attachmentProblems };
 }
