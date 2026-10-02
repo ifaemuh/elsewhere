@@ -5,7 +5,7 @@ import { getCurrentUser } from '@/lib/auth/user';
 import { recordOfferClickBackstop } from '@/lib/funnel/offer-click';
 import { tripsOpen } from '@/lib/trips/open';
 
-type SearchParams = Promise<{ rule?: string }>;
+type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
 export default function StartPage({ searchParams }: { searchParams: SearchParams }) {
   return (
@@ -24,9 +24,10 @@ export default function StartPage({ searchParams }: { searchParams: SearchParams
 }
 
 async function StartActions({ searchParams }: { searchParams: SearchParams }) {
-  const { rule } = await searchParams;
+  const params = await searchParams;
+  const rule = typeof params.rule === 'string' ? params.rule : undefined;
   // Backstop for the client's offer_click (modified clicks, hard navigations); deduped in the database.
-  await recordOfferClickBackstop(rule);
+  await recordOfferClickBackstop(rule, params);
   if (!tripsOpen()) {
     return (
       <p className="mt-10 rounded-xl border border-[#e4dfd0] bg-white p-6 text-lg">

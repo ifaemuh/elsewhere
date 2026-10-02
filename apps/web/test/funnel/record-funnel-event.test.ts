@@ -89,4 +89,10 @@ describe('recordFunnelEvent', () => {
     expect(insert.mock.calls[1][0].metadata).toEqual({ utm_campaign: 'c1' });
     expect(set).not.toHaveBeenCalled();
   });
+
+  it('rejects an offer_click without a rule id', async () => {
+    store.set('elsewhere_aid', AID);
+    await recordFunnelEvent({ event: 'offer_click', ruleId: null } as never);
+    expect(insert).not.toHaveBeenCalled();
+  });
 });

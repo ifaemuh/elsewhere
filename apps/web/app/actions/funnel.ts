@@ -7,11 +7,12 @@ import { recordEvent } from '@/lib/funnel/events';
 import { parseUtmCookie, pickUtm, UTM_COOKIE, UTM_COOKIE_OPTIONS } from '@/lib/funnel/utm';
 import { assignVariant } from '@/lib/funnel/variant';
 
-const Input = z.object({
-  event: z.enum(['rule_page_view', 'offer_click']),
-  ruleId: z.string().max(120).nullable(),
-  utm: z.record(z.string(), z.string().max(100)).optional(),
-});
+const utm = z.record(z.string(), z.string().max(100)).optional();
+// offer_click needs a rule so the daily dedupe index (NULL rule ids are distinct) always applies.
+const Input = z.discriminatedUnion('event', [
+  z.object({ event: z.literal('rule_page_view'), ruleId: z.string().max(120).nullable(), utm }),
+  z.object({ event: z.literal('offer_click'), ruleId: z.string().min(1).max(120), utm }),
+]);
 
 export async function recordFunnelEvent(input: z.input<typeof Input>): Promise<void> {
   const parsed = Input.safeParse(input);

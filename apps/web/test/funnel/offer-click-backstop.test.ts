@@ -50,3 +50,12 @@ describe('recordOfferClickBackstop', () => {
     expect(error).not.toHaveBeenCalled();
   });
 });
+
+describe('backstop UTM source', () => {
+  it('prefers UTM in the URL over the stored cookie (proxy.ts does not capture UTM)', async () => {
+    store.set('elsewhere_aid', AID);
+    store.set('elsewhere_utm', JSON.stringify({ utm_source: 'old' }));
+    await recordOfferClickBackstop('rule-1', { rule: 'rule-1', utm_source: 'tiktok', utm_medium: ['bio', 'x'] });
+    expect(insert.mock.calls[0][0].metadata).toEqual({ utm_source: 'tiktok', utm_medium: 'bio' });
+  });
+});

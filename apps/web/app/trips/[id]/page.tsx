@@ -1,7 +1,6 @@
 import { Suspense } from 'react';
 import { notFound } from 'next/navigation';
 import { requireUser } from '@/lib/auth/user';
-import { requireEnv } from '@/lib/env';
 import { createClient } from '@/lib/supabase/server';
 import { inboundAddress } from '@/lib/trips/inbound-code';
 
@@ -31,8 +30,12 @@ async function TripContent({ params, searchParams }: { params: Params; searchPar
     .maybeSingle();
   if (!trip) notFound();
   // Only the planner gets a code back; a member sees null and no forwarding address.
-  const { data: code } = await supabase.rpc('trip_inbound_code', { p_trip_id: trip.id });
-  const address = typeof code === 'string' ? inboundAddress(code, requireEnv('INBOUND_DOMAIN')) : null;
+  const { data: code, error: codeError } = await supabase.rpc('trip_inbound_code', { p_trip_id: trip.id });
+  if (codeError) console.error('trip_inbound_code failed', codeError.message);
+  const domain = process.env.INBOUND_DOMAIN;
+  if (!domain) console.error('INBOUND_DOMAIN is not set');
+  const address = typeof code === 'string' && domain ? inboundAddress(code, domain) : null;
+  const addressFailed = Boolean(codeError) || (typeof code === 'string' && !domain);
   return (
     <>
       <h1 className="text-3xl font-bold tracking-tight">{trip.name}</h1>
@@ -47,6 +50,10 @@ async function TripContent({ params, searchParams }: { params: Params; searchPar
             Forward flight, hotel, and rental confirmations from the email address you signed in with.
           </p>
         </section>
+      ) : addressFailed ? (
+        <p role="alert" className="mt-8 text-sm text-[#4b5745]">
+          We couldn’t load your forwarding address. Refresh the page to try again.
+        </p>
       ) : null}
     </>
   );
