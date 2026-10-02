@@ -1,0 +1,645 @@
+-- Group-trip Assist restructure.
+-- Spec: docs/superpowers/specs/2026-10-01-group-trip-web-app-design.md
+-- The project holds seed data only, so parked tables are dropped outright.
+
+-- 1. Drop parked features -----------------------------------------------------
+drop table if exists public.preview_jobs cascade;
+drop table if exists public.reference_photos cascade;
+drop table if exists public.consent_audit_entries cascade;
+drop table if exists public.branded_destination_packs cascade;
+drop table if exists public.support_override_actions cascade;
+drop table if exists public.financing_status_events cascade;
+drop table if exists public.financing_disclosure_records cascade;
+drop table if exists public.financing_checkouts cascade;
+drop table if exists public.financing_offers cascade;
+drop table if exists public.wallet_installments cascade;
+drop table if exists public.assist_action_recommendations cascade;
+drop table if exists public.assist_timeline cascade;
+drop table if exists public.assist_incidents cascade;
+drop table if exists public.assist_disruption_events cascade;
+drop table if exists public.assist_policy_rules cascade;
+drop table if exists public.travel_admin_applications cascade;
+drop table if exists public.travel_admin_partner_routes cascade;
+drop table if exists public.travel_document_records cascade;
+drop table if exists public.trip_quotes cascade;
+drop table if exists public.trip_room_messages cascade;
+drop table if exists public.travelers cascade;
+drop table if exists public.attribution_touchpoints cascade;
+drop table if exists public.experiment_assignments cascade;
+drop table if exists public.funnel_telemetry_events cascade;
+
+drop policy if exists "Users manage own trips" on public.trips;
+alter table public.trips
+  drop column destination_id,
+  drop column traveler_count,
+  drop column total_cost,
+  drop column booking_flow_state,
+  drop column booking_flow_attempt_count,
+  drop column booking_flow_error,
+  drop column booking_flow_checkout_url,
+  drop column booking_flow_updated_at;
+drop table if exists public.destinations cascade;
+
+drop type if exists booking_flow_state, payment_state, message_author_type, financing_provider,
+  installment_status, preview_job_status, preview_media_type, disruption_source, disruption_kind,
+  disruption_severity, incident_resolution, policy_action_type, timeline_entry_type,
+  partner_route_mode, travel_document_type;
+
+-- 2. Profiles ------------------------------------------------------------------
+alter table public.profiles
+  drop column is_auto_rebook_enabled,
+  drop column is_credit_protection_enabled,
+  drop column is_calendar_connected,
+  add column email text,
+  add column phone text check (phone is null or phone ~ '^\+[1-9][0-9]{6,14}$'),
+  add column sms_opt_in boolean not null default false,
+  add column venmo_username text check (venmo_username is null or venmo_username ~ '^[A-Za-z0-9_-]{5,30}$'),
+  add column cashtag text check (cashtag is null or cashtag ~ '^[A-Za-z][A-Za-z0-9]{0,19}$'),
+  add column timezone text not null default 'America/New_York';
+
+create or replace function public.handle_new_user()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  insert into public.profiles (id, display_name, email, phone)
+  values (
+    new.id,
+    coalesce(
+      nullif(new.raw_user_meta_data->>'display_name', ''),
+      nullif(split_part(coalesce(new.email, ''), '@', 1), ''),
+      'Traveler'
+    ),
+    lower(nullif(new.email, '')),
+    case when coalesce(new.phone, '') = '' then null else '+' || ltrim(new.phone, '+') end
+  );
+  return new;
+end;
+$$;
+
+-- 3. Trips and membership --------------------------------------------------------
+create type pass_status as enum ('none', 'active', 'comp');
+create type member_role as enum ('planner', 'member');
+
+alter table public.trips
+  add column name text not null default 'New trip',
+  add column destination_country text check (destination_country is null or destination_country ~ '^[A-Z]{2}$'),
+  add column inbound_code text unique,
+  add column join_token_hash text unique,
+  add column join_token_expires_at timestamptz,
+  add column pass_status pass_status not null default 'none',
+  add column created_anonymous_id text,
+  add column created_utm jsonb not null default '{}';
+update public.trips set inbound_code = 'trip-' || replace(gen_random_uuid()::text, '-', '') where inbound_code is null;
+alter table public.trips alter column inbound_code set not null;
+
+create table public.trip_members (
+  id uuid primary key default gen_random_uuid(),
+  trip_id uuid not null references public.trips(id) on delete cascade,
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  role member_role not null default 'member',
+  display_name text not null check (length(display_name) between 1 and 80),
+  joined_at timestamptz not null default now(),
+  unique (trip_id, user_id),
+  unique (id, trip_id)
+);
+
+create or replace function public.is_trip_member(p_trip_id uuid)
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists (select 1 from public.trip_members where trip_id = p_trip_id and user_id = auth.uid());
+$$;
+
+create or replace function public.is_trip_planner(p_trip_id uuid)
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists (
+    select 1 from public.trip_members where trip_id = p_trip_id and user_id = auth.uid() and role = 'planner'
+  );
+$$;
+
+create or replace function public.create_trip(
+  p_name text, p_destination_country text, p_start_date date, p_end_date date,
+  p_inbound_code text, p_display_name text, p_anonymous_id text, p_utm jsonb
+) returns uuid language plpgsql security definer set search_path = public as $$
+declare v_trip uuid;
+begin
+  if auth.uid() is null then
+    raise exception 'not authenticated' using errcode = '28000';
+  end if;
+  insert into public.trips (owner_id, name, destination_country, start_date, end_date, inbound_code,
+                            created_anonymous_id, created_utm)
+  values (auth.uid(), p_name, p_destination_country, p_start_date, p_end_date, p_inbound_code,
+          p_anonymous_id, coalesce(p_utm, '{}'::jsonb))
+  returning id into v_trip;
+  insert into public.trip_members (trip_id, user_id, role, display_name)
+  values (v_trip, auth.uid(), 'planner', p_display_name);
+  return v_trip;
+end;
+$$;
+
+create or replace function public.join_trip(p_token_hash text, p_display_name text)
+returns uuid language plpgsql security definer set search_path = public as $$
+declare v_trip uuid;
+begin
+  if auth.uid() is null then
+    raise exception 'not authenticated' using errcode = '28000';
+  end if;
+  select id into v_trip from public.trips
+   where join_token_hash = p_token_hash and join_token_expires_at > now();
+  if v_trip is null then
+    raise exception 'invalid or expired link' using errcode = 'P0002';
+  end if;
+  insert into public.trip_members (trip_id, user_id, role, display_name)
+  values (v_trip, auth.uid(), 'member', p_display_name)
+  on conflict (trip_id, user_id) do update set display_name = excluded.display_name;
+  return v_trip;
+end;
+$$;
+
+create or replace function public.trip_directory(p_trip_id uuid)
+returns table (member_id uuid, user_id uuid, display_name text, role member_role, venmo_username text, cashtag text)
+language sql stable security definer set search_path = public as $$
+  select m.id, m.user_id, m.display_name, m.role, p.venmo_username, p.cashtag
+  from public.trip_members m
+  join public.profiles p on p.id = m.user_id
+  where m.trip_id = p_trip_id and public.is_trip_member(p_trip_id)
+  order by m.role, m.display_name;
+$$;
+
+-- 4. Documents and travel-admin routes --------------------------------------------
+create type member_document_kind as enum ('passport', 'real_id', 'global_entry', 'tsa_precheck');
+
+create table public.member_documents (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  kind member_document_kind not null,
+  issuing_country text check (issuing_country is null or issuing_country ~ '^[A-Z]{2}$'),
+  expires_on date,
+  real_id_compliant boolean,
+  keep_on_profile boolean not null default false,
+  updated_at timestamptz not null default now(),
+  unique (user_id, kind)
+);
+
+-- Per document kind: the free official route (always shown) and an optional affiliate fallback.
+create table public.travel_admin_partner_routes (
+  id uuid primary key default gen_random_uuid(),
+  kind member_document_kind not null unique,
+  official_label text not null,
+  official_url text not null,
+  official_note text,
+  routine_processing_days int check (routine_processing_days > 0),
+  expedited_processing_days int check (expedited_processing_days > 0),
+  processing_source_url text,
+  affiliate_label text,
+  affiliate_url text,
+  affiliate_disclosure text,
+  is_active boolean not null default true,
+  updated_at timestamptz not null default now(),
+  check (affiliate_url is null or (affiliate_label is not null and affiliate_disclosure is not null))
+);
+
+-- 5. Intake and bookings -------------------------------------------------------
+create type booking_kind as enum ('flight', 'hotel', 'rental', 'car', 'rail', 'activity');
+create type inbound_status as enum ('received', 'parsed', 'needs_confirmation', 'quarantined', 'failed');
+
+create table public.inbound_messages (
+  id uuid primary key default gen_random_uuid(),
+  trip_id uuid not null references public.trips(id) on delete cascade,
+  source text not null check (source in ('email', 'screenshot')),
+  provider_message_id text unique,
+  sender text,
+  subject text,
+  storage_path text,
+  status inbound_status not null default 'received',
+  error text,
+  received_at timestamptz not null default now()
+);
+
+create table public.bookings (
+  id uuid primary key default gen_random_uuid(),
+  trip_id uuid not null references public.trips(id) on delete cascade,
+  inbound_message_id uuid references public.inbound_messages(id) on delete set null,
+  kind booking_kind not null,
+  provider text not null,
+  confirmation_code text,
+  booked_via text,
+  passenger_names text[] not null default '{}',
+  extraction_confidence numeric(3,2) not null check (extraction_confidence between 0 and 1),
+  dedupe_key text not null,
+  confirmed_at timestamptz,
+  created_at timestamptz not null default now(),
+  unique (trip_id, dedupe_key),
+  unique (id, trip_id)
+);
+-- Confirmation codes are readable only through booking_confirmation_code().
+revoke select on public.bookings from anon, authenticated;
+grant select (id, trip_id, inbound_message_id, kind, provider, booked_via, passenger_names,
+              extraction_confidence, dedupe_key, confirmed_at, created_at)
+  on public.bookings to authenticated;
+
+create table public.booking_segments (
+  id uuid primary key default gen_random_uuid(),
+  booking_id uuid not null,
+  trip_id uuid not null,
+  position int not null check (position >= 1),
+  carrier_iata text not null check (carrier_iata ~ '^[A-Z0-9]{2}$'),
+  flight_number text not null check (flight_number ~ '^[0-9]{1,4}$'),
+  origin_iata text not null check (origin_iata ~ '^[A-Z]{3}$'),
+  destination_iata text not null check (destination_iata ~ '^[A-Z]{3}$'),
+  departure_local text not null,
+  arrival_local text,
+  scheduled_out timestamptz,
+  scheduled_in timestamptz,
+  origin_country text check (origin_country is null or origin_country ~ '^[A-Z]{2}$'),
+  destination_country text check (destination_country is null or destination_country ~ '^[A-Z]{2}$'),
+  distance_km int,
+  fa_flight_id text,
+  aeroapi_alert_id text,
+  last_status jsonb,
+  monitor_state text not null default 'idle' check (monitor_state in ('idle', 'monitoring', 'polling_only', 'ended')),
+  foreign key (booking_id, trip_id) references public.bookings(id, trip_id) on delete cascade,
+  unique (booking_id, position)
+);
+
+create table public.booking_members (
+  booking_id uuid not null,
+  member_id uuid not null,
+  trip_id uuid not null,
+  primary key (booking_id, member_id),
+  foreign key (booking_id, trip_id) references public.bookings(id, trip_id) on delete cascade,
+  foreign key (member_id, trip_id) references public.trip_members(id, trip_id) on delete cascade
+);
+
+create or replace function public.booking_confirmation_code(p_booking_id uuid)
+returns text language sql stable security definer set search_path = public as $$
+  select b.confirmation_code
+  from public.bookings b
+  where b.id = p_booking_id
+    and (
+      public.is_trip_planner(b.trip_id)
+      or exists (
+        select 1 from public.booking_members bm
+        join public.trip_members m on m.id = bm.member_id
+        where bm.booking_id = b.id and m.user_id = auth.uid()
+      )
+    );
+$$;
+
+-- 6. Checks, incidents, playbooks, action items ------------------------------------
+create type check_result as enum ('ok', 'action_needed', 'unknown');
+create type incident_status as enum ('open', 'needs_answer', 'playbook_ready', 'resolved');
+
+create table public.document_checks (
+  id uuid primary key default gen_random_uuid(),
+  trip_id uuid not null references public.trips(id) on delete cascade,
+  member_id uuid not null references public.trip_members(id) on delete cascade,
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  rule_id text,
+  rule_version int,
+  result check_result not null,
+  detail text not null,
+  checked_at timestamptz not null default now()
+);
+
+create table public.incidents (
+  id uuid primary key default gen_random_uuid(),
+  trip_id uuid not null references public.trips(id) on delete cascade,
+  segment_id uuid not null references public.booking_segments(id) on delete cascade,
+  event_type text not null,
+  delay_minutes int,
+  dedupe_key text not null unique,
+  raw_payload jsonb not null default '{}',
+  affected_user_ids uuid[] not null default '{}',
+  facts jsonb not null default '{}',
+  pending_question jsonb,
+  status incident_status not null default 'open',
+  detected_at timestamptz not null default now(),
+  resolved_at timestamptz
+);
+
+create table public.incident_events (
+  id uuid primary key default gen_random_uuid(),
+  incident_id uuid not null references public.incidents(id) on delete cascade,
+  kind text not null check (kind in ('detected', 'question_asked', 'answered', 'playbook_generated', 'playbook_edited', 'notified', 'resolved')),
+  actor_user_id uuid references public.profiles(id),
+  detail jsonb not null default '{}',
+  created_at timestamptz not null default now()
+);
+
+create table public.playbooks (
+  id uuid primary key default gen_random_uuid(),
+  incident_id uuid not null references public.incidents(id) on delete cascade,
+  content jsonb not null,
+  rules_cited jsonb not null,
+  model text not null,
+  citation_check_passed boolean not null,
+  created_at timestamptz not null default now()
+);
+
+create table public.action_items (
+  id uuid primary key default gen_random_uuid(),
+  trip_id uuid not null references public.trips(id) on delete cascade,
+  kind text not null check (kind in ('approval', 'payment', 'document', 'checklist', 'assist', 'booking', 'media')),
+  title text not null,
+  detail text not null,
+  assigned_user_ids uuid[] not null default '{}',
+  due_at timestamptz,
+  status text not null default 'open' check (status in ('open', 'snoozed', 'done')),
+  source_kind text not null check (source_kind in ('document_check', 'incident', 'booking_confirmation', 'passenger_match', 'inbound_quarantine', 'flight_not_found')),
+  related_entity_id uuid,
+  created_at timestamptz not null default now(),
+  unique (trip_id, source_kind, related_entity_id, title)
+);
+
+-- 7. Votes and money ------------------------------------------------------------
+create table public.votes (
+  id uuid primary key default gen_random_uuid(),
+  trip_id uuid not null references public.trips(id) on delete cascade,
+  incident_id uuid references public.incidents(id) on delete set null,
+  title text not null,
+  detail text not null,
+  required_user_ids uuid[] not null default '{}',
+  deadline timestamptz,
+  status text not null default 'open' check (status in ('open', 'closed')),
+  created_by uuid not null references public.profiles(id),
+  created_at timestamptz not null default now()
+);
+
+create table public.vote_options (
+  id uuid primary key default gen_random_uuid(),
+  vote_id uuid not null references public.votes(id) on delete cascade,
+  label text not null,
+  note text,
+  position int not null
+);
+
+create table public.vote_responses (
+  vote_id uuid not null references public.votes(id) on delete cascade,
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  option_id uuid not null references public.vote_options(id) on delete cascade,
+  responded_at timestamptz not null default now(),
+  primary key (vote_id, user_id)
+);
+
+create table public.expenses (
+  id uuid primary key default gen_random_uuid(),
+  trip_id uuid not null references public.trips(id) on delete cascade,
+  payer_user_id uuid not null references public.profiles(id),
+  amount_cents int not null check (amount_cents > 0),
+  currency text not null default 'USD' check (currency ~ '^[A-Z]{3}$'),
+  description text not null,
+  split jsonb not null,
+  incident_id uuid references public.incidents(id) on delete set null,
+  created_by uuid not null references public.profiles(id),
+  created_at timestamptz not null default now()
+);
+
+create table public.settlements (
+  id uuid primary key default gen_random_uuid(),
+  trip_id uuid not null references public.trips(id) on delete cascade,
+  from_user_id uuid not null references public.profiles(id),
+  to_user_id uuid not null references public.profiles(id),
+  amount_cents int not null check (amount_cents > 0),
+  currency text not null default 'USD' check (currency ~ '^[A-Z]{3}$'),
+  settled_by uuid not null references public.profiles(id),
+  settled_at timestamptz not null default now()
+);
+
+-- 8. Notifications, consents, passes, webhooks ------------------------------------
+create table public.notifications (
+  id uuid primary key default gen_random_uuid(),
+  trip_id uuid references public.trips(id) on delete cascade,
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  channel text not null check (channel in ('sms', 'email')),
+  template text not null,
+  subject text,
+  body text not null,
+  urgent boolean not null default false,
+  send_after timestamptz not null default now(),
+  provider_message_id text,
+  status text not null default 'queued' check (status in ('queued', 'sent', 'delivered', 'failed', 'skipped')),
+  related_entity_id uuid,
+  created_at timestamptz not null default now()
+);
+
+create table public.consents (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  kind text not null check (kind in ('sms', 'email', 'documents')),
+  policy_version text not null,
+  granted_at timestamptz not null default now(),
+  revoked_at timestamptz
+);
+
+create table public.passes (
+  id uuid primary key default gen_random_uuid(),
+  trip_id uuid not null references public.trips(id) on delete cascade,
+  stripe_session_id text unique,
+  price_variant text not null check (price_variant in ('p9', 'p19', 'comp')),
+  amount_cents int not null check (amount_cents >= 0),
+  status text not null default 'pending' check (status in ('pending', 'paid', 'comp', 'expired')),
+  anonymous_id text,
+  created_by uuid references public.profiles(id),
+  paid_at timestamptz,
+  created_at timestamptz not null default now()
+);
+
+create table public.webhook_events (
+  provider text not null,
+  event_id text not null,
+  received_at timestamptz not null default now(),
+  primary key (provider, event_id)
+);
+
+-- 9. Payment test and attribution (service role only) ----------------------------
+create table public.experiment_assignments (
+  anonymous_id text not null,
+  flag_key text not null,
+  variant text not null,
+  user_id uuid references public.profiles(id) on delete set null,
+  assigned_at timestamptz not null default now(),
+  primary key (anonymous_id, flag_key)
+);
+
+create table public.funnel_telemetry_events (
+  id uuid primary key default gen_random_uuid(),
+  anonymous_id text not null,
+  user_id uuid references public.profiles(id) on delete set null,
+  trip_id uuid references public.trips(id) on delete set null,
+  event_name text not null check (event_name in ('rule_page_view', 'offer_click', 'trip_started', 'booking_forwarded', 'checkout_started', 'paid')),
+  rule_id text,
+  variant text,
+  metadata jsonb not null default '{}',
+  created_at timestamptz not null default now()
+);
+
+create table public.attribution_touchpoints (
+  id uuid primary key default gen_random_uuid(),
+  anonymous_id text not null,
+  post_id text not null check (post_id ~ '^[A-Za-z0-9_-]{1,64}$'),
+  platform text not null check (platform in ('tiktok', 'instagram', 'youtube', 'facebook', 'pinterest', 'other')),
+  landing_path text not null,
+  utm jsonb not null default '{}',
+  created_at timestamptz not null default now()
+);
+create index attribution_touchpoints_aid_idx on public.attribution_touchpoints (anonymous_id, created_at desc);
+create index funnel_events_created_idx on public.funnel_telemetry_events (created_at);
+
+create or replace function public.attribution_summary(p_since timestamptz)
+returns table (post_id text, clicks bigint, forwarded_bookings bigint, paid_passes bigint)
+language sql stable security definer set search_path = public as $$
+  with conv as (
+    select e.event_name, e.trip_id,
+      (select t.post_id from public.attribution_touchpoints t
+        where t.anonymous_id = e.anonymous_id and t.created_at <= e.created_at
+        order by t.created_at desc limit 1) as post_id
+    from public.funnel_telemetry_events e
+    where e.created_at >= p_since
+      and e.event_name in ('booking_forwarded', 'paid')
+      and coalesce(e.variant, '') <> 'comp'
+  ),
+  clk as (
+    select t.post_id, count(*) as clicks
+    from public.attribution_touchpoints t
+    where t.created_at >= p_since
+    group by t.post_id
+  ),
+  ids as (
+    select clk.post_id from clk
+    union
+    select conv.post_id from conv where conv.post_id is not null
+  )
+  select ids.post_id,
+    coalesce((select clk.clicks from clk where clk.post_id = ids.post_id), 0)::bigint,
+    (select count(distinct conv.trip_id) from conv where conv.post_id = ids.post_id and conv.event_name = 'booking_forwarded')::bigint,
+    (select count(distinct conv.trip_id) from conv where conv.post_id = ids.post_id and conv.event_name = 'paid')::bigint
+  from ids
+  order by ids.post_id;
+$$;
+revoke execute on function public.attribution_summary(timestamptz) from public, anon, authenticated;
+grant execute on function public.attribution_summary(timestamptz) to service_role;
+
+-- 10. Row-level security ---------------------------------------------------------
+alter table public.trip_members enable row level security;
+alter table public.member_documents enable row level security;
+alter table public.travel_admin_partner_routes enable row level security;
+alter table public.inbound_messages enable row level security;
+alter table public.bookings enable row level security;
+alter table public.booking_segments enable row level security;
+alter table public.booking_members enable row level security;
+alter table public.document_checks enable row level security;
+alter table public.incidents enable row level security;
+alter table public.incident_events enable row level security;
+alter table public.playbooks enable row level security;
+alter table public.action_items enable row level security;
+alter table public.votes enable row level security;
+alter table public.vote_options enable row level security;
+alter table public.vote_responses enable row level security;
+alter table public.expenses enable row level security;
+alter table public.settlements enable row level security;
+alter table public.notifications enable row level security;
+alter table public.consents enable row level security;
+alter table public.passes enable row level security;
+alter table public.webhook_events enable row level security;
+alter table public.experiment_assignments enable row level security;
+alter table public.funnel_telemetry_events enable row level security;
+alter table public.attribution_touchpoints enable row level security;
+
+create policy "Members read trips" on public.trips for select using (public.is_trip_member(id));
+create policy "Planners update trips" on public.trips for update
+  using (public.is_trip_planner(id)) with check (public.is_trip_planner(id));
+
+create policy "Members read members" on public.trip_members for select using (public.is_trip_member(trip_id));
+create policy "Members edit themselves" on public.trip_members for update
+  using (user_id = auth.uid()) with check (user_id = auth.uid());
+create policy "Members leave" on public.trip_members for delete using (user_id = auth.uid() and role = 'member');
+
+create policy "Owners manage documents" on public.member_documents for all
+  using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+create policy "Anyone reads active routes" on public.travel_admin_partner_routes for select using (is_active);
+
+create policy "Planners read inbound" on public.inbound_messages for select using (public.is_trip_planner(trip_id));
+
+create policy "Members read bookings" on public.bookings for select using (public.is_trip_member(trip_id));
+create policy "Planners update bookings" on public.bookings for update
+  using (public.is_trip_planner(trip_id)) with check (public.is_trip_planner(trip_id));
+
+create policy "Members read segments" on public.booking_segments for select using (public.is_trip_member(trip_id));
+
+create policy "Members read booking members" on public.booking_members for select using (public.is_trip_member(trip_id));
+create policy "Planner or self assigns bookings" on public.booking_members for insert with check (
+  public.is_trip_planner(trip_id)
+  or exists (select 1 from public.trip_members m where m.id = member_id and m.trip_id = booking_members.trip_id and m.user_id = auth.uid())
+);
+create policy "Planner or self unassigns bookings" on public.booking_members for delete using (
+  public.is_trip_planner(trip_id)
+  or exists (select 1 from public.trip_members m where m.id = member_id and m.user_id = auth.uid())
+);
+
+create policy "Planner or self reads checks" on public.document_checks for select
+  using (public.is_trip_planner(trip_id) or user_id = auth.uid());
+
+create policy "Affected or planner reads incidents" on public.incidents for select
+  using (public.is_trip_planner(trip_id) or auth.uid() = any (affected_user_ids));
+create policy "Readers of the incident read its events" on public.incident_events for select using (
+  exists (select 1 from public.incidents i where i.id = incident_id
+          and (public.is_trip_planner(i.trip_id) or auth.uid() = any (i.affected_user_ids)))
+);
+create policy "Readers of the incident read its playbooks" on public.playbooks for select using (
+  exists (select 1 from public.incidents i where i.id = incident_id
+          and (public.is_trip_planner(i.trip_id) or auth.uid() = any (i.affected_user_ids)))
+);
+
+create policy "Assignees or planner read action items" on public.action_items for select
+  using (public.is_trip_planner(trip_id) or auth.uid() = any (assigned_user_ids));
+create policy "Assignees or planner update action items" on public.action_items for update
+  using (public.is_trip_planner(trip_id) or auth.uid() = any (assigned_user_ids))
+  with check (public.is_trip_planner(trip_id) or auth.uid() = any (assigned_user_ids));
+
+create policy "Members read votes" on public.votes for select using (public.is_trip_member(trip_id));
+create policy "Members create votes" on public.votes for insert
+  with check (public.is_trip_member(trip_id) and created_by = auth.uid());
+create policy "Creator or planner updates votes" on public.votes for update
+  using (created_by = auth.uid() or public.is_trip_planner(trip_id))
+  with check (created_by = auth.uid() or public.is_trip_planner(trip_id));
+create policy "Members read vote options" on public.vote_options for select using (
+  exists (select 1 from public.votes v where v.id = vote_id and public.is_trip_member(v.trip_id))
+);
+create policy "Vote creator adds options" on public.vote_options for insert with check (
+  exists (select 1 from public.votes v where v.id = vote_id and (v.created_by = auth.uid() or public.is_trip_planner(v.trip_id)))
+);
+create policy "Members read responses" on public.vote_responses for select using (
+  exists (select 1 from public.votes v where v.id = vote_id and public.is_trip_member(v.trip_id))
+);
+create policy "Members respond to open votes" on public.vote_responses for insert with check (
+  user_id = auth.uid()
+  and exists (select 1 from public.votes v where v.id = vote_id and v.status = 'open' and public.is_trip_member(v.trip_id))
+);
+create policy "Members change their open-vote response" on public.vote_responses for update
+  using (user_id = auth.uid())
+  with check (
+    user_id = auth.uid()
+    and exists (select 1 from public.votes v where v.id = vote_id and v.status = 'open' and public.is_trip_member(v.trip_id))
+  );
+
+create policy "Members read expenses" on public.expenses for select using (public.is_trip_member(trip_id));
+create policy "Members add expenses" on public.expenses for insert
+  with check (public.is_trip_member(trip_id) and created_by = auth.uid());
+create policy "Creator or planner deletes expenses" on public.expenses for delete
+  using (created_by = auth.uid() or public.is_trip_planner(trip_id));
+
+create policy "Members read settlements" on public.settlements for select using (public.is_trip_member(trip_id));
+create policy "Parties or planner record settlements" on public.settlements for insert with check (
+  public.is_trip_member(trip_id) and settled_by = auth.uid()
+  and (from_user_id = auth.uid() or to_user_id = auth.uid() or public.is_trip_planner(trip_id))
+);
+
+create policy "Users read their notifications" on public.notifications for select using (user_id = auth.uid());
+
+create policy "Users read their consents" on public.consents for select using (user_id = auth.uid());
+create policy "Users grant consents" on public.consents for insert with check (user_id = auth.uid());
+create policy "Users revoke consents" on public.consents for update
+  using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+create policy "Members read passes" on public.passes for select using (public.is_trip_member(trip_id));
+-- webhook_events, experiment_assignments, funnel_telemetry_events, attribution_touchpoints:
+-- RLS on with no policies, so only the service role reads or writes them.
