@@ -185,6 +185,17 @@ describe('growth tables and attribution', () => {
     await expect(view('r2')).resolves.toBeDefined();
   });
 
+  it('dedupes offer_click per visitor, rule and UTC day', async () => {
+    const aid = 'aid0000000000000000000000000000c';
+    const click = (rule: string) =>
+      asService(db, () =>
+        db.query("insert into public.funnel_telemetry_events (anonymous_id, event_name, rule_id) values ($1, 'offer_click', $2)", [aid, rule]),
+      );
+    await click('r1');
+    await expect(click('r1')).rejects.toThrow(/funnel_offer_click_daily_idx/);
+    await expect(click('r2')).resolves.toBeDefined();
+  });
+
   it('attributes conversions to the last touch before them', async () => {
     const aid = 'aid0000000000000000000000000000a';
     await asService(db, async () => {

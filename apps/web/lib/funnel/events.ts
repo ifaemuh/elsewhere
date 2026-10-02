@@ -54,8 +54,9 @@ export async function recordEvent(input: FunnelEventInput): Promise<void> {
   try {
     const admin = createAdminClient();
     const { error } = await admin.from('funnel_telemetry_events').insert(toEventRow(input));
-    // 23505 on a page view is the daily dedupe index doing its job, not a failure.
-    if (error && !(input.event === 'rule_page_view' && error.code === '23505')) {
+    // 23505 on a page view or offer click is the daily dedupe index doing its job, not a failure.
+    const deduped = error?.code === '23505' && (input.event === 'rule_page_view' || input.event === 'offer_click');
+    if (error && !deduped) {
       console.error('funnel event failed', error.message);
     }
     if (input.event === 'rule_page_view' && input.variant) {
