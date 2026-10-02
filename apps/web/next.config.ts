@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import type { NextConfig } from 'next';
+import { withWorkflow } from 'workflow/next';
 import { retiredRedirects } from './lib/rules/accessors';
 import { parseLibrary } from './lib/rules/parse-library';
 
@@ -17,4 +18,4 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+export default withWorkflow(nextConfig);

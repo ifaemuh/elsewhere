@@ -135,3 +135,27 @@ describe('claim_due_notifications (Task 2)', () => {
     }
   });
 });
+
+describe('intake (Task 5)', () => {
+  it('counts one booking_forwarded event per trip', async () => {
+    const forwarded = () =>
+      asService(db, () =>
+        db.query("insert into public.funnel_telemetry_events (anonymous_id, event_name, trip_id) values ($1, 'booking_forwarded', $2)", ['aid000000000000000000000000000c5', tripId]),
+      );
+    await forwarded();
+    await expect(forwarded()).rejects.toThrow(/funnel_forwarded_trip_idx/);
+  });
+
+  it('keeps a printed booking date or local date-time in bookings.booked_at, and nothing else', async () => {
+    const insert = (key: string, bookedAt: string) =>
+      asService(db, () =>
+        db.query(
+          `insert into public.bookings (trip_id, kind, provider, booked_at, extraction_confidence, dedupe_key) values ($1, 'flight', 'TAP Air Portugal', $2, 0.95, $3)`,
+          [tripId, bookedAt, key],
+        ),
+      );
+    await insert('booked-at-date', '2026-10-01');
+    await insert('booked-at-time', '2026-10-01T09:30');
+    await expect(insert('booked-at-bad', 'Oct 1, 2026')).rejects.toThrow(/violates check constraint/);
+  });
+});

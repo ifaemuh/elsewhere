@@ -258,6 +258,8 @@ create table public.bookings (
   provider text not null,
   confirmation_code text,
   booked_via text,
+  -- When the booking was made, as the confirmation printed it: a date, or a local date and time.
+  booked_at text check (booked_at is null or booked_at ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}(T[0-9]{2}:[0-9]{2})?$'),
   passenger_names text[] not null default '{}',
   extraction_confidence numeric(3,2) not null check (extraction_confidence between 0 and 1),
   dedupe_key text not null,
@@ -543,6 +545,11 @@ create unique index funnel_offer_click_daily_idx on public.funnel_telemetry_even
 -- double the revenue count; pass-store.recordPaid treats the 23505 as a no-op.
 create unique index funnel_paid_trip_idx on public.funnel_telemetry_events (trip_id)
   where event_name = 'paid';
+
+-- Same guard for booking_forwarded: the trip's first forwarded booking counts once, however many
+-- emails follow. recordEvent treats the 23505 as a no-op.
+create unique index funnel_forwarded_trip_idx on public.funnel_telemetry_events (trip_id)
+  where event_name = 'booking_forwarded';
 
 create or replace function public.attribution_summary(p_since timestamptz)
 returns table (post_id text, clicks bigint, forwarded_bookings bigint, paid_passes bigint)
