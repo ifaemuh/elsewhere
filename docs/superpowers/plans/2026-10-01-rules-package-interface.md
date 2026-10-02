@@ -146,6 +146,10 @@ export const FACTS: {
   'event.delay_minutes': FactDef;        // number
   'event.notice_days': FactDef;          // number
   'event.cause': FactDef;                // enum: controllable, uncontrollable, unknown
+  'event.reroute_departs_early_minutes': FactDef;     // number — cancellation/schedule_change: minutes before the scheduled departure that the offered re-routing leaves (0 if at/after, or none offered; a schedule change's changed flight counts as an offer; if none meets the departure limit, report any)
+  'event.reroute_arrival_delay_minutes': FactDef;     // number — cancellation/schedule_change: minutes after the original arrival that the offered re-routing arrives (0 if earlier; none offered = 1440+)
+  'event.departure_delay_minutes': FactDef;           // number — delay: minutes after scheduled departure that the disrupted flight leaves or is expected to leave (that flight only; if expected and actual differ, report the longer)
+  'event.departure_moved_earlier_minutes': FactDef;   // number — schedule_change: minutes earlier than scheduled that the flight now departs (0 if not earlier)
   'event.at_us_airport': FactDef;        // boolean — the disruption happened at a US airport (incl. territories); tarmac_delay: where the aircraft was held
   'flight.carrier_iata': FactDef;        // string
   'flight.carrier_is_us': FactDef;       // boolean
@@ -157,6 +161,8 @@ export const FACTS: {
   'flight.departs_uk': FactDef;          // boolean
   'flight.distance_km': FactDef;         // number
   'flight.single_ticket': FactDef;       // boolean
+  'flight.leg_distance_km': FactDef;     // number — great-circle km between the disrupted flight's own departure and arrival airports
+  'flight.departs_iceland_norway_switzerland': FactDef; // boolean — the disrupted flight departs Iceland, Norway or Switzerland
   'flight.departs_us': FactDef;          // boolean
   'passenger.accepted_alternative': FactDef;            // boolean
   'passenger.volunteered': FactDef;                     // boolean — gave up a seat by answering the airline's call for volunteers (14 CFR 250.2b)
@@ -168,6 +174,8 @@ export const FACTS: {
   'trip.booked_via': FactDef;            // enum: direct, ota
   'trip.hours_since_booking': FactDef;   // number
   'trip.hours_booked_before_departure': FactDef; // number — hours between when the booking was made and the first flight's scheduled departure
+  'trip.journey_departs_eu': FactDef;    // boolean — the passenger's journey in this direction starts at an EU airport (outbound and return are separate journeys)
+  'trip.journey_arrives_eu': FactDef;    // boolean — the journey in this direction ends at an EU airport
   'trip.touches_us': FactDef;            // boolean — any flight on the booking departs from or arrives at a US airport
   'trip.booked_with_us_carrier': FactDef; // boolean — the airline the booking was made with is a US airline
   'trip.itinerary_domestic_us': FactDef;  // boolean — every flight on the ticket is within the US (14 CFR 260 "domestic itinerary")
@@ -177,6 +185,16 @@ export const FACTS: {
 };
 
 export type FactName = keyof typeof FACTS;
+
+// Amendment (2026-10-02, Track A Task 21 legal review): adds event.reroute_departs_early_minutes,
+// event.reroute_arrival_delay_minutes, event.departure_delay_minutes, event.departure_moved_earlier_minutes,
+// flight.leg_distance_km, flight.departs_iceland_norway_switzerland, trip.journey_departs_eu and
+// trip.journey_arrives_eu. Descriptions: flight.* facts describe the disrupted flight (missed_connection: the flight
+// whose delay caused the miss); flight.distance_km runs from the journey's first departure to its final destination;
+// flight.departs_eu/arrives_eu use the Commission's definition of the EU; cancellation = booked flight not operated (including
+// when dropped and the passenger moved to a different flight) or took off and returned without continuing (same flight at another
+// time = schedule_change; only this passenger kept off = see denied_boarding); event.notice_days may be fractional and is not rounded up. Round 2: event.reroute_* also cover schedule_change
+// (the changed flight counts as an offer, alongside any other); event.departure_delay_minutes reports the longer of expected and actual.
 
 // Amendment (2026-10-02, Track A Task 20 legal review): descriptions in src/facts.ts also define
 // event.type `denied_boarding` (oversold flight, confirmed reservation; not documents/conduct/
