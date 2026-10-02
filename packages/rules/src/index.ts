@@ -13,3 +13,5 @@ export { matchRule, matchRules } from './match';
 export { RulesValidationError, loadRules, loadSources } from './load';
 export type { QuoteIssue } from './quotes';
 export { normalizeText, sourceTextPath, checkQuotes, checkSupports } from './quotes';
+export type { RuleChange, RulesLibrary } from './library';
+export { buildLibrary, changesFromHistory } from './library';

@@ -36,3 +36,9 @@ test('index.ts exports quote checking', async () => {
     assert.equal(typeof (m as Record<string, unknown>)[name], 'function', `${name} should be exported`);
   }
 });
+
+test('index.ts exports the library builder', async () => {
+  const m = await import('../src/index');
+  assert.equal(typeof m.buildLibrary, 'function');
+  assert.equal(typeof m.changesFromHistory, 'function');
+});
