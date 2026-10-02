@@ -36,13 +36,13 @@ export default function RulesTermsPage() {
         <h2 className="text-xl font-semibold">Rate limits</h2>
         <p>
           Without a key, each IP address may make 60 API requests per minute and 30 MCP requests per minute. Partners
-          get higher limits with a key.
+          get higher limits with a key. Known AI-platform connector traffic has a higher shared limit.
         </p>
       </section>
       <section className="space-y-2">
         <h2 className="text-xl font-semibold">What we log</h2>
         <p>
-          We log calls to count usage and find gaps in our rules. IP addresses are never stored. Search queries are
+          We log calls to count usage and find gaps in our rules. IP addresses are never stored in our analytics. Search queries are
           stored truncated to 200 characters, with email addresses and phone numbers replaced by [redacted]. For
           situation matching we store only the names of the facts you send, never their values.
         </p>

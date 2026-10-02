@@ -69,6 +69,8 @@ export function aggregateReport(rows: ReportRow[], funnel: FunnelRow[], opts: { 
     ``,
     `${opts.since} → ${opts.until} · ${rows.length} calls`,
     ``,
+    `_Counts function invocations only: GET responses served from the CDN cache are not counted._`,
+    ``,
     `## Most-returned rules (content topic candidates)`,
     table(['Rule', 'Times returned'], top(rules, 15)),
     ``,
