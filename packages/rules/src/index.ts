@@ -10,3 +10,4 @@ export {
 } from './schema';
 export type { MatchOutcome, MatchResult } from './match';
 export { matchRule, matchRules } from './match';
+export { RulesValidationError, loadRules, loadSources } from './load';

@@ -22,3 +22,10 @@ test('index.ts exports the matcher', async () => {
     assert.equal(typeof (m as Record<string, unknown>)[name], 'function', `${name} should be exported`);
   }
 });
+
+test('index.ts exports the loader', async () => {
+  const m = await import('../src/index');
+  assert.equal(typeof m.loadRules, 'function');
+  assert.equal(typeof m.loadSources, 'function');
+  assert.equal(typeof m.RulesValidationError, 'function');
+});
