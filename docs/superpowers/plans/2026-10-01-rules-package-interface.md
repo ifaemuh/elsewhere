@@ -79,7 +79,7 @@ export interface RuleSourceRef {
 }
 
 export interface Rule {
-  id: string;                  // kebab-case, stable for the rule's life
+  id: string;                  // kebab-case, stable for the rule's life; ids `facts`, `search`, `changes`, `match`, `terms` are reserved (app routes)
   version: number;             // integer >= 1
   status: RuleStatus;
   domain: Domain;
@@ -123,6 +123,8 @@ export interface Source {
   detector: Detector;
 }
 
+export const RESERVED_RULE_IDS: readonly ['facts', 'search', 'changes', 'match', 'terms'];
+// ids `facts`, `search`, `changes`, `match`, `terms` are reserved (app routes)
 export const JURISDICTION_PATTERN =
   /^(US-DOT|US-FTC|US-TSA|US-STATE|EU-261|UK-261|carrier:[A-Z0-9]{2}|issuer:[a-z0-9-]+|country:[A-Z]{2})$/;
 
