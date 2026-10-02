@@ -3,6 +3,11 @@
 **Date:** 2026-09-04
 **Status:** Draft, pending review
 
+> **Superseded in part (2026-10-01).** Elsewhere the app is restarted as a web app and the
+> @go.elsewhere account is taken over by the cartoon cast. See
+> [`2026-10-01-elsewhere-restart-program.md`](2026-10-01-elsewhere-restart-program.md).
+> The TikTok GO mechanics researched below still apply to the city-tips series.
+
 ## Goal
 
 Build a semi-automated pipeline that produces and publishes AI-generated travel

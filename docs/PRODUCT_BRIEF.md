@@ -1,5 +1,10 @@
 # Elsewhere Product Brief
 
+> **Superseded (2026-10-01).** Elsewhere is now a web app focused on group-trip Assist run by
+> the planner, not a mobile-first preview app. See
+> [`superpowers/specs/2026-10-01-elsewhere-restart-program.md`](superpowers/specs/2026-10-01-elsewhere-restart-program.md).
+> This brief is kept for history.
+
 ## Core Thesis
 
 Elsewhere is a mobile-first AI travel platform that turns imagination into affordable, bookable, protected travel.
