@@ -29,3 +29,10 @@ test('index.ts exports the loader', async () => {
   assert.equal(typeof m.loadSources, 'function');
   assert.equal(typeof m.RulesValidationError, 'function');
 });
+
+test('index.ts exports quote checking', async () => {
+  const m = await import('../src/index');
+  for (const name of ['normalizeText', 'sourceTextPath', 'checkQuotes', 'checkSupports']) {
+    assert.equal(typeof (m as Record<string, unknown>)[name], 'function', `${name} should be exported`);
+  }
+});

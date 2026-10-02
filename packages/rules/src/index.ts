@@ -11,3 +11,5 @@ export {
 export type { MatchOutcome, MatchResult } from './match';
 export { matchRule, matchRules } from './match';
 export { RulesValidationError, loadRules, loadSources } from './load';
+export type { QuoteIssue } from './quotes';
+export { normalizeText, sourceTextPath, checkQuotes, checkSupports } from './quotes';
