@@ -1,17 +1,24 @@
 import { NextRequest } from 'next/server';
-import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const inserted: unknown[] = [];
+const mode = { insert: 'ok' as 'ok' | 'error' | 'throw', rpc: 'ok' as 'ok' | 'error' };
 vi.mock('@/lib/supabase/admin', () => ({
-  createAdminClient: () => ({
-    from: () => ({
-      insert: async (row: unknown) => {
-        inserted.push(row);
-        return { error: null };
-      },
-    }),
-    rpc: async () => ({ data: [{ post_id: 'p1', clicks: 2, forwarded_bookings: 1, paid_passes: 1 }], error: null }),
-  }),
+  createAdminClient: () => {
+    if (mode.insert === 'throw') throw new Error('boom');
+    return {
+      from: () => ({
+        insert: async (row: unknown) => {
+          inserted.push(row);
+          return { error: mode.insert === 'error' ? { message: 'db down' } : null };
+        },
+      }),
+      rpc: async () =>
+        mode.rpc === 'error'
+          ? { data: null, error: { message: 'rpc down' } }
+          : { data: [{ post_id: 'p1', clicks: 2, forwarded_bookings: 1, paid_passes: 1 }], error: null },
+    };
+  },
 }));
 
 beforeAll(() => {
@@ -19,6 +26,43 @@ beforeAll(() => {
 });
 
 describe('GET /r/[postId]', () => {
+  beforeEach(() => {
+    inserted.length = 0;
+    mode.insert = 'ok';
+    mode.rpc = 'ok';
+  });
+
+  it.each(['error', 'throw'] as const)('still redirects when the touchpoint write fails (%s)', async (failure) => {
+    mode.insert = failure;
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { GET } = await import('@/app/r/[postId]/route');
+    const res = await GET(new NextRequest('https://example.test/r/p1?p=tt'), { params: Promise.resolve({ postId: 'p1' }) });
+    expect(res.status).toBe(307);
+    expect(res.headers.get('location')).toBe(
+      'https://example.test/rules?utm_source=tiktok&utm_medium=social&utm_campaign=go-elsewhere&utm_content=p1',
+    );
+    expect(spy).toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
+  it('sends an invalid postId to /rules with no insert and no UTM cookie', async () => {
+    const { GET } = await import('@/app/r/[postId]/route');
+    const res = await GET(new NextRequest('https://example.test/r/bad.id?p=tt'), { params: Promise.resolve({ postId: 'bad.id' }) });
+    expect(res.status).toBe(307);
+    expect(new URL(res.headers.get('location')!).pathname).toBe('/rules');
+    expect(inserted).toHaveLength(0);
+    expect(res.headers.get('set-cookie') ?? '').not.toContain('elsewhere_utm');
+  });
+
+  it('reuses a returning visitor\'s anonymous id instead of minting one', async () => {
+    const aid = 'a'.repeat(32);
+    const { GET } = await import('@/app/r/[postId]/route');
+    const res = await GET(new NextRequest('https://example.test/r/p1?p=ig', { headers: { cookie: `elsewhere_aid=${aid}` } }), {
+      params: Promise.resolve({ postId: 'p1' }),
+    });
+    expect(inserted).toEqual([expect.objectContaining({ anonymous_id: aid })]);
+    expect(res.headers.get('set-cookie') ?? '').not.toContain('elsewhere_aid=');
+  });
   it('records a touchpoint and redirects with UTM tags and a visitor cookie', async () => {
     const { GET } = await import('@/app/r/[postId]/route');
     const res = await GET(new NextRequest('https://example.test/r/p1?p=tt'), { params: Promise.resolve({ postId: 'p1' }) });
@@ -69,6 +113,17 @@ describe('GET /api/attribution', () => {
     const { GET } = await import('@/app/api/attribution/route');
     const res = await GET(new NextRequest('https://example.test/api/attribution?since=2026-10-01'));
     expect(res.status).toBe(401);
+  });
+
+  it('logs the message and returns 500 when the RPC fails', async () => {
+    mode.rpc = 'error';
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { GET } = await import('@/app/api/attribution/route');
+    const res = await GET(new NextRequest('https://example.test/api/attribution?since=2026-10-01', { headers: { authorization: 'Bearer k3y' } }));
+    expect(res.status).toBe(500);
+    expect(spy).toHaveBeenCalledWith('attribution summary failed', 'rpc down');
+    spy.mockRestore();
+    mode.rpc = 'ok';
   });
 
   it('returns per-post counts', async () => {
