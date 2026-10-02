@@ -2181,7 +2181,7 @@ describe('parseLibrary', () => {
 
 `apps/web/test/rules/accessors.test.ts`:
 ```ts
-import type { RulesLibrary } from '@elsewhere/rules';
+import type { RulesLibrary } from '@elsewhere/rules/core';
 import { describe, expect, it } from 'vitest';
 import fixture from '../fixtures/rules-library.json';
 import {
@@ -2267,7 +2267,7 @@ Expected: FAIL, with `@/lib/rules/parse-library` and `@/lib/rules/accessors` not
 
 `apps/web/lib/rules/parse-library.ts`, the same as Track D's plan:
 ```ts
-import type { RulesLibrary } from '@elsewhere/rules';
+import type { RulesLibrary } from '@elsewhere/rules/core';
 
 export class LibraryLoadError extends Error {
   constructor(message: string) {
@@ -2295,7 +2295,7 @@ export function parseLibrary(raw: unknown): RulesLibrary {
 
 `apps/web/lib/rules/library.ts`, the same as Track D's plan:
 ```ts
-import type { RulesLibrary } from '@elsewhere/rules';
+import type { RulesLibrary } from '@elsewhere/rules/core';
 import raw from '../../../../packages/rules/dist/rules.json';
 import { parseLibrary } from './parse-library';
 
@@ -2312,7 +2312,7 @@ export function getLibrary(): RulesLibrary {
 
 `apps/web/lib/rules/accessors.ts`:
 ```ts
-import type { Domain, Rule, RuleSourceRef, RuleStatus, RulesLibrary, Source } from '@elsewhere/rules';
+import type { Domain, Rule, RuleSourceRef, RuleStatus, RulesLibrary, Source } from '@elsewhere/rules/core';
 
 export const PUBLISHED_STATUSES: readonly RuleStatus[] = ['verified', 'needs_review'];
 export const DOMAIN_ORDER: readonly Domain[] = ['flights', 'documents', 'money', 'hotels'];
@@ -2376,7 +2376,7 @@ export function verifiedRulesIn(library: RulesLibrary, domain: Domain): Rule[] {
 
 `apps/web/lib/rules/present.ts`:
 ```ts
-import type { Rule } from '@elsewhere/rules';
+import type { Rule } from '@elsewhere/rules/core';
 
 export function humanizeKey(key: string): string {
   const words = key.replaceAll('_', ' ');
@@ -2447,7 +2447,7 @@ The interim art comes from the approved A++ mockups. Task 13 swaps in foundry's 
 
 `apps/web/test/characters.test.ts`:
 ```ts
-import { CHARACTERS } from '@elsewhere/rules';
+import { CHARACTERS } from '@elsewhere/rules/core';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -2609,7 +2609,7 @@ If a crop clips a character, widen its box in `LINEUP_BOXES` by 10–20px and re
 
 `apps/web/lib/characters.ts`:
 ```ts
-import type { Character } from '@elsewhere/rules';
+import type { Character } from '@elsewhere/rules/core';
 
 export const CHARACTER_INFO: Record<Character, { name: string; role: string }> = {
   capybara: { name: 'Capybara', role: 'the unbothered one' },
@@ -2636,7 +2636,7 @@ export function characterSrc(character: Character, variant: CharacterVariant = '
 `apps/web/components/character.tsx`:
 ```tsx
 import Image from 'next/image';
-import type { Character as CharacterName } from '@elsewhere/rules';
+import type { Character as CharacterName } from '@elsewhere/rules/core';
 import { CHARACTER_DIMENSIONS, CHARACTER_INFO, characterSrc, type CharacterVariant } from '@/lib/characters';
 import { cn } from '@/lib/utils';
 
@@ -2682,7 +2682,7 @@ export function Character({
 import 'server-only';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import type { Character } from '@elsewhere/rules';
+import type { Character } from '@elsewhere/rules/core';
 import { characterSrc, type CharacterVariant } from '@/lib/characters';
 
 /** next/og cannot fetch relative URLs, so character art is inlined as a data URL. */
@@ -2865,7 +2865,7 @@ EOF
 
 `apps/web/test/rules/rule-article.test.tsx`:
 ```tsx
-import type { RulesLibrary } from '@elsewhere/rules';
+import type { RulesLibrary } from '@elsewhere/rules/core';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import fixture from '../fixtures/rules-library.json';
@@ -2908,7 +2908,7 @@ Expected: FAIL, with `@/components/rules/rule-article` not found.
 `apps/web/components/rules/rule-article.tsx`:
 ```tsx
 import type { ReactNode } from 'react';
-import type { Rule, RuleSourceRef, Source } from '@elsewhere/rules';
+import type { Rule, RuleSourceRef, Source } from '@elsewhere/rules/core';
 import { DOMAIN_LABELS } from '@/lib/rules/accessors';
 import { entitlementLines, formatIsoDate } from '@/lib/rules/present';
 
@@ -5084,7 +5084,7 @@ Each offer only appears once its program URL is configured. Tell Track A the tag
 
 `apps/web/test/affiliate/offers.test.ts`:
 ```ts
-import type { RulesLibrary } from '@elsewhere/rules';
+import type { RulesLibrary } from '@elsewhere/rules/core';
 import { describe, expect, it } from 'vitest';
 import fixture from '../fixtures/rules-library.json';
 import { configuredOffers, offersForRule } from '@/lib/affiliate/offers';
@@ -5150,7 +5150,7 @@ Expected: FAIL, with modules not found.
 
 `apps/web/lib/affiliate/offers.ts`:
 ```ts
-import type { Rule } from '@elsewhere/rules';
+import type { Rule } from '@elsewhere/rules/core';
 
 export interface AffiliateOffer {
   id: string;
