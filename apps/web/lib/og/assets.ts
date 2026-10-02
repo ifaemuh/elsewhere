@@ -22,5 +22,5 @@ const FILES: Record<CharacterVariant, Record<Character, URL>> = {
 
 /** next/og cannot fetch relative URLs, so character art is inlined as a data URL. */
 export async function characterDataUrl(character: Character, variant: CharacterVariant = 'portrait'): Promise<string> {
-  return `data:image/png;base64,${await readFile(FILES[variant][character], 'base64')}`;
+  return `data:image/png;base64,${await readFile(/*turbopackIgnore: true*/ FILES[variant][character], 'base64')}`;
 }
