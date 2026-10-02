@@ -1,4 +1,4 @@
-import type { Domain, Rule, RuleSourceRef, RuleStatus, RulesLibrary, Source } from '@elsewhere/rules';
+import type { Domain, Rule, RuleSourceRef, RuleStatus, RulesLibrary, Source } from '@elsewhere/rules/core';
 
 export const PUBLISHED_STATUSES: readonly RuleStatus[] = ['verified', 'needs_review'];
 export const DOMAIN_ORDER: readonly Domain[] = ['flights', 'documents', 'money', 'hotels'];

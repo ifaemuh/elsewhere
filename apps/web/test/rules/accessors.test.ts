@@ -1,4 +1,4 @@
-import type { RulesLibrary } from '@elsewhere/rules';
+import type { RulesLibrary } from '@elsewhere/rules/core';
 import { describe, expect, it } from 'vitest';
 import fixture from '../fixtures/rules-library.json';
 import {

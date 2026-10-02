@@ -1,4 +1,4 @@
-import type { Rule } from '@elsewhere/rules';
+import type { Rule } from '@elsewhere/rules/core';
 
 export function humanizeKey(key: string): string {
   const words = key.replaceAll('_', ' ');

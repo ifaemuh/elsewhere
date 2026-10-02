@@ -1,4 +1,4 @@
-import type { RulesLibrary } from '@elsewhere/rules';
+import type { RulesLibrary } from '@elsewhere/rules/core';
 import raw from '../../../../packages/rules/dist/rules.json';
 import { parseLibrary } from './parse-library';
 
