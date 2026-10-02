@@ -72,6 +72,14 @@ describe('joinTripAction', () => {
     await expect(joinTripAction(TOKEN, { error: null }, form({ timezone: 'Europe/Kyiv' }))).rejects.toThrow('REDIRECT');
     expect(updates[0].values.timezone).toBe('Europe/Kyiv');
     updates.length = 0;
+    await expect(joinTripAction(TOKEN, { error: null }, form({ timezone: 'asia/kolkata' }))).rejects.toThrow('REDIRECT');
+    expect(updates[0].values.timezone).toBe('Asia/Kolkata');
+    for (const bad of ['+05:30', '-0800', 'Mars/Base']) {
+      updates.length = 0;
+      await expect(joinTripAction(TOKEN, { error: null }, form({ timezone: bad }))).rejects.toThrow('REDIRECT');
+      expect(updates).toEqual([]);
+    }
+    updates.length = 0;
     await expect(joinTripAction(TOKEN, { error: null }, form({ timezone: 'Mars/Base' }))).rejects.toThrow('REDIRECT');
     expect(updates).toEqual([]);
   });

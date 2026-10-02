@@ -21,7 +21,7 @@ vi.mock('@/lib/funnel/events', () => ({ recordEvent: vi.fn() }));
 import { createJoinLink, currentJoinLink, resetJoinLink } from '@/app/trips/[id]/actions';
 import { isJoinTokenShape, joinToken } from '@/lib/trips/join-token';
 
-const TRIP = '11111111-1111-1111-1111-111111111111';
+const TRIP = '11111111-1111-4111-8111-111111111111';
 
 function plannerGate(isPlanner: boolean) {
   rpc.mockImplementation(async (name: string) => (name === 'is_trip_planner' ? { data: isPlanner, error: null } : { data: null, error: null }));
@@ -101,7 +101,13 @@ describe('resetJoinLink', () => {
     expect(console.error).toHaveBeenCalledWith('createJoinLink failed', 'Set the trip dates before inviting the group.');
   });
 
-  it('does nothing visible on success', async () => {
-    await expect(resetJoinLink(TRIP)).resolves.toBeUndefined();
+  it('redirects to the clean trip URL on success, clearing any failure note', async () => {
+    await expect(resetJoinLink(TRIP)).rejects.toThrow(`REDIRECT:/trips/${TRIP}`);
+    expect(rpc.mock.calls.some(([name]) => name === 'set_join_token')).toBe(true);
+  });
+
+  it('rejects a trip id that is not a uuid before doing anything', async () => {
+    await expect(resetJoinLink('../x')).rejects.toThrow();
+    expect(rpc).not.toHaveBeenCalled();
   });
 });

@@ -1,7 +1,7 @@
 'use server';
 
-import { createHash } from 'node:crypto';
 import { redirect } from 'next/navigation';
+import { contactRateLimitKey } from '@/lib/auth/contact-key';
 import { parseEmail, parseOtpCode } from '@/lib/auth/otp';
 import { parsePhone, smsEnabled } from '@/lib/auth/phone';
 import { safeNext } from '@/lib/auth/safe-next';
@@ -43,7 +43,7 @@ export async function loginAction(prev: LoginState, form: FormData): Promise<Log
   }
   // Every send costs an email or a text; an unthrottled form is an SMS-pumping target. Limit per visitor (IP)
   // and per destination, so one visitor cannot spam a number and a botnet cannot hammer one number.
-  const contactKey = createHash('sha256').update(contact).digest('hex');
+  const contactKey = contactRateLimitKey(contact);
   if ((await rateLimited(RATE_LIMIT_RULES.codeSend)) || (await rateLimited(RATE_LIMIT_RULES.codeSendContact, contactKey))) {
     return { step: 'contact', channel, contact, error: 'Too many codes requested. Wait a minute, then try again.' };
   }

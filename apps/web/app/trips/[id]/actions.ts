@@ -108,7 +108,8 @@ export async function currentJoinLink(tripId: string): Promise<string | null> {
 }
 
 /** The trip page's create/reset button. A failure (dates in the past, an RPC error) leaves a note, not a crash. */
-export async function resetJoinLink(tripId: string): Promise<void> {
+export async function resetJoinLink(rawTripId: string): Promise<void> {
+  const tripId = z.string().uuid().parse(rawTripId);
   // Outside the try: a sign-in redirect must not be swallowed as a link failure.
   await requireUser(`/trips/${tripId}`);
   let failed = false;
@@ -118,5 +119,6 @@ export async function resetJoinLink(tripId: string): Promise<void> {
     console.error('createJoinLink failed', error instanceof Error ? error.message : 'unknown error');
     failed = true;
   }
-  if (failed) redirect(`/trips/${tripId}?invite=failed`);
+  // Land on the clean URL on success, so an earlier ?invite=failed note does not stick.
+  redirect(failed ? `/trips/${tripId}?invite=failed` : `/trips/${tripId}`);
 }

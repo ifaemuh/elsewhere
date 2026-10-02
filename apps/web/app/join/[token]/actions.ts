@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { smsEnabled } from '@/lib/auth/phone';
 import { requireUser } from '@/lib/auth/user';
 import { createClient } from '@/lib/supabase/server';
-import { isValidTimeZone } from '@/lib/time-zone';
+import { normalizeTimeZone } from '@/lib/time-zone';
 import { isJoinTokenShape } from '@/lib/trips/join-token';
 
 export interface JoinState {
@@ -47,7 +47,8 @@ export async function joinTripAction(token: string, _prev: JoinState, form: Form
   if (parsed.data.venmo) profileUpdate.venmo_username = parsed.data.venmo.replace(/^@/, '');
   if (parsed.data.cashtag) profileUpdate.cashtag = parsed.data.cashtag.replace(/^\$/, '');
   if (smsOptIn) profileUpdate.sms_opt_in = true;
-  if (isValidTimeZone(parsed.data.timezone)) profileUpdate.timezone = parsed.data.timezone;
+  const timezone = normalizeTimeZone(parsed.data.timezone);
+  if (timezone) profileUpdate.timezone = timezone;
   if (Object.keys(profileUpdate).length > 0) {
     const { error: profileError } = await supabase.from('profiles').update(profileUpdate).eq('id', user.id);
     if (profileError) console.error('join: profile update failed', profileError.message);

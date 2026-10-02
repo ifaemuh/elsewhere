@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHmac } from 'node:crypto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const verifyOtp = vi.fn();
@@ -29,6 +29,7 @@ beforeEach(() => {
   signInWithOtp.mockReset().mockResolvedValue({ error: null });
   rateLimited.mockReset().mockResolvedValue(false);
   delete process.env.SMS_ENABLED;
+  process.env.RATE_LIMIT_KEY_SECRET = 'test-secret';
 });
 
 describe('loginAction verify', () => {
@@ -125,11 +126,11 @@ describe('loginAction send', () => {
     expect(signInWithOtp).not.toHaveBeenCalled();
   });
 
-  it('also limits per destination, keyed by a hash of the normalized contact', async () => {
+  it('also limits per destination, keyed by an HMAC of the normalized contact', async () => {
     rateLimited.mockImplementation(async (rule: string) => rule === 'auth-code-send-contact');
     const result = await loginAction(contactStep, form({ intent: 'send', contact: ' Pat@Example.TEST ' }));
     expect(result.error).toBe('Too many codes requested. Wait a minute, then try again.');
-    expect(rateLimited).toHaveBeenCalledWith('auth-code-send-contact', createHash('sha256').update('pat@example.test').digest('hex'));
+    expect(rateLimited).toHaveBeenCalledWith('auth-code-send-contact', createHmac('sha256', 'test-secret').update('pat@example.test').digest('hex'));
     expect(signInWithOtp).not.toHaveBeenCalled();
   });
 

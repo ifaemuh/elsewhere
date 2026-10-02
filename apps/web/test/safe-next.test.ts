@@ -19,4 +19,21 @@ describe('safeNext', () => {
       expect(safeNext(v)).toBe('/trips');
     }
   });
+
+  it('falls back for dot-segment and backslash traversal that resolves to a protocol-relative path', () => {
+    for (const v of ['/trips/../../\\evil.com', '/./\\evil.com', '/trips/..\\..\\evil.com', '/%2e%2e/%5cevil.com']) {
+      const out = safeNext(v);
+      expect(out.startsWith('//')).toBe(false);
+      expect(out.includes('\\')).toBe(false);
+    }
+    expect(safeNext('/./\\evil.com')).toBe('/trips');
+    // This one resolves to the path "//evil.com", so it falls back.
+    expect(safeNext('/trips/../../\\evil.com')).toBe('/trips');
+    // Others resolve to a plain same-origin path; the normalized path is returned, never the raw input.
+    expect(safeNext('/trips/..\\..\\evil.com')).toBe('/evil.com');
+  });
+
+  it('returns the normalized path, search, and hash rather than the raw input', () => {
+    expect(safeNext('/trips/a/../b?x=1#top')).toBe('/trips/b?x=1#top');
+  });
 });
