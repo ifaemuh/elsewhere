@@ -92,6 +92,15 @@ export interface Rule {
   last_verified: string | null;   // ISO date; null only while status = draft
   verified_by: string | null;
   review_by: string | null;       // ISO date
+  replaced_by?: string;           // rule id; only when status = retired
+  history: RuleHistoryEntry[];    // oldest first; >= 1 entry
+}
+
+export interface RuleHistoryEntry {
+  version: number;
+  status: RuleStatus;
+  date: string;                   // ISO date
+  note?: string;                  // one line, e.g. "source amended: §260.6(a)"
 }
 
 export type Detector =
@@ -199,7 +208,9 @@ export class RulesValidationError extends Error {
 }
 
 /** Reads data/**/*.yaml; validates schema, unique ids, filename = id, known facts,
- *  fact value types, and that every sources[].source exists in `sources`. */
+ *  fact value types, that every sources[].source exists in `sources`, that the last
+ *  history entry equals { version, status }, that history versions never decrease,
+ *  and that replaced_by (if set) names an existing rule and status is retired. */
 export function loadRules(opts?: { dataDir?: string; sources?: Record<string, Source> }): Rule[];
 
 export function loadSources(file?: string): Record<string, Source>;   // default packages/rules/sources.yaml
@@ -215,23 +226,26 @@ export interface RuleChange {
 
 export interface RulesLibrary {
   schema_version: 1;
-  library_version: string;     // `${YYYY-MM-DD}.${first 7 hex of sha256(canonical JSON of rules)}`
+  library_version: string;     // `${YYYY-MM-DD}.${first 7 hex of sha256(canonical JSON of rules)}`; sources excluded from the hash
   generated_at: string;        // ISO timestamp
   rules: Rule[];               // every rule, any status, sorted by id
+  sources: Record<string, Source>;  // every source any rule cites, keyed like sources.yaml
   changes: RuleChange[];       // newest first
 }
 
 export function buildLibrary(opts: {
   rules: Rule[];
-  changes: RuleChange[];
+  sources: Record<string, Source>;
   now?: Date;
-}): RulesLibrary;
+}): RulesLibrary;               // computes changes via changesFromHistory(rules)
 
-/** Walks `git log` over data/ and diffs version/status per commit. */
-export function changesFromGit(opts?: { repoRoot?: string; dataDir?: string }): RuleChange[];
+/** Derives the changes feed from each rule's `history` (no git needed, so it is
+ *  identical in CI, on Vercel's shallow clones, and locally). Consecutive entries
+ *  become one RuleChange; the first entry has from_version/from_status = null. */
+export function changesFromHistory(rules: Rule[]): RuleChange[];
 ```
 
-`npm run rules:build` = `loadSources` → `loadRules` → `changesFromGit` → `buildLibrary` →
+`npm run rules:build` = `loadSources` → `loadRules` → `buildLibrary` →
 write `packages/rules/dist/rules.json` (pretty-printed, trailing newline). `dist/` is
 gitignored. The web app regenerates it at build time.
 
@@ -263,7 +277,8 @@ export function checkSupports(rule: Rule): string[];
 
 `npm run rules:check-quotes -- --versions <dir> [--write-needs-review]` exits 1 on any
 issue. With `--write-needs-review`, it sets `status: needs_review` on each failing
-`verified` rule's file (the nightly backstop uses this, then opens a PR).
+`verified` rule's file and appends a history entry (same version, `needs_review`, today,
+note naming the failing source). The nightly backstop uses this, then opens a PR.
 
 ## Fixtures
 
