@@ -16,10 +16,12 @@ first, in its own commit.
   the Next.js app and `tsx` both compile it. Two entry points:
   - `"."` → `./src/index.ts`: everything public, including the Node-only loader
     (`loadRules`, `loadSources`, `RulesValidationError`). Used by CLIs, scripts, and tests.
-  - `"./core"` → `./src/core.ts`: everything public **except** the loader. It imports no
-    `node:` module and evaluates no `import.meta.url`, so it is safe in any bundle. **App
-    code (the web app and Track D) imports from `@elsewhere/rules/core`, never from the
-    bare package.**
+  - `"./core"` → `./src/core.ts`: everything public **except** the loader (`src/load.ts`)
+    and the build-time library values `buildLibrary` and `changesFromHistory`. The types
+    `RulesLibrary` and `RuleChange` are still exported, type-only. `core` imports no `node:`
+    module and evaluates no `import.meta.url`, so it is safe in any bundle, including client
+    components. **App code (the web app and Track D) imports from `@elsewhere/rules/core`,
+    never from the bare package.**
 - **Dependencies:** `zod@^4.6`, `yaml@^2.9`. Dev: `tsx@^4.19`, `@types/node@^22`.
 - **Tests:** `node --import tsx --test test/**/*.test.ts` (the same runner foundry uses).
 - **Scripts:** `test`, `typecheck` (`tsc --noEmit`), `rules:build`, `rules:check-quotes`.
@@ -306,5 +308,7 @@ note naming the failing source). The nightly backstop uses this, then opens a PR
 `src/index.ts` re-exports everything above. Nothing else is public.
 
 `src/core.ts` re-exports everything above except `src/load.ts` (`loadRules`, `loadSources`,
-`RulesValidationError`). A test fails if `core.ts`, or anything it imports, imports
-`./load` or any `node:` module.
+`RulesValidationError`) and the values `buildLibrary` and `changesFromHistory`. A test walks
+the value imports reachable from `core.ts` (`import type` and `export type` lines are erased
+at compile time and are skipped). It fails if any of them imports `./load`, `./library`, or
+a `node:` module. `sourceTextPath` joins with `/` and does not use `node:path`.
