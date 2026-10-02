@@ -8,14 +8,15 @@ import { factsVocabulary } from '@/lib/rules-api/facts-vocabulary';
 import { matchSituation } from '@/lib/rules-api/match-situation';
 import { isPublic, toPublicRule, toRuleSummary } from '@/lib/rules-api/projection';
 import { searchRules } from '@/lib/rules-api/search';
-import { knownFactNames, parseSituation } from '@/lib/rules-api/situation';
-import type { LinkAttribution } from '@/lib/rules-api/types';
+import { VOCABULARY_HINT, knownFactNames, parseSituation } from '@/lib/rules-api/situation';
+import { ATTRIBUTION, type LinkAttribution } from '@/lib/rules-api/types';
 import { callerFromContext, clientFromContext } from './client-info';
 import { changesText, factsText, matchText, ruleText, searchText } from './text';
 
 const READ_ONLY = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } as const;
 const RULE_ID = z.string().regex(/^[a-z0-9]+(-[a-z0-9]+)*$/).max(80);
 
+const AttributionOut = z.object({ text: z.string(), required: z.boolean() });
 const CitationOut = z.looseObject({ url: z.string(), kind: z.string(), quote: z.string() });
 const PublicRuleOut = z.looseObject({
   id: z.string(),
@@ -35,15 +36,20 @@ interface ToolDeps {
 }
 interface ToolOutcome {
   result: CallToolResult;
+  /** Analytics status: 200 ok, 400 validation, 404 not found, 500 internal, 503 unavailable. */
+  status?: number;
   event?: EventFields;
 }
+
+/** Unknown fact names are echoed only when they look like fact names, never arbitrary text. */
+const ECHOABLE_FACT = /^[a-z0-9_.]{1,60}$/;
 
 export function errorResult(message: string): CallToolResult {
   return { isError: true, content: [{ type: 'text', text: message }] };
 }
 
 function ok(structured: Record<string, unknown>, text: string): CallToolResult {
-  return { structuredContent: structured, content: [{ type: 'text', text }] };
+  return { structuredContent: { ...structured, attribution: ATTRIBUTION }, content: [{ type: 'text', text }] };
 }
 
 function runTool(tool: string, ctx: ServerContext, work: (deps: ToolDeps) => ToolOutcome): CallToolResult {
@@ -64,13 +70,13 @@ function runTool(tool: string, ctx: ServerContext, work: (deps: ToolDeps) => Too
     outcome = work({ library, attribution: { source: 'mcp', medium: client.name ?? 'unknown' } });
   } catch (error) {
     console.error(`[mcp] ${tool} failed:`, error);
-    outcome = { result: errorResult('Something went wrong answering this request. Try again.') };
+    outcome = { result: errorResult('Something went wrong answering this request. Try again.'), status: 500 };
   }
 
   scheduleEvent({
     surface: 'mcp',
     endpoint: tool,
-    status: outcome.result.isError ? 400 : 200,
+    status: outcome.status ?? (outcome.result.isError ? 400 : 200),
     client_name: client.name,
     client_version: client.version,
     tier: caller.tier,
@@ -100,7 +106,7 @@ export function registerRuleTools(server: McpServer): void {
         domain: z.enum(DOMAINS).optional(),
         jurisdiction: z.string().max(40).optional(),
       }),
-      outputSchema: z.object({ rules: z.array(RuleSummaryOut) }),
+      outputSchema: z.object({ rules: z.array(RuleSummaryOut), attribution: AttributionOut }),
       annotations: { title: 'Search travel rules', ...READ_ONLY },
     },
     async (args, ctx) =>
@@ -122,14 +128,14 @@ export function registerRuleTools(server: McpServer): void {
       description:
         "Get one verified travel rule by id: what you're owed, how to claim it, exceptions, and word-for-word citations from the primary source.",
       inputSchema: z.object({ id: RULE_ID }),
-      outputSchema: z.object({ rule: PublicRuleOut }),
+      outputSchema: z.object({ rule: PublicRuleOut, attribution: AttributionOut }),
       annotations: { title: 'Get a travel rule', ...READ_ONLY },
     },
     async (args, ctx) =>
       runTool('get_rule', ctx, ({ library, attribution }) => {
         const rule = library.rules.find((r) => r.id === args.id && isPublic(r));
         if (!rule) {
-          return { result: errorResult(`No public rule with id "${args.id}". Use search_rules to find rule ids.`) };
+          return { result: errorResult(`No public rule with id "${args.id}". Use search_rules to find rule ids.`), status: 404 };
         }
         const pub = toPublicRule(rule, library, attribution);
         return { result: ok({ rule: pub }, ruleText(pub)), event: { rule_ids: [pub.id], result_count: 1 } };
@@ -142,11 +148,24 @@ export function registerRuleTools(server: McpServer): void {
       title: 'Match a travel situation to rules',
       description:
         "Given facts about a traveler's situation (for example event.type=cancellation, flight.touches_us=true, passenger.accepted_alternative=false), return the rules that apply, the rules that may apply plus the facts still needed, and their citations. Call list_facts first for valid fact names and values.",
-      inputSchema: z.object({ facts: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])) }),
+      // mcp-handler parses the body itself, so this schema is the only bound on the input.
+      inputSchema: z.object({
+        // Limits are checked in one refine, not as per-key/per-value maxes: the SDK echoes a failing
+        // record key's path into its error message, which would echo an oversized key back.
+        facts: z
+          .record(z.string(), z.union([z.string(), z.number(), z.boolean()]))
+          .refine(
+            (facts) =>
+              Object.keys(facts).length <= 30 &&
+              Object.entries(facts).every(([name, value]) => name.length <= 60 && (typeof value !== 'string' || value.length <= 100)),
+            { message: 'At most 30 facts; names up to 60 characters; text values up to 100 characters.' },
+          ),
+      }),
       outputSchema: z.object({
         applies: z.array(PublicRuleOut),
         may_apply: z.array(PublicRuleOut.extend({ missing_facts: z.array(z.string()) })),
         does_not_apply_count: z.number(),
+        attribution: AttributionOut,
       }),
       annotations: { title: 'Match a travel situation to rules', ...READ_ONLY },
     },
@@ -156,8 +175,11 @@ export function registerRuleTools(server: McpServer): void {
         if (!parsed.ok) {
           return {
             result: errorResult(
-              `Unknown or invalid facts: ${parsed.errors.map((e) => `${e.fact} (${e.message})`).join('; ')}. Call list_facts for valid names and values.`,
+              `Unknown or invalid facts: ${parsed.errors
+                .map((e) => `${ECHOABLE_FACT.test(e.fact) ? e.fact : '(invalid name)'} (${e.message.replace(VOCABULARY_HINT, '').trim()})`)
+                .join('; ')}. Call list_facts for valid names and values.`,
             ),
+            status: 400,
             event: { fact_names: knownFactNames({ facts: args.facts }) },
           };
         }
@@ -183,6 +205,7 @@ export function registerRuleTools(server: McpServer): void {
       description: 'List the fact names, types, and allowed values that match_situation accepts.',
       outputSchema: z.object({
         facts: z.array(z.looseObject({ name: z.string(), type: z.string(), description: z.string() })),
+        attribution: AttributionOut,
       }),
       annotations: { title: 'List situation facts', ...READ_ONLY },
     },
@@ -202,12 +225,13 @@ export function registerRuleTools(server: McpServer): void {
       outputSchema: z.object({
         since: z.string(),
         changes: z.array(z.looseObject({ rule_id: z.string(), kind: z.string(), date: z.string() })),
+        attribution: AttributionOut,
       }),
       annotations: { title: 'List recent rule changes', ...READ_ONLY },
     },
     async (args, ctx) =>
       runTool('list_recent_changes', ctx, ({ library }) => {
-        if (!isIsoDate(args.since)) return { result: errorResult('since must be a real date in YYYY-MM-DD form.') };
+        if (!isIsoDate(args.since)) return { result: errorResult('since must be a real date in YYYY-MM-DD form.'), status: 400 };
         const changes = publicChangesSince(library, args.since);
         return {
           result: ok({ since: args.since, changes }, changesText(args.since, changes)),

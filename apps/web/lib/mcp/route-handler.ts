@@ -1,6 +1,6 @@
 import { unstable_rethrow } from 'next/navigation';
 import { createMcpHandler, withMcpAuth } from 'mcp-handler';
-import { lookupKey, resolveCaller } from '@/lib/rules-api/auth';
+import { bearerToken, resolveCaller } from '@/lib/rules-api/auth';
 import { jsonError } from '@/lib/rules-api/envelope';
 import { enforceRateLimit } from '@/lib/rules-api/rate-limit';
 import { getLibrary, LibraryLoadError } from '@/lib/rules/library';
@@ -13,21 +13,24 @@ const mcpHandler = createMcpHandler(
   (server) => {
     registerRuleTools(server);
   },
-  { serverInfo: SERVER_INFO, instructions: SERVER_INSTRUCTIONS },
+  // maxSubscriptions 0: no subscriptions/listen streams (they cost function time and are never used).
+  { serverInfo: SERVER_INFO, instructions: SERVER_INSTRUCTIONS, maxSubscriptions: 0 },
 );
+
+// handleMcp resolves the caller once (the single auth parse); verifyToken only reads it back.
+const resolvedCallers = new WeakMap<Request, ApiCaller>();
 
 // Anonymous callers pass through; a valid partner key populates ctx.http.authInfo.
 const authedHandler = withMcpAuth(
   mcpHandler,
-  async (_req, bearerToken) => {
-    if (!bearerToken) return undefined;
-    const record = await lookupKey(bearerToken);
-    if (!record) return undefined;
+  (req) => {
+    const caller = resolvedCallers.get(req);
+    if (caller?.tier !== 'partner') return undefined;
     return {
-      token: bearerToken,
-      clientId: record.partnerId,
+      token: bearerToken(req) ?? '',
+      clientId: caller.partnerId,
       scopes: ['rules:read'],
-      extra: { keyId: record.keyId, rateLimitRule: record.rateLimitRule },
+      extra: { keyId: caller.keyId, rateLimitRule: caller.rateLimitRule },
     };
   },
   { required: false },
@@ -67,5 +70,6 @@ export async function handleMcp(req: Request): Promise<Response> {
     throw error;
   }
 
+  resolvedCallers.set(req, caller);
   return requestContext.run({ userAgent: req.headers.get('user-agent') }, () => authedHandler(req));
 }

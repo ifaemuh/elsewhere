@@ -1,8 +1,9 @@
+import { ATTRIBUTION } from '@/lib/rules-api/types';
 import type { PublicChange } from '@/lib/rules-api/changes';
 import type { FactEntry } from '@/lib/rules-api/facts-vocabulary';
 import type { MatchResponse, PublicRule, RuleSummary } from '@/lib/rules-api/types';
 
-export const DISCLAIMER = "Information from Elsewhere's verified rules library, not legal advice.";
+export const DISCLAIMER: string = ATTRIBUTION.text;
 
 function linkLines(rule: PublicRule): string[] {
   const citation = rule.citations[0];
@@ -57,12 +58,11 @@ export function matchText(result: MatchResponse): string {
 }
 
 export function factsText(facts: FactEntry[]): string {
-  return facts
-    .map((f) => `- ${f.name} (${f.type}${f.values ? `: ${f.values.join(' | ')}` : ''}): ${f.description}`)
-    .join('\n');
+  return [DISCLAIMER, '', ...facts
+    .map((f) => `- ${f.name} (${f.type}${f.values ? `: ${f.values.join(' | ')}` : ''}): ${f.description}`)].join('\n');
 }
 
 export function changesText(since: string, changes: PublicChange[]): string {
-  if (changes.length === 0) return `No rule changes since ${since}.`;
-  return [`Rule changes since ${since}:`, ...changes.map((c) => `- ${c.date} ${c.rule_id}: ${c.kind} (v${c.to_version})`)].join('\n');
+  if (changes.length === 0) return `${DISCLAIMER}\n\nNo rule changes since ${since}.`;
+  return [DISCLAIMER, '', `Rule changes since ${since}:`, ...changes.map((c) => `- ${c.date} ${c.rule_id}: ${c.kind} (v${c.to_version})`)].join('\n');
 }

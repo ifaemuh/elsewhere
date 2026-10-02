@@ -9,10 +9,15 @@ export async function proxy(request: NextRequest) {
   return response;
 }
 
+// Excluded: static assets, the workflow and webhook endpoints, and the public Rules API/MCP routes.
+// Those are sessionless: the proxy's anonymous-id Set-Cookie would block CDN caching of their
+// `public, s-maxage` responses, and it would make them depend on Supabase being reachable.
+// The /rules/<id> pages are not excluded and stay covered.
 export const config = {
   matcher: [
     {
-      source: '/((?!_next/static|_next/image|favicon.ico|characters/|\\.well-known/workflow/|api/webhooks/).*)',
+      source:
+        '/((?!_next/static|_next/image|favicon.ico|characters/|\\.well-known/workflow/|api/webhooks/|api/mcp|api/rules).*)',
     },
   ],
 };

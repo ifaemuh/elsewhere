@@ -5,7 +5,7 @@ export interface FactError {
   message: string;
 }
 
-const VOCABULARY_HINT = 'Call list_facts or GET /api/rules/facts for valid fact names and values.';
+export const VOCABULARY_HINT = 'Call list_facts or GET /api/rules/facts for valid fact names and values.';
 const MAX_ERRORS = 20;
 const MAX_NAME_ECHO = 60;
 

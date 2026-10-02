@@ -52,7 +52,7 @@ describe('MCP server', () => {
     const rules = (result.structuredContent as { rules: { id: string; page_url: string }[] }).rules;
     expect(rules[0].id).toBe('test-cancelled-refund');
     expect(rules[0].page_url).toContain('utm_source=mcp');
-    expect(text(result)).toContain('not legal advice');
+    expect(text(result)).toContain('Not legal advice');
     expect(text(result)).toContain(rules[0].page_url);
     expect(after).toHaveBeenCalled();
   });
