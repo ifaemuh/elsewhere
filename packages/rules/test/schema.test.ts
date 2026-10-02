@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { RuleSchema, SourceSchema } from '../src/schema';
+import { RESERVED_RULE_IDS, RuleSchema, SourceSchema } from '../src/schema';
 import { readFixtureRule } from './helpers';
 
 const valid = () => readFixtureRule('fx-us-refund-cancelled-flight');
@@ -21,6 +21,16 @@ test('a draft may leave verification fields null', () => {
 test('verified rules need verification fields', () => {
   const rule = { ...valid(), last_verified: null };
   assert.match(issuesOf(rule).join('\n'), /last_verified: is required when status is verified/);
+});
+
+test('reserved ids are rejected', () => {
+  for (const id of RESERVED_RULE_IDS) {
+    assert.match(issuesOf({ ...valid(), id }).join('\n'), /id: is reserved for an app route/);
+  }
+});
+
+test('a normal id still passes', () => {
+  assert.deepEqual(issuesOf({ ...valid(), id: 'us-refund-cancelled-flight' }), []);
 });
 
 test('unknown top-level keys are rejected', () => {

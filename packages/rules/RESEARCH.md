@@ -13,8 +13,13 @@ the data-case test enforce most of it. The rest is on the researcher.
   sources.
 - Every source must be a key in `sources.yaml`. If one is missing, add it in the same PR,
   plus an `ota-overrides.yaml` entry if the page needs a narrower `select` or client
-  scripts. Then dispatch the tracker so its text exists before you quote it:
-  `gh workflow run sources-track.yml --repo ifaemuh/elsewhere`.
+  scripts.
+
+  **A new source and a rule that cites it go in two PRs.** CI checks every new quote
+  against the tracked text, and a source's text does not exist until the tracker has run,
+  so one PR with both can never go green. First open a PR with the source only, merge it,
+  and dispatch the tracker (`gh workflow run sources-track.yml --repo ifaemuh/elsewhere`).
+  When `elsewhere-sources-versions` has the file (step 2), open the rule PR.
 
 ## 2. Quote the tracked text, not the live page
 
@@ -121,16 +126,18 @@ Branch `rules/add-<short-name>`, title `Rules: add <ids>`. Body, once per rule:
 
 ## 7. Approval
 
-The founder reviews, at about two minutes per rule, and merges. Then, on `main`:
+The founder reviews, at about two minutes per rule, and merges. Then, from a fresh branch
+off `main` (main is protected; nothing is pushed to it directly):
 
 ```bash
+git switch main && git pull && git switch -c rules/verify-<date>
 npm run rules:verify -w @elsewhere/rules -- <id> [<id> ...] --by ifaemuh
 git commit -am "Verify rules: <ids>"
+git push -u origin HEAD && gh pr create --base main --fill
 ```
 
 `rules:verify` sets `status: verified`, `last_verified`, `verified_by`, and `review_by`
-(+90 days), and appends the verified history entry. Pushing to `main` needs the founder's
-go-ahead.
+(+90 days), and appends the verified history entry. Merge that PR once Rules CI is green.
 
 ## Changing a verified rule
 

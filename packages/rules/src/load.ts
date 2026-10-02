@@ -76,12 +76,17 @@ export function loadRuleFiles(
   const dataDir = opts.dataDir ?? DEFAULT_DATA_DIR;
   if (!existsSync(dataDir)) return [];
   const sources = opts.sources ?? loadSources();
-  const files = readdirSync(dataDir, { recursive: true, encoding: 'utf8' })
+  const all = readdirSync(dataDir, { recursive: true, encoding: 'utf8' });
+  const files = all
     .filter((f) => f.endsWith('.yaml'))
     .map((f) => join(dataDir, f))
     .sort();
 
   const issues: ValidationIssue[] = [];
+  // A .yml rule would be skipped silently and never reach the app.
+  for (const f of all.filter((name) => name.endsWith('.yml')).sort()) {
+    issues.push({ file: f, path: '', message: 'rule files must use the .yaml extension (.yml files are not loaded)' });
+  }
   const loaded: { rule: Rule; file: string }[] = [];
   const seen = new Map<string, string>();
 
@@ -124,7 +129,9 @@ export function loadRuleFiles(
   }
 
   for (const { rule, file } of loaded) {
-    if (rule.replaced_by !== undefined && !seen.has(rule.replaced_by)) {
+    if (rule.replaced_by === rule.id) {
+      issues.push({ file: relative(dataDir, file), path: 'replaced_by', message: 'a rule cannot replace itself' });
+    } else if (rule.replaced_by !== undefined && !seen.has(rule.replaced_by)) {
       issues.push({ file: relative(dataDir, file), path: 'replaced_by', message: `no rule "${rule.replaced_by}"` });
     }
   }

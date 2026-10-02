@@ -14,27 +14,44 @@ concurrency:
 
 jobs:
   track:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: npm
 
-      - run: npm ci
+      - run: npm ci -w @elsewhere/rules --ignore-scripts
 
+      # No checkout leaves the token on disk (persist-credentials: false), and dependencies are
+      # installed before the versions and snapshots checkouts, with no token in the environment.
       - name: Check out the source collection
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: ifaemuh/elsewhere-sources-declarations
           token: ${{ secrets.SOURCES_REPOS_TOKEN }}
           path: ota
+          persist-credentials: false
+
+      - name: Install Open Terms Archive
+        working-directory: ota
+        run: npm ci
 
       - name: Sync declarations from sources.yaml
+        env:
+          PUSH_TOKEN: ${{ secrets.SOURCES_REPOS_TOKEN }}
         run: |
+          # Credentials exist only for this step's pushes and are never echoed. The header is
+          # masked because base64 of a secret is not masked automatically.
+          auth=$(printf 'x-access-token:%s' "$PUSH_TOKEN" | base64 | tr -d '\n')
+          echo "::add-mask::$auth"
+          gitx() { git -c "http.extraheader=AUTHORIZATION: basic $auth" "$@"; }
           npm run -s rules:declarations -w @elsewhere/rules -- --out "$GITHUB_WORKSPACE/ota/declarations"
           cd ota
           git config user.name "elsewhere-sources-bot"
@@ -42,32 +59,32 @@ jobs:
           git add -A declarations
           if ! git diff --cached --quiet; then
             git commit -m "Sync declarations from elsewhere sources.yaml@${GITHUB_SHA::7}"
-            git push || { git pull --rebase && git push; }
+            gitx push || { gitx pull --rebase && gitx push; }
           fi
 
       - name: Check out versions
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: ifaemuh/elsewhere-sources-versions
           token: ${{ secrets.SOURCES_REPOS_TOKEN }}
           path: ota/data/versions
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Check out snapshots
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: ifaemuh/elsewhere-sources-snapshots
           token: ${{ secrets.SOURCES_REPOS_TOKEN }}
           path: ota/data/snapshots
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Track web sources with Open Terms Archive
         working-directory: ota
         env:
           OTA_ENGINE_GITHUB_TOKEN: ${{ secrets.SOURCES_REPOS_TOKEN }}
-        run: |
-          npm ci
-          npx ota track
+        run: npx ota track
 
       - name: Track eCFR parts
         id: ecfr
@@ -89,10 +106,18 @@ jobs:
 
       - name: Publish versions and snapshots
         if: ${{ !cancelled() }}
+        env:
+          PUSH_TOKEN: ${{ secrets.SOURCES_REPOS_TOKEN }}
         run: |
+          # Credentials exist only for this step's pushes and are never echoed. The header is
+          # masked because base64 of a secret is not masked automatically.
+          auth=$(printf 'x-access-token:%s' "$PUSH_TOKEN" | base64 | tr -d '\n')
+          echo "::add-mask::$auth"
+          gitx() { git -c "http.extraheader=AUTHORIZATION: basic $auth" "$@"; }
           # Snapshots first: versions reference snapshot commit IDs.
-          git -C ota/data/snapshots push || { git -C ota/data/snapshots pull --rebase && git -C ota/data/snapshots push; }
-          git -C ota/data/versions push || { git -C ota/data/versions pull --rebase && git -C ota/data/versions push; }
+          gitx -C ota/data/snapshots push \
+            || { gitx -C ota/data/snapshots pull --rebase && gitx -C ota/data/snapshots push; }
+          gitx -C ota/data/versions push || { gitx -C ota/data/versions pull --rebase && gitx -C ota/data/versions push; }
 
       - name: Fail the run if the eCFR fetch failed
         if: ${{ !cancelled() && steps.ecfr.outputs.rc != '0' }}
