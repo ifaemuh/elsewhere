@@ -80,14 +80,77 @@ test('every cited source must exist in sources.yaml', () => {
   assert.match(issues(() => loadRules({ dataDir: dir, sources: sources() })), /unknown source "fx-missing"/);
 });
 
-test('conditions get precise messages for unknown facts and bad values', () => {
-  const yaml = fixtureYaml('fx-us-refund-cancelled-flight')
-    .replace('fact: flight.touches_us', 'fact: flight.color')
-    .replace('in: [cancellation]', 'in: [meteor]');
+function foundIssues(yaml: string): { file: string; path: string; message: string }[] {
   const dir = tempData({ 'fx-us-refund-cancelled-flight.yaml': yaml });
-  const found = issues(() => loadRules({ dataDir: dir, sources: sources() }));
-  assert.match(found, /applies_when\.all\.1: unknown fact "flight\.color"/);
-  assert.match(found, /applies_when\.all\.0: "event\.type" expects one of cancellation/);
+  try {
+    loadRules({ dataDir: dir, sources: sources() });
+  } catch (error) {
+    if (error instanceof RulesValidationError) return error.issues;
+    throw error;
+  }
+  return [];
+}
+
+const base = () => fixtureYaml('fx-us-refund-cancelled-flight');
+
+test('conditions get precise messages for unknown facts and bad values, with no generic noise', () => {
+  const yaml = base().replace('fact: flight.touches_us', 'fact: flight.color').replace('in: [cancellation]', 'in: [meteor]');
+  const found = foundIssues(yaml);
+  assert.deepEqual(
+    found.map((i) => i.path),
+    ['applies_when.all.0', 'applies_when.all.1'],
+  );
+  assert.match(found[0]!.message, /"event\.type" expects one of cancellation/);
+  assert.match(found[1]!.message, /unknown fact "flight\.color"/);
+});
+
+test('eq and in with wrong-typed values on a number fact are reported', () => {
+  const eq = foundIssues(base().replace('fact: flight.touches_us\n      eq: true', 'fact: event.delay_minutes\n      eq: "long"'));
+  assert.equal(eq.length, 1);
+  assert.equal(eq[0]!.path, 'applies_when.all.1');
+  assert.match(eq[0]!.message, /"event\.delay_minutes" expects .*got "long"/);
+  const list = foundIssues(base().replace('fact: flight.touches_us\n      eq: true', 'fact: event.delay_minutes\n      in: ["a"]'));
+  assert.equal(list.length, 1);
+  assert.match(list[0]!.message, /got "a"/);
+});
+
+test('every bad element of a mixed in list is reported', () => {
+  const found = foundIssues(base().replace('in: [cancellation]', 'in: [cancellation, meteor, flood]'));
+  assert.deepEqual(found.map((i) => i.path), ['applies_when.all.0', 'applies_when.all.0']);
+  assert.match(found[0]!.message, /got "meteor"/);
+  assert.match(found[1]!.message, /got "flood"/);
+});
+
+test('exists must be a boolean', () => {
+  const found = foundIssues(base().replace('fact: flight.touches_us\n      eq: true', 'fact: flight.touches_us\n      exists: "yes"'));
+  assert.deepEqual(found.map((i) => `${i.path}: ${i.message}`), ['applies_when.all.1: exists takes true or false']);
+});
+
+test('a condition with more than one operator is reported', () => {
+  const found = foundIssues(base().replace('fact: flight.touches_us\n      eq: true', 'fact: event.delay_minutes\n      gte: 1\n      lte: 5'));
+  assert.deepEqual(found.map((i) => i.path), ['applies_when.all.1']);
+  assert.match(found[0]!.message, /exactly one operator, found 2/);
+});
+
+test('an unknown fact nested under any is reported with its path', () => {
+  const found = foundIssues(
+    base().replace('fact: flight.touches_us\n      eq: true', 'any:\n        - fact: flight.color\n          eq: true'),
+  );
+  assert.deepEqual(found.map((i) => i.path), ['applies_when.all.1.any.0']);
+  assert.match(found[0]!.message, /unknown fact "flight\.color"/);
+});
+
+test('a node carrying both all and any is checked in both groups', () => {
+  const found = foundIssues(
+    base().replace(
+      'fact: flight.touches_us\n      eq: true',
+      'all:\n        - fact: flight.color\n          eq: true\n      any:\n        - fact: flight.shape\n          eq: true',
+    ),
+  );
+  const paths = found.map((i) => i.path);
+  assert.ok(paths.includes('applies_when.all.1.all.0'));
+  assert.ok(paths.includes('applies_when.all.1.any.0'));
+  assert.equal(found.length, 2);
 });
 
 test('numeric operators only work on number facts', () => {

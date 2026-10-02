@@ -45,10 +45,11 @@ const OPERATORS = ['eq', 'in', 'gte', 'lte', 'gt', 'lt', 'exists'] as const;
 function conditionIssues(node: unknown, path: string): { path: string; message: string }[] {
   if (typeof node !== 'object' || node === null) return [];
   const record = node as Record<string, unknown>;
-  for (const group of ['all', 'any']) {
-    if (Array.isArray(record[group])) {
-      return (record[group] as unknown[]).flatMap((child, i) => conditionIssues(child, `${path}.${group}.${i}`));
-    }
+  const groups = ['all', 'any'].filter((group) => Array.isArray(record[group]));
+  if (groups.length) {
+    return groups.flatMap((group) =>
+      (record[group] as unknown[]).flatMap((child, i) => conditionIssues(child, `${path}.${group}.${i}`)),
+    );
   }
   if (!('fact' in record)) return [];
   const fact = String(record.fact);
@@ -61,8 +62,9 @@ function conditionIssues(node: unknown, path: string): { path: string; message: 
   if (op === 'exists') return typeof value === 'boolean' ? [] : [{ path, message: 'exists takes true or false' }];
   if (op === 'eq' || op === 'in') {
     const values = op === 'in' && Array.isArray(value) ? value : [value];
-    const bad = values.filter((v) => !factValueFits(fact, v));
-    return bad.length ? [{ path, message: `"${fact}" expects ${describeFact(fact)}, got ${JSON.stringify(bad[0])}` }] : [];
+    return values
+      .filter((v) => !factValueFits(fact, v))
+      .map((v) => ({ path, message: `"${fact}" expects ${describeFact(fact)}, got ${JSON.stringify(v)}` }));
   }
   return type === 'number' ? [] : [{ path, message: `${op} only works on number facts; "${fact}" is ${describeFact(fact)}` }];
 }
@@ -94,10 +96,15 @@ export function loadRuleFiles(
       continue;
     }
 
-    for (const issue of conditionIssues(raw.applies_when, 'applies_when')) add(issue.path, issue.message);
+    const precise = conditionIssues(raw.applies_when, 'applies_when');
+    for (const issue of precise) add(issue.path, issue.message);
     const result = RuleSchema.safeParse(raw);
     if (!result.success) {
-      for (const issue of result.error.issues) add(issue.path.join('.'), issue.message);
+      for (const issue of result.error.issues) {
+        // The precise pass already explains bad conditions; zod's union error would only repeat it noisily.
+        if (precise.length && issue.path[0] === 'applies_when') continue;
+        add(issue.path.join('.'), issue.message);
+      }
       continue;
     }
     const rule = result.data;
