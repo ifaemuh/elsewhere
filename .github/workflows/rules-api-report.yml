@@ -5,6 +5,10 @@ on:
     - cron: '0 14 * * 1' # Mondays 14:00 UTC
   workflow_dispatch: {}
 
+concurrency:
+  group: rules-api-weekly-report
+  cancel-in-progress: false
+
 permissions:
   contents: read
   issues: write
@@ -12,22 +16,29 @@ permissions:
 jobs:
   report:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: npm
-      - run: npm ci
+      # npm ci fails until the root ruflo lockfile issue is fixed (see Track A ledger)
+      - run: npm install
       - name: Build the report
         working-directory: apps/web
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: node --conditions=react-server --import tsx scripts/rules-api-report.ts > "$RUNNER_TEMP/report.md"
+        run: |
+          set -euo pipefail
+          node --conditions=react-server --import tsx scripts/rules-api-report.ts > "$RUNNER_TEMP/report.md"
+          test -s "$RUNNER_TEMP/report.md" || { echo "Report is empty; not opening an issue." >&2; exit 1; }
       - name: Open the report as an issue
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
+          test -s "$RUNNER_TEMP/report.md" || { echo "Report is empty; not opening an issue." >&2; exit 1; }
           gh label create rules-api-report --color 0E8A16 --force
           gh issue create --title "Rules API weekly report — $(date -u +%F)" --label rules-api-report --body-file "$RUNNER_TEMP/report.md"
