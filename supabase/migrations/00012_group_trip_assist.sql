@@ -174,6 +174,13 @@ begin
   if length(coalesce(p_token, '')) < 16 or p_expires_at is null or p_expires_at <= now() then
     raise exception 'invalid invite token' using errcode = '22023';
   end if;
+  -- A reset must retire the old link, so an unchanged token is refused rather than silently kept.
+  if exists (
+    select 1 from public.trips
+     where id = p_trip_id and join_token_hash = encode(sha256(convert_to(p_token, 'UTF8')), 'hex')
+  ) then
+    raise exception 'invite token unchanged' using errcode = '22023';
+  end if;
   update public.trips
      set join_token_hash = encode(sha256(convert_to(p_token, 'UTF8')), 'hex'),
          join_token_expires_at = p_expires_at
@@ -599,6 +606,10 @@ grant update (status, due_at) on public.action_items to authenticated;
 grant update (title, detail, deadline, status) on public.votes to authenticated;
 grant update (option_id, responded_at) on public.vote_responses to authenticated;
 grant update (revoked_at) on public.consents to authenticated;
+-- email and phone mirror auth.users (handle_new_user); users may not rewrite them, or the SMS opt-in
+-- that depends on a verified phone would be forgeable.
+revoke update on public.profiles from anon, authenticated;
+grant update (display_name, venmo_username, cashtag, timezone, sms_opt_in) on public.profiles to authenticated;
 
 -- The join-token hash and inbound code are not readable by members; see trip_inbound_code().
 revoke select on public.trips from anon, authenticated;

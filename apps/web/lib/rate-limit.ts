@@ -2,8 +2,11 @@ import 'server-only';
 import { checkRateLimit } from '@vercel/firewall';
 import { headers } from 'next/headers';
 
-/** Vercel Firewall rate-limit rules, each keyed by the visitor's IP. Task 18 creates them before trips open. */
-export const RATE_LIMIT_RULES = { codeSend: 'auth-code-send', tripCreate: 'trips-create' } as const;
+/**
+ * Vercel Firewall rate-limit rules. codeSend is keyed by IP (the default); codeSendContact by a hash of the
+ * contact a code goes to; tripCreate by user id. Task 18 creates all three before trips open.
+ */
+export const RATE_LIMIT_RULES = { codeSend: 'auth-code-send', codeSendContact: 'auth-code-send-contact', tripCreate: 'trips-create' } as const;
 export type RateLimitRule = (typeof RATE_LIMIT_RULES)[keyof typeof RATE_LIMIT_RULES];
 
 /**
@@ -11,10 +14,10 @@ export type RateLimitRule = (typeof RATE_LIMIT_RULES)[keyof typeof RATE_LIMIT_RU
  * so nothing is limited. A missing rule or a firewall error fails open, with a log: Supabase's own Auth
  * limits and Twilio's SMS pumping protection still stand behind it.
  */
-export async function rateLimited(rule: RateLimitRule): Promise<boolean> {
+export async function rateLimited(rule: RateLimitRule, key?: string): Promise<boolean> {
   if (process.env.VERCEL !== '1') return false;
   try {
-    const { rateLimited: limited, error } = await checkRateLimit(rule, { headers: await headers() });
+    const { rateLimited: limited, error } = await checkRateLimit(rule, { headers: await headers(), ...(key ? { rateLimitKey: key } : {}) });
     if (error === 'not-found') console.warn(`rate limit rule "${rule}" is not configured in Vercel Firewall`);
     return limited || error === 'blocked';
   } catch (error) {

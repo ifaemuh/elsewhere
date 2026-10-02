@@ -13,7 +13,7 @@ import { assignVariant, VARIANT_PRICE_CENTS } from '@/lib/funnel/variant';
 import { priceIdFor, stripe } from '@/lib/payments/stripe';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { createClient } from '@/lib/supabase/server';
-import { joinExpiry, joinToken } from '@/lib/trips/join-token';
+import { joinToken, nextJoinExpiry } from '@/lib/trips/join-token';
 
 export async function startPassCheckout(rawTripId: string): Promise<void> {
   const tripId = z.string().uuid().parse(rawTripId);
@@ -87,9 +87,10 @@ async function requirePlanner(tripId: string) {
 
 export async function createJoinLink(tripId: string): Promise<string> {
   const supabase = await requirePlanner(tripId);
-  const { data: trip, error } = await supabase.from('trips').select('end_date').eq('id', tripId).single();
+  const { data: trip, error } = await supabase.from('trips').select('end_date, join_token_expires_at').eq('id', tripId).single();
   if (error || !trip?.end_date) throw new Error('Set the trip dates before inviting the group.');
-  const expiresAt = joinExpiry(trip.end_date);
+  // Never equal to the stored expiry, so a reset always retires the old link.
+  const expiresAt = nextJoinExpiry(trip.end_date, trip.join_token_expires_at);
   const token = joinToken(requireEnv('JOIN_LINK_SECRET'), tripId, expiresAt);
   // join_token_hash is not column-writable. set_join_token checks the planner again and stores only the hash.
   const { error: setError } = await supabase.rpc('set_join_token', { p_trip_id: tripId, p_token: token, p_expires_at: expiresAt });
@@ -104,4 +105,18 @@ export async function currentJoinLink(tripId: string): Promise<string | null> {
   const { data: trip } = await supabase.from('trips').select('join_token_expires_at').eq('id', tripId).single();
   if (!trip?.join_token_expires_at || new Date(trip.join_token_expires_at) < new Date()) return null;
   return `${appUrl()}/join/${joinToken(requireEnv('JOIN_LINK_SECRET'), tripId, trip.join_token_expires_at)}`;
+}
+
+/** The trip page's create/reset button. A failure (dates in the past, an RPC error) leaves a note, not a crash. */
+export async function resetJoinLink(tripId: string): Promise<void> {
+  // Outside the try: a sign-in redirect must not be swallowed as a link failure.
+  await requireUser(`/trips/${tripId}`);
+  let failed = false;
+  try {
+    await createJoinLink(tripId);
+  } catch (error) {
+    console.error('createJoinLink failed', error instanceof Error ? error.message : 'unknown error');
+    failed = true;
+  }
+  if (failed) redirect(`/trips/${tripId}?invite=failed`);
 }

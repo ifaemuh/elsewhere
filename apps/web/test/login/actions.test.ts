@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const verifyOtp = vi.fn();
@@ -11,7 +12,7 @@ vi.mock('next/navigation', () => ({
   },
 }));
 const { rateLimited } = vi.hoisted(() => ({ rateLimited: vi.fn() }));
-vi.mock('@/lib/rate-limit', () => ({ RATE_LIMIT_RULES: { codeSend: 'auth-code-send', tripCreate: 'trips-create' }, rateLimited }));
+vi.mock('@/lib/rate-limit', () => ({ RATE_LIMIT_RULES: { codeSend: 'auth-code-send', codeSendContact: 'auth-code-send-contact', tripCreate: 'trips-create' }, rateLimited }));
 
 import { loginAction, type LoginState } from '@/app/login/actions';
 
@@ -121,6 +122,27 @@ describe('loginAction send', () => {
     const result = await loginAction(contactStep, form({ intent: 'send', contact: 'pat@example.test' }));
     expect(result).toEqual({ step: 'contact', channel: 'email', contact: 'pat@example.test', error: 'Too many codes requested. Wait a minute, then try again.' });
     expect(rateLimited).toHaveBeenCalledWith('auth-code-send');
+    expect(signInWithOtp).not.toHaveBeenCalled();
+  });
+
+  it('also limits per destination, keyed by a hash of the normalized contact', async () => {
+    rateLimited.mockImplementation(async (rule: string) => rule === 'auth-code-send-contact');
+    const result = await loginAction(contactStep, form({ intent: 'send', contact: ' Pat@Example.TEST ' }));
+    expect(result.error).toBe('Too many codes requested. Wait a minute, then try again.');
+    expect(rateLimited).toHaveBeenCalledWith('auth-code-send-contact', createHash('sha256').update('pat@example.test').digest('hex'));
+    expect(signInWithOtp).not.toHaveBeenCalled();
+  });
+
+  it('refuses a non-US number before any limit check or send', async () => {
+    process.env.SMS_ENABLED = 'true';
+    const result = await loginAction(contactStep, form({ intent: 'send', channel: 'phone', contact: '+44 20 7946 0958' }));
+    expect(result).toEqual({
+      step: 'contact',
+      channel: 'phone',
+      contact: '+442079460958',
+      error: 'Text codes only work for US and Canadian numbers (+1) for now. Use email instead.',
+    });
+    expect(rateLimited).not.toHaveBeenCalled();
     expect(signInWithOtp).not.toHaveBeenCalled();
   });
 });

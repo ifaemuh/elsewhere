@@ -32,11 +32,11 @@ export function LoginForm({
       {state.step === 'contact' ? (
         <>
           {phoneAvailable ? (
-            <div className="flex gap-2 text-sm" role="radiogroup" aria-label="How should we send your code?">
-              <Button type="button" variant={channel === 'email' ? 'default' : 'outline'} size="sm" onClick={() => setChannel('email')}>
+            <div className="flex gap-2 text-sm">
+              <Button type="button" variant={channel === 'email' ? 'default' : 'outline'} size="sm" aria-pressed={channel === 'email'} onClick={() => setChannel('email')}>
                 Email
               </Button>
-              <Button type="button" variant={channel === 'phone' ? 'default' : 'outline'} size="sm" onClick={() => setChannel('phone')}>
+              <Button type="button" variant={channel === 'phone' ? 'default' : 'outline'} size="sm" aria-pressed={channel === 'phone'} onClick={() => setChannel('phone')}>
                 Text message
               </Button>
             </div>

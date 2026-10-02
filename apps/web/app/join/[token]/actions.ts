@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { smsEnabled } from '@/lib/auth/phone';
 import { requireUser } from '@/lib/auth/user';
 import { createClient } from '@/lib/supabase/server';
+import { isValidTimeZone } from '@/lib/time-zone';
 import { isJoinTokenShape } from '@/lib/trips/join-token';
 
 export interface JoinState {
@@ -41,22 +42,25 @@ export async function joinTripAction(token: string, _prev: JoinState, form: Form
   if (error || typeof tripId !== 'string') return { error: 'This invite link has expired. Ask the planner for a new one.' };
 
   const smsOptIn = parsed.data.smsOptIn && smsEnabled() && Boolean(user.phone);
-  const validZone = Intl.supportedValuesOf('timeZone').includes(parsed.data.timezone) ? parsed.data.timezone : 'America/New_York';
-  await supabase
-    .from('profiles')
-    .update({
-      venmo_username: parsed.data.venmo ? parsed.data.venmo.replace(/^@/, '') : null,
-      cashtag: parsed.data.cashtag ? parsed.data.cashtag.replace(/^\$/, '') : null,
-      sms_opt_in: smsOptIn,
-      timezone: validZone,
-    })
-    .eq('id', user.id);
+  // Write only what the person filled in: joining a second trip must not wipe saved handles or an earlier SMS opt-in.
+  const profileUpdate: Record<string, string | boolean> = {};
+  if (parsed.data.venmo) profileUpdate.venmo_username = parsed.data.venmo.replace(/^@/, '');
+  if (parsed.data.cashtag) profileUpdate.cashtag = parsed.data.cashtag.replace(/^\$/, '');
+  if (smsOptIn) profileUpdate.sms_opt_in = true;
+  if (isValidTimeZone(parsed.data.timezone)) profileUpdate.timezone = parsed.data.timezone;
+  if (Object.keys(profileUpdate).length > 0) {
+    const { error: profileError } = await supabase.from('profiles').update(profileUpdate).eq('id', user.id);
+    if (profileError) console.error('join: profile update failed', profileError.message);
+  }
 
   const consents = [
     ...(user.email ? [{ user_id: user.id, kind: 'email', policy_version: EMAIL_POLICY_VERSION }] : []),
     ...(smsOptIn ? [{ user_id: user.id, kind: 'sms', policy_version: SMS_POLICY_VERSION }] : []),
   ];
-  if (consents.length > 0) await supabase.from('consents').insert(consents);
+  if (consents.length > 0) {
+    const { error: consentError } = await supabase.from('consents').insert(consents);
+    if (consentError) console.error('join: consent insert failed', consentError.message);
+  }
 
   redirect(`/trips/${tripId}`);
 }

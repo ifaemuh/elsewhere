@@ -1,5 +1,6 @@
 'use server';
 
+import { createHash } from 'node:crypto';
 import { redirect } from 'next/navigation';
 import { parseEmail, parseOtpCode } from '@/lib/auth/otp';
 import { parsePhone, smsEnabled } from '@/lib/auth/phone';
@@ -36,8 +37,14 @@ export async function loginAction(prev: LoginState, form: FormData): Promise<Log
   if (!contact) {
     return { step: 'contact', channel, contact: '', error: channel === 'phone' ? 'Enter a valid mobile number.' : 'Enter a valid email address.' };
   }
-  // Every send costs an email or a text; an unthrottled form is an SMS-pumping target.
-  if (await rateLimited(RATE_LIMIT_RULES.codeSend)) {
+  // Twilio Geo permissions will allow US and Canada only (+1) at launch.
+  if (channel === 'phone' && !contact.startsWith('+1')) {
+    return { step: 'contact', channel, contact, error: 'Text codes only work for US and Canadian numbers (+1) for now. Use email instead.' };
+  }
+  // Every send costs an email or a text; an unthrottled form is an SMS-pumping target. Limit per visitor (IP)
+  // and per destination, so one visitor cannot spam a number and a botnet cannot hammer one number.
+  const contactKey = createHash('sha256').update(contact).digest('hex');
+  if ((await rateLimited(RATE_LIMIT_RULES.codeSend)) || (await rateLimited(RATE_LIMIT_RULES.codeSendContact, contactKey))) {
     return { step: 'contact', channel, contact, error: 'Too many codes requested. Wait a minute, then try again.' };
   }
   const { error } =

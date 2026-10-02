@@ -58,6 +58,13 @@ describe('invite links (Task 1)', () => {
     await rejects(() => asUser(db, PLANNER, () => db.query("select public.set_join_token($1, $2, now() - interval '1 day')", [tripId, 'expired-token-0123456789'])), /invalid invite token/);
   });
 
+  it('refuses a reset that would leave the token unchanged', async () => {
+    await rejects(
+      () => asUser(db, PLANNER, () => db.query("select public.set_join_token($1, $2, now() + interval '7 days')", [tripId, 'c2-rotated-token-9876543210'])),
+      /invite token unchanged/,
+    );
+  });
+
   it('is closed to anon', async () => {
     const grants = await asService(db, () =>
       one<{ anon: boolean; signed_in: boolean }>(
@@ -65,5 +72,18 @@ describe('invite links (Task 1)', () => {
       ),
     );
     expect(grants).toEqual({ anon: false, signed_in: true });
+  });
+});
+
+describe('profile columns (Task 1)', () => {
+  it('lets a user update the granted columns only', async () => {
+    await asUser(db, MEMBER, () => db.query("update public.profiles set display_name = 'Sam S', venmo_username = 'sam-pays', cashtag = 'sampays', timezone = 'Asia/Kolkata', sms_opt_in = false where id = $1", [MEMBER]));
+    const row = await asService(db, () => one<{ venmo_username: string; timezone: string }>('select venmo_username, timezone from public.profiles where id = $1', [MEMBER]));
+    expect(row).toEqual({ venmo_username: 'sam-pays', timezone: 'Asia/Kolkata' });
+  });
+
+  it('refuses a user rewriting their own phone or email', async () => {
+    await rejects(() => asUser(db, MEMBER, () => db.query("update public.profiles set phone = '+15551230000' where id = $1", [MEMBER])), /permission denied/);
+    await rejects(() => asUser(db, MEMBER, () => db.query("update public.profiles set email = 'evil@example.test' where id = $1", [MEMBER])), /permission denied/);
   });
 });

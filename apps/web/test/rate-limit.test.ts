@@ -27,6 +27,16 @@ describe('rateLimited', () => {
     expect(new Headers(options.headers).get('x-forwarded-for')).toBe('203.0.113.9');
   });
 
+  it('passes a custom key to the rule when given one', async () => {
+    process.env.VERCEL = '1';
+    checkRateLimit.mockResolvedValueOnce({ rateLimited: false });
+    await rateLimited('auth-code-send-contact', 'abc123');
+    expect(checkRateLimit.mock.calls[0][1].rateLimitKey).toBe('abc123');
+    checkRateLimit.mockResolvedValueOnce({ rateLimited: false });
+    await rateLimited('auth-code-send');
+    expect(checkRateLimit.mock.calls[1][1]).not.toHaveProperty('rateLimitKey');
+  });
+
   it('treats a firewall block as limited', async () => {
     process.env.VERCEL = '1';
     checkRateLimit.mockResolvedValueOnce({ rateLimited: false, error: 'blocked' });

@@ -15,7 +15,7 @@ vi.mock('@/lib/auth/user', () => ({ requireUser: async () => ({ id: 'user-1', em
 const recordEvent = vi.fn();
 vi.mock('@/lib/funnel/events', () => ({ recordEvent: (...args: unknown[]) => recordEvent(...args) }));
 const { rateLimited } = vi.hoisted(() => ({ rateLimited: vi.fn() }));
-vi.mock('@/lib/rate-limit', () => ({ RATE_LIMIT_RULES: { codeSend: 'auth-code-send', tripCreate: 'trips-create' }, rateLimited }));
+vi.mock('@/lib/rate-limit', () => ({ RATE_LIMIT_RULES: { codeSend: 'auth-code-send', codeSendContact: 'auth-code-send-contact', tripCreate: 'trips-create' }, rateLimited }));
 
 import { createTrip } from '@/app/trips/new/actions';
 
@@ -87,7 +87,7 @@ describe('createTrip', () => {
   it('refuses while the visitor is over the trip-creation limit', async () => {
     rateLimited.mockResolvedValue(true);
     await expect(createTrip({ error: null }, form(valid))).resolves.toEqual({ error: 'Too many new trips from here. Wait a minute, then try again.' });
-    expect(rateLimited).toHaveBeenCalledWith('trips-create');
+    expect(rateLimited).toHaveBeenCalledWith('trips-create', 'user-1');
     expect(rpc).not.toHaveBeenCalled();
   });
 });

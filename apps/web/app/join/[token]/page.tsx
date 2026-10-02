@@ -13,7 +13,7 @@ type Params = Promise<{ token: string }>;
 
 export async function generateMetadata({ params }: { params: Params }): Promise<Metadata> {
   const found = await findJoinableTrip((await params).token);
-  if (!found) return { title: 'Elsewhere invite' };
+  if (!found) return { title: 'Elsewhere invite', robots: { index: false } };
   const preview = joinPreview(found.trip, found.memberCount);
   return {
     title: `${preview.tripName} · you’re invited`,
