@@ -1,7 +1,7 @@
 import { FatalError } from 'workflow';
 import { start } from 'workflow/api';
 import { runIntake } from '../lib/intake/orchestrate';
-import type { ExtractOutcome, IntakeResult, PersistOutcome, ReadyExtraction } from '../lib/intake/process';
+import type { ExtractOutcome, FailureKind, IntakeResult, PersistOutcome, ReadyExtraction } from '../lib/intake/process';
 import { segmentMonitorWorkflow } from './segment-monitor';
 
 export async function intakeWorkflow(messageId: string) {
@@ -38,16 +38,16 @@ async function extractStep(messageId: string): Promise<ExtractOutcome> {
 // Step B writes bookings; every write is idempotent, so a retry completes it without duplicating.
 async function persistStep(extraction: ReadyExtraction): Promise<PersistOutcome> {
   'use step';
-  return (await import('../lib/intake/process')).persistPhase(extraction, await liveDeps());
+  return fatalIfPermanent(async () => (await import('../lib/intake/process')).persistPhase(extraction, await liveDeps()));
 }
 
 // Step C looks up flights and marks the message done; a retry redoes only the segments still unresolved.
 async function confirmStep(extraction: ReadyExtraction, persisted: PersistOutcome): Promise<IntakeResult> {
   'use step';
-  return (await import('../lib/intake/process')).confirmPhase(extraction, persisted, await liveDeps());
+  return fatalIfPermanent(async () => (await import('../lib/intake/process')).confirmPhase(extraction, persisted, await liveDeps()));
 }
 
-async function markFailedStep(messageId: string, reason: string, problems: string[], kind: 'unreadable' | 'lookup', storagePath: string | null): Promise<IntakeResult> {
+async function markFailedStep(messageId: string, reason: string, problems: string[], kind: FailureKind, storagePath: string | null): Promise<IntakeResult> {
   'use step';
   return (await import('../lib/intake/process')).failPhase(messageId, reason, problems, await liveDeps(), { kind, storagePath });
 }

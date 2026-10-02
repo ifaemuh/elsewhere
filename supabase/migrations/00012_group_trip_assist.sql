@@ -624,7 +624,7 @@ grant execute on function public.claim_due_notifications(timestamptz, int) to se
 -- A booking another message already saved comes back created = false and is left alone.
 create or replace function public.save_booking(p_trip_id uuid, p_message_id uuid, p_booking jsonb, p_confirmed boolean)
 returns table (out_booking_id uuid, out_created boolean)
-language plpgsql security definer set search_path = public as $$
+language plpgsql security definer set search_path = public, pg_temp as $$
 declare
   v_id uuid;
   v_message uuid;

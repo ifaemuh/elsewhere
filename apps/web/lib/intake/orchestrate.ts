@@ -1,11 +1,11 @@
-import type { ExtractOutcome, IntakeResult, PersistOutcome, ReadyExtraction } from './process';
+import type { ExtractOutcome, FailureKind, IntakeResult, PersistOutcome, ReadyExtraction } from './process';
 
 /** The workflow's steps, injected so the control flow is testable and the workflow body stays deterministic. */
 export interface IntakeSteps {
   extract(messageId: string): Promise<ExtractOutcome>;
   persist(extraction: ReadyExtraction): Promise<PersistOutcome>;
   confirm(extraction: ReadyExtraction, persisted: PersistOutcome): Promise<IntakeResult>;
-  markFailed(messageId: string, reason: string, problems: string[], kind: 'unreadable' | 'lookup', storagePath: string | null): Promise<IntakeResult>;
+  markFailed(messageId: string, reason: string, problems: string[], kind: FailureKind, storagePath: string | null): Promise<IntakeResult>;
 }
 
 /** A step that threw FatalError (fixed text) or ran out of retries (anything else, which may carry provider detail). */
@@ -22,7 +22,7 @@ function reasonFor(error: unknown): string {
  */
 export async function runIntake(messageId: string, steps: IntakeSteps): Promise<IntakeResult> {
   let extraction: ReadyExtraction | null = null;
-  let stage: 'read' | 'lookup' = 'read';
+  let stage: FailureKind = 'unreadable';
   try {
     const extracted = await steps.extract(messageId);
     if (extracted.status === 'missing') return extracted;
@@ -30,11 +30,12 @@ export async function runIntake(messageId: string, steps: IntakeSteps): Promise<
     if (extraction.bookings.length === 0) {
       return await steps.markFailed(messageId, 'no booking found', extraction.problems, 'unreadable', extraction.storagePath);
     }
+    stage = 'save';
     const persisted = await steps.persist(extraction);
     stage = 'lookup';
     return await steps.confirm(extraction, persisted);
   } catch (error) {
     const reason = stage === 'lookup' ? 'flight lookup did not finish' : reasonFor(error);
-    return steps.markFailed(messageId, reason, extraction?.problems ?? [], stage === 'lookup' ? 'lookup' : 'unreadable', extraction?.storagePath ?? null);
+    return steps.markFailed(messageId, reason, extraction?.problems ?? [], stage, extraction?.storagePath ?? null);
   }
 }

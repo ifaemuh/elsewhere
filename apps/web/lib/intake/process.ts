@@ -45,6 +45,8 @@ export interface IntakeDeps {
 /** A failure retrying cannot fix. The workflow turns it into a FatalError. The message is fixed text, never email content. */
 export class PermanentIntakeError extends Error {}
 
+export type FailureKind = 'unreadable' | 'save' | 'lookup';
+
 export type IntakeResult =
   | { status: 'missing' }
   | { status: 'failed'; reason: string; problems?: string[] }
@@ -167,22 +169,28 @@ export async function failPhase(
   reason: string,
   problems: string[],
   deps: IntakeDeps,
-  opts: { kind?: 'unreadable' | 'lookup'; storagePath?: string | null } = {},
+  opts: { kind?: FailureKind; storagePath?: string | null } = {},
 ): Promise<IntakeResult> {
   const message = await deps.loadMessage(messageId);
   if (!message) return { status: 'missing' };
   const why = problems.length > 0 ? `: ${problems.join('; ')}` : '';
-  if ((opts.kind ?? 'unreadable') === 'unreadable') {
-    await deps.addActionItem({
-      trip_id: message.tripId,
-      kind: 'booking',
-      title: 'We couldn’t read a booking',
-      detail: `We couldn’t find a booking in “${message.subject ?? 'a forwarded message'}”.${problems.length > 0 ? ` ${problems.join('; ')}.` : ''} You can add it by hand on the bookings page.`,
-      assigned_user_ids: await plannerIds(deps, message.tripId),
-      source_kind: 'booking_confirmation',
-      related_entity_id: message.id,
-    });
-  }
+  const kind = opts.kind ?? 'unreadable';
+  const subject = message.subject ?? 'a forwarded message';
+  const note = problems.length > 0 ? ` ${problems.join('; ')}.` : '';
+  const item =
+    kind === 'lookup'
+      ? { title: 'We couldn’t start flight tracking', detail: 'We saved your booking but couldn’t start flight tracking yet. We’ll retry; check the flight details.' }
+      : kind === 'save'
+        ? { title: 'We couldn’t finish saving a booking', detail: `We couldn’t finish saving the bookings from “${subject}”. Some may be saved; check the bookings page.${note}` }
+        : { title: 'We couldn’t read a booking', detail: `We couldn’t find a booking in “${subject}”.${note} You can add it by hand on the bookings page.` };
+  await deps.addActionItem({
+    trip_id: message.tripId,
+    kind: 'booking',
+    ...item,
+    assigned_user_ids: await plannerIds(deps, message.tripId),
+    source_kind: 'booking_confirmation',
+    related_entity_id: message.id,
+  });
   await deps.setStatus(message.id, 'failed', `${reason[0].toUpperCase()}${reason.slice(1)}${why}`, opts.storagePath ?? message.storagePath);
   return { status: 'failed', reason, ...(problems.length > 0 ? { problems } : {}) };
 }

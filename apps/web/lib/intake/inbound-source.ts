@@ -20,6 +20,11 @@ export interface InboundEmail {
 /** A malformed or unknown message id, a missing fixture, or an email Resend says does not exist. Retrying cannot fix it. */
 export class InboundSourceError extends Error {}
 
+/** A 4xx other than a timeout or rate limit will not change on retry; a 5xx or a network failure will. */
+function isPermanentStatus(status: number | null | undefined): boolean {
+  return status != null && status >= 400 && status < 500 && status !== 408 && status !== 429;
+}
+
 const EMAIL_ID = /^[A-Za-z0-9_-]{1,100}$/;
 
 /** Counts kept files per kind so the caps hold whatever order the attachments arrive in. */
@@ -74,8 +79,7 @@ export async function fetchInboundEmail(emailId: string): Promise<InboundEmail> 
   const { data, error } = await resend.emails.receiving.get(emailId);
   if (error || !data) {
     // A 4xx other than rate limiting or a timeout will not change on retry; a 5xx or a network failure will.
-    const status = error?.statusCode ?? 0;
-    const permanent = status >= 400 && status < 500 && status !== 408 && status !== 429;
+    const permanent = isPermanentStatus(error?.statusCode);
     throw new (permanent ? InboundSourceError : Error)(`could not fetch inbound email: ${error?.message ?? 'empty'}`);
   }
   for (const meta of data.attachments) {
@@ -84,15 +88,22 @@ export async function fetchInboundEmail(emailId: string): Promise<InboundEmail> 
       problems.push(early);
       continue;
     }
-    const { data: attachment } = await resend.emails.receiving.attachments.get({ emailId, id: meta.id });
+    const { data: attachment, error: attachmentError } = await resend.emails.receiving.attachments.get({ emailId, id: meta.id });
     if (!attachment) {
-      problems.push('an attachment was skipped: could not be downloaded');
-      continue;
+      // A 4xx will not change on retry, so the file is dropped with a problem; anything else retries the step.
+      if (isPermanentStatus(attachmentError?.statusCode)) {
+        problems.push('an attachment was skipped: could not be downloaded');
+        continue;
+      }
+      throw new Error(`could not fetch an inbound attachment: ${attachmentError?.message ?? 'empty'}`);
     }
     const response = await fetch(attachment.download_url);
     if (!response.ok) {
-      problems.push('an attachment was skipped: could not be downloaded');
-      continue;
+      if (isPermanentStatus(response.status)) {
+        problems.push('an attachment was skipped: could not be downloaded');
+        continue;
+      }
+      throw new Error(`could not download an inbound attachment: ${response.status}`);
     }
     const bytes = new Uint8Array(await response.arrayBuffer());
     const late = budget.accept(meta.content_type, bytes);

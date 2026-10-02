@@ -185,8 +185,20 @@ describe('processInboundMessage', () => {
   it('writes no email content into the failure record', async () => {
     const { deps, log } = harness({ bookings: [] });
     await failPhase('msg-1', 'processing did not finish', [], deps, { kind: 'lookup' });
-    expect(log.items).toEqual([]);
     expect(log.errors).toEqual(['Processing did not finish']);
+    expect(log.items).toEqual([
+      expect.objectContaining({
+        source_kind: 'booking_confirmation',
+        detail: 'We saved your booking but couldn’t start flight tracking yet. We’ll retry; check the flight details.',
+      }),
+    ]);
+  });
+
+  it('does not say nothing was found when saving failed part way', async () => {
+    const { deps, log } = harness();
+    await failPhase('msg-1', 'processing did not finish', [], deps, { kind: 'save' });
+    expect(log.items[0].detail).toContain('We couldn’t finish saving the bookings from');
+    expect(log.items[0].detail).not.toContain('couldn’t find a booking');
   });
 
   it('reads screenshots as images', async () => {

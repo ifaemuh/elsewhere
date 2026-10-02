@@ -45,7 +45,7 @@ describe('runIntake', () => {
     expect(a.markFailed).toHaveBeenCalledWith('m', 'missing provider message id', [], 'unreadable', null);
     const b = steps({ persist: vi.fn(async () => { throw new Error('insert failed for Pat Doe ABC123'); }) });
     await runIntake('m', b);
-    expect(b.markFailed).toHaveBeenCalledWith('m', 'processing did not finish', ['p'], 'unreadable', 'trip/m/email.json');
+    expect(b.markFailed).toHaveBeenCalledWith('m', 'processing did not finish', ['p'], 'save', 'trip/m/email.json');
   });
 
   it('reports a confirmation failure as a lookup failure, after the bookings were saved', async () => {
