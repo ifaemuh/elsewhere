@@ -1,4 +1,3 @@
-import { join } from 'node:path';
 import type { Rule, Source } from './schema';
 
 /** NFKC, curly quotes → straight, all whitespace runs → one space, trimmed. Case-sensitive. */
@@ -11,8 +10,14 @@ export function normalizeText(text: string): string {
     .trim();
 }
 
+/** POSIX join without node:path, so this module stays bundle-safe. */
+function join(dir: string, ...parts: string[]): string {
+  return [dir.replace(/\/+$/, ''), ...parts].join('/');
+}
+
 /** Where a source's current text lives inside a checkout of elsewhere-sources-versions. */
 export function sourceTextPath(source: Source, versionsDir: string): string {
+  if (!versionsDir) throw new Error('sourceTextPath: versionsDir must not be empty');
   const { detector } = source;
   if ('ota' in detector) return join(versionsDir, detector.ota.service, `${detector.ota.terms_type}.md`);
   if ('ecfr' in detector) return join(versionsDir, 'eCFR', `title-${detector.ecfr.title}-part-${detector.ecfr.part}.md`);

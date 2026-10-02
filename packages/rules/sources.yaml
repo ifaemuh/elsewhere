@@ -38,7 +38,7 @@ dot-bumping-oversales:
   kind: agency_guidance
   detector: { ota: { service: "US DOT Bumping and Oversales", terms_type: "Official Guidance" } }
 dot-delays-cancellations:
-  url: https://www.transportation.gov/individuals/aviation-consumer-protection/flight-delays-cancellations
+  url: https://www.transportation.gov/airconsumer/flight-delays
   kind: agency_guidance
   detector: { ota: { service: "US DOT Flight Delays and Cancellations", terms_type: "Official Guidance" } }
 dot-tarmac-delays:
@@ -46,7 +46,7 @@ dot-tarmac-delays:
   kind: agency_guidance
   detector: { ota: { service: "US DOT Tarmac Delays", terms_type: "Official Guidance" } }
 dot-mishandled-baggage:
-  url: https://www.transportation.gov/individuals/aviation-consumer-protection/mishandled-baggage
+  url: https://www.transportation.gov/lost-delayed-or-damaged-baggage
   kind: agency_guidance
   detector: { ota: { service: "US DOT Mishandled Baggage", terms_type: "Official Guidance" } }
 dot-customer-service-dashboard:
@@ -68,11 +68,21 @@ uk-caa-delays-cancellations:
   kind: agency_guidance
   detector: { ota: { service: "UK CAA Delays and Cancellations", terms_type: "Official Guidance" } }
 
+# Dropped after the 2026-10-01 tracker spike (none is cited by a rule; re-add with the first rule that needs it):
+#   state-passports  travel.state.gov answers 403 (Cloudflare challenge) on every path, for the engine and for plain fetches.
+#   g4-*             Allegiant: allegiantair.com serves a Cloudflare challenge on every path.
+#   nk-*             Spirit: spirit.com no longer resolves (NXDOMAIN); flyspirit.com is a parked redirect.
+#   ha-*             Hawaiian: the contract URL now redirects to the homepage; the combined contract is on Alaska's page.
+#   as-*             Alaska: the contract page loads but its text never renders (about 1.2k chars of nav), even with client scripts.
+# GAP: NO passport-validity source is tracked yet. Backlog rules 13 (passport validity by destination) and
+# 18 (passport card vs book) need one before they can be drafted. Candidate PRIMARY sources, checked from this
+# machine on 2026-10-01 (plain fetch, HTTP 200, page text mentions passports and the three-month rule):
+#   https://europa.eu/youreurope/citizens/travel/entry-exit/index_en.htm (EU Commission, "Documents you need for travel in Europe")
+#   https://www.gov.uk/foreign-travel-advice/<country>/entry-requirements (UK government; has a "Passport validity requirements" section per country, written for UK travellers)
+# Not usable: travel.state.gov (403 above), gov.uk/passport-validity (404). The US-traveller view per destination needs
+# each destination authority's own page, or a State Department path that the engine can reach; still open.
+
 # Entry and documents
-state-passports:
-  url: https://travel.state.gov/content/travel/en/passports.html
-  kind: government_page
-  detector: { ota: { service: "US State Department Passports", terms_type: "Official Guidance" } }
 tsa-real-id:
   url: https://www.tsa.gov/real-id
   kind: government_page
@@ -104,7 +114,7 @@ dl-contract-of-carriage:
   kind: contract_of_carriage
   detector: { ota: { service: "Delta Air Lines", terms_type: "Conditions of Carriage" } }
 dl-customer-service-plan:
-  url: https://www.delta.com/us/en/about-delta/customer-service-plan
+  url: https://www.delta.com/us/en/legal/customer-commitment
   kind: customer_service_plan
   detector: { ota: { service: "Delta Air Lines", terms_type: "Customer Service Plan" } }
 ua-contract-of-carriage:
@@ -112,7 +122,7 @@ ua-contract-of-carriage:
   kind: contract_of_carriage
   detector: { ota: { service: "United Airlines", terms_type: "Conditions of Carriage" } }
 ua-customer-service-plan:
-  url: https://www.united.com/en/us/fly/customer-service-plan.html
+  url: https://www.united.com/en/us/fly/customer-commitment.html
   kind: customer_service_plan
   detector: { ota: { service: "United Airlines", terms_type: "Customer Service Plan" } }
 wn-contract-of-carriage:
@@ -123,27 +133,14 @@ wn-customer-service-plan:
   url: https://www.southwest.com/assets/pdfs/corporate-commitments/customer-service-plan.pdf
   kind: customer_service_plan
   detector: { ota: { service: "Southwest Airlines", terms_type: "Customer Service Plan" } }
-as-contract-of-carriage:
-  url: https://www.alaskaair.com/content/legal/contract-of-carriage
-  kind: contract_of_carriage
-  detector: { ota: { service: "Alaska Airlines", terms_type: "Conditions of Carriage" } }
 b6-contract-of-carriage:
-  url: https://www.jetblue.com/legal/contract-of-carriage
+  url: https://cms.jetblue.com/public/dam/ui-assets/p/legal/Contract_of_Carriage.pdf
   kind: contract_of_carriage
   detector: { ota: { service: "JetBlue", terms_type: "Conditions of Carriage" } }
-nk-contract-of-carriage:
-  url: https://www.spirit.com/legal/contract-of-carriage
-  kind: contract_of_carriage
-  detector: { ota: { service: "Spirit Airlines", terms_type: "Conditions of Carriage" } }
+# LIMITATION: the page only links the current English PDF (a media-id URL on f9prodcdn.azureedge.net, e.g. /media/11152/cs_coc.pdf,
+# which changes on every revision), so a contract revision shows here as a changed link, not as changed text.
+# The PDF itself fetches fine (HTTP 200) but would need its source URL updated each time, so we track the landing page.
 f9-contract-of-carriage:
   url: https://www.flyfrontier.com/legal/contract-of-carriage/
   kind: contract_of_carriage
   detector: { ota: { service: "Frontier Airlines", terms_type: "Conditions of Carriage" } }
-g4-contract-of-carriage:
-  url: https://www.allegiantair.com/legal/contract-of-carriage
-  kind: contract_of_carriage
-  detector: { ota: { service: "Allegiant Air", terms_type: "Conditions of Carriage" } }
-ha-contract-of-carriage:
-  url: https://www.hawaiianairlines.com/legal/list-of-all-contracts/contract-of-carriage
-  kind: contract_of_carriage
-  detector: { ota: { service: "Hawaiian Airlines", terms_type: "Conditions of Carriage" } }
