@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation';
 import { z } from 'zod';
 import { smsEnabled } from '@/lib/auth/phone';
 import { requireUser } from '@/lib/auth/user';
+import { runDocumentChecks } from '@/lib/documents/service';
 import { createClient } from '@/lib/supabase/server';
 import { normalizeTimeZone } from '@/lib/time-zone';
 import { isJoinTokenShape } from '@/lib/trips/join-token';
@@ -63,5 +64,11 @@ export async function joinTripAction(token: string, _prev: JoinState, form: Form
     if (consentError) console.error('join: consent insert failed', consentError.message);
   }
 
+  try {
+    await runDocumentChecks(tripId);
+  } catch (e) {
+    // The member has already joined; the checks re-run on their next save and at T-30 days.
+    console.error('join: document checks failed', e instanceof Error ? e.message : 'unknown');
+  }
   redirect(`/trips/${tripId}`);
 }

@@ -242,3 +242,47 @@ describe('intake (Task 5)', () => {
     });
   });
 });
+
+describe('document facts and checks (Task 7)', () => {
+  it('stores nothing beyond issuing country, expiry and the REAL ID answer', async () => {
+    const columns = await db.query<{ column_name: string }>("select column_name from information_schema.columns where table_schema = 'public' and table_name = 'member_documents'");
+    expect(columns.rows.map((c) => c.column_name).sort()).toEqual(['expires_on', 'id', 'issuing_country', 'keep_on_profile', 'kind', 'real_id_compliant', 'updated_at', 'user_id']);
+  });
+
+  it('lets a member write and read only their own document facts; the planner and outsiders see none', async () => {
+    await asUser(db, MEMBER, () =>
+      db.query("insert into public.member_documents (user_id, kind, issuing_country, expires_on) values ($1, 'passport', 'US', '2027-01-15')", [MEMBER]),
+    );
+    expect((await asUser(db, MEMBER, () => db.query('select * from public.member_documents'))).rows).toHaveLength(1);
+    expect((await asUser(db, PLANNER, () => db.query('select * from public.member_documents'))).rows).toHaveLength(0);
+    expect((await asUser(db, OUTSIDER, () => db.query('select * from public.member_documents'))).rows).toHaveLength(0);
+    await rejects(() =>
+      asUser(db, PLANNER, () => db.query("insert into public.member_documents (user_id, kind, issuing_country, expires_on) values ($1, 'passport', 'US', '2030-01-01')", [MEMBER])),
+    );
+    const edited = await asUser(db, PLANNER, () => db.query("update public.member_documents set expires_on = '2030-01-01' where user_id = $1 returning id", [MEMBER]));
+    expect(edited.rows).toHaveLength(0);
+    expect((await asService(db, () => one<{ expires_on: string }>('select expires_on::text from public.member_documents where user_id = $1', [MEMBER]))).expires_on).toBe('2027-01-15');
+  });
+
+  it('shows the planner each member’s check results, but members cannot write checks and outsiders read none', async () => {
+    await asService(db, () =>
+      db.query(
+        `insert into public.document_checks (trip_id, member_id, user_id, rule_id, rule_version, result, detail) values
+         ($1, $2, $3, 'fixture-passport-validity-pt', 1, 'action_needed', 'Passport validity for Portugal')`,
+        [tripId, memberMemberId, MEMBER],
+      ),
+    );
+    const seen = await asUser(db, PLANNER, () => db.query<Record<string, unknown>>('select * from public.document_checks where trip_id = $1', [tripId]));
+    expect(seen.rows).toHaveLength(1);
+    expect(JSON.stringify(seen.rows)).not.toMatch(/\d{4}-\d{2}-\d{2}T?\d{0,2}.*2027|2027-01-15/);
+    expect((await asUser(db, MEMBER, () => db.query('select * from public.document_checks'))).rows).toHaveLength(1);
+    expect((await asUser(db, OUTSIDER, () => db.query('select * from public.document_checks'))).rows).toHaveLength(0);
+    await rejects(() =>
+      asUser(db, MEMBER, () =>
+        db.query("insert into public.document_checks (trip_id, member_id, user_id, result, detail) values ($1, $2, $3, 'ok', 'fine')", [tripId, memberMemberId, MEMBER]),
+      ),
+    );
+    const updated = await asUser(db, MEMBER, () => db.query("update public.document_checks set result = 'ok' returning id"));
+    expect(updated.rows).toHaveLength(0);
+  });
+});

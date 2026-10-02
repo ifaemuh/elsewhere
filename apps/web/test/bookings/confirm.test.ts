@@ -73,6 +73,8 @@ function query(table: string) {
   });
   return q;
 }
+const runDocumentChecks = vi.hoisted(() => vi.fn(async (_tripId: string) => undefined));
+vi.mock('@/lib/documents/service', () => ({ runDocumentChecks }));
 vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: () => ({ from: query }) }));
 
 import { AeroApiError } from '@/lib/flights/aeroapi';
@@ -82,6 +84,7 @@ const seg = { id: 's1', booking_id: 'b1', carrier_iata: 'TP', flight_number: '20
 const tp204 = { ident_iata: 'TP204', origin_iata: 'EWR', destination_iata: 'LIS', scheduled_out: '2026-11-03T23:15:00Z', scheduled_in: '2026-11-04T06:35:00Z' };
 
 beforeEach(() => {
+  runDocumentChecks.mockClear();
   Object.assign(state, { schedulesCalls: 0, scheduled: [], failIdents: new Set(), segments: [seg], existingItems: [], upserts: [], updates: [], itemFilters: [], updateError: null, upsertError: null });
 });
 
@@ -103,6 +106,7 @@ describe('onBookingsConfirmed', () => {
       distance_km: 5430,
     });
     expect(state.updates[0].filters).toEqual([['eq', ['id', 's1']], ['is', ['scheduled_out', null]]]);
+    expect(runDocumentChecks).toHaveBeenCalledWith('t1');
   });
 
   it('raises a flight-not-found item that reopens any existing one', async () => {

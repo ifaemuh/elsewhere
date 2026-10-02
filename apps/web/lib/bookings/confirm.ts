@@ -1,6 +1,7 @@
 import 'server-only';
 import { AeroApiError, aeroApi } from '@/lib/flights/aeroapi';
 import { resolveSegment } from '@/lib/flights/resolve';
+import { runDocumentChecks } from '@/lib/documents/service';
 import { createAdminClient } from '@/lib/supabase/admin';
 
 /**
@@ -83,6 +84,7 @@ export async function onBookingsConfirmed(tripId: string, bookingIds: string[]):
       .is('scheduled_out', null);
     if (updateError) throw new Error(updateError.message);
   }
+  await runDocumentChecks(tripId);
   if (firstFailure) throw firstFailure;
   return { monitorSegmentIds: [] };
 }

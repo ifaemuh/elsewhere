@@ -19,6 +19,8 @@ vi.mock('@/lib/supabase/server', () => ({
     }),
   }),
 }));
+const runDocumentChecks = vi.hoisted(() => vi.fn(async (_tripId: string) => undefined));
+vi.mock('@/lib/documents/service', () => ({ runDocumentChecks }));
 let user = { id: 'user-1', email: 'pat@example.test', phone: null as string | null };
 vi.mock('@/lib/auth/user', () => ({ requireUser: async () => user }));
 vi.mock('next/navigation', () => ({
@@ -39,6 +41,7 @@ function form(values: Record<string, string>) {
 
 beforeEach(() => {
   rpc.mockReset().mockResolvedValue({ data: TRIP, error: null });
+  runDocumentChecks.mockClear();
   updates.length = 0;
   inserts.length = 0;
   updateError = null;
@@ -56,6 +59,7 @@ describe('joinTripAction', () => {
   it('joins with the raw token and records email consent only', async () => {
     await expect(joinTripAction(TOKEN, { error: null }, form({}))).rejects.toThrow(`REDIRECT:/trips/${TRIP}`);
     expect(rpc).toHaveBeenCalledWith('join_trip', { p_token: TOKEN, p_display_name: 'Sam' });
+    expect(runDocumentChecks).toHaveBeenCalledWith(TRIP);
     expect(inserts).toEqual([{ table: 'consents', rows: [{ user_id: 'user-1', kind: 'email', policy_version: 'email-2026-10' }] }]);
   });
 
