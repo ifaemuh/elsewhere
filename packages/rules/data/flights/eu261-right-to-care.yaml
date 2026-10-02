@@ -11,10 +11,14 @@ summary: >-
 applies_when:
   all:
     - any:
+        - fact: trip.journey_departs_eu
+          eq: true
         - fact: flight.departs_eu
           eq: true
+        - fact: flight.departs_iceland_norway_switzerland
+          eq: true
         - all:
-            - fact: flight.arrives_eu
+            - fact: trip.journey_arrives_eu
               eq: true
             - fact: flight.carrier_is_eu
               eq: true
@@ -25,37 +29,26 @@ applies_when:
             - fact: event.type
               in: [delay]
             - any:
+                - fact: event.departure_delay_minutes
+                  gte: 240
                 - all:
-                    - fact: flight.distance_km
-                      lte: 1500
-                    - fact: event.delay_minutes
+                    - fact: event.departure_delay_minutes
                       gte: 120
+                    - fact: flight.leg_distance_km
+                      lte: 1500
                 - all:
-                    - fact: flight.distance_km
-                      gt: 1500
-                    - fact: flight.departs_eu
-                      eq: true
-                    - fact: flight.arrives_eu
-                      eq: true
-                    - fact: event.delay_minutes
+                    - fact: event.departure_delay_minutes
                       gte: 180
-                - all:
-                    - fact: flight.distance_km
+                    - fact: flight.leg_distance_km
                       gt: 1500
-                    - fact: flight.distance_km
-                      lte: 3500
-                    - fact: event.delay_minutes
-                      gte: 180
-                - all:
-                    - fact: flight.distance_km
-                      gt: 3500
                     - any:
-                        - fact: flight.departs_eu
-                          eq: false
-                        - fact: flight.arrives_eu
-                          eq: false
-                    - fact: event.delay_minutes
-                      gte: 240
+                        - fact: flight.leg_distance_km
+                          lte: 3500
+                        - all:
+                            - fact: flight.departs_eu
+                              eq: true
+                            - fact: flight.arrives_eu
+                              eq: true
 entitlement:
   kind: care
   amount:
@@ -85,8 +78,9 @@ exceptions:
   - "Only covers passengers carried by motorised fixed wing aircraft."
   - "Does not apply if a package tour is cancelled for reasons other than cancellation of the flight."
   - "A flight arriving in the EU from outside the EU is covered only if the operating airline is licensed in an EU member state (an EU airline). A flight leaving the EU is covered whatever the airline."
-  - "Not owed if you already received benefits (compensation, re-routing, assistance) for this journey under the law of a non-EU country."
-  - "EU here means the 27 EU countries, including Guadeloupe, French Guiana, Martinique, Mayotte, Reunion, Saint Barthelemy, Saint-Martin, the Azores, Madeira and the Canary Islands, but not the Faeroe Islands. The guidance says the rules also apply to flights to and from Iceland, Norway and Switzerland, which this rule does not yet cover."
+  - "If your flight came into the EU from outside it, these rules don't apply if, in that non-EU country, you already received benefits or compensation and were also given assistance."
+  - "Your outbound and return flights count separately, even if they are on one booking. Each direction is its own journey."
+  - "EU here means the 27 EU countries, including Guadeloupe, French Guiana, Martinique, Mayotte, Reunion, Saint Barthelemy, Saint-Martin, the Azores, Madeira and the Canary Islands, but not the Faeroe Islands. The European Commission's guidance says the rules also apply to flights to and from Iceland, Norway and Switzerland; this rule covers flights leaving them."
 sources:
   - id: s1
     source: eurlex-261-2004
@@ -162,6 +156,20 @@ sources:
   - id: s2
     source: youreurope-air-passenger-rights
     quotes:
+      - text: "within the EU"
+        supports: [applies_when]
+      - text: "by an EU or a non-EU airline"
+        supports: [applies_when]
+      - text: "arrives in the EU"
+        supports: [applies_when]
+      - text: "by an EU airline"
+        supports: [applies_when]
+      - text: "departs from the EU"
+        supports: [applies_when]
+      - text: "you have not already received benefits"
+        supports: [applies_when, exceptions]
+      - text: "The outbound and return flights are always considered as two separate flights even if they were booked as part of one reservation."
+        supports: [applies_when, exceptions]
       - text: "and is operated either"
         supports: [applies_when]
       - text: "from outside the EU and is operated"
@@ -173,13 +181,15 @@ sources:
       - text: "EU means the 27 EU countries, including Guadeloupe, French Guiana, Martinique, Mayotte, Réunion, Saint Barthélemy, Saint-Martin (French Antilles), the Azores, Madeira and the Canary Islands, but not the Faeroe Islands."
         supports: [applies_when, exceptions]
       - text: "EU rules also apply to flights to and from"
-        supports: [exceptions]
+        supports: [applies_when, exceptions]
       - text: "and Switzerland."
-        supports: [exceptions]
+        supports: [applies_when, exceptions]
       - text: "If an airline expects that your flight will be delayed beyond the scheduled departure time, you are entitled to"
         supports: [summary, applies_when, exceptions]
       - text: "in proportion to the waiting time, and 2 free telephone calls, emails or faxes. The point at which you are entitled to these rights depends on the length of the delay and distance of your flight as follows:"
         supports: [summary, applies_when, entitlement.amount, entitlement.timing]
+      - text: "However, to be exempted from paying compensation, the"
+        supports: [summary, applies_when]
       - text: "a delay of two hours or more for flights of 1,500km or less"
         supports: [summary, applies_when, entitlement.timing]
       - text: "a delay of four hours or more for all other flights"

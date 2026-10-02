@@ -1,54 +1,79 @@
 rule: eu261-delay-compensation
 cases:
   - name: "179 minutes late at the final destination"
-    situation: { flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, event.type: delay, event.cause: controllable, event.delay_minutes: 179 }
+    situation: { trip.journey_departs_eu: true, flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: false, event.type: delay, event.cause: controllable, event.delay_minutes: 179 }
     outcome: does_not_apply
   - name: "exactly 180 minutes late (3 hours or more)"
-    situation: { flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, event.type: delay, event.cause: controllable, event.delay_minutes: 180 }
+    situation: { trip.journey_departs_eu: true, flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: false, event.type: delay, event.cause: controllable, event.delay_minutes: 180 }
     outcome: applies
   - name: "181 minutes late"
-    situation: { flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, event.type: delay, event.cause: controllable, event.delay_minutes: 181 }
+    situation: { trip.journey_departs_eu: true, flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: false, event.type: delay, event.cause: controllable, event.delay_minutes: 181 }
     outcome: applies
   - name: "4 hours late on a long flight leaving the EU"
-    situation: { flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, event.type: delay, event.cause: controllable, event.delay_minutes: 240, flight.distance_km: 5837 }
+    situation: { trip.journey_departs_eu: true, flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: false, event.type: delay, event.cause: controllable, event.delay_minutes: 240, flight.distance_km: 5837 }
     outcome: applies
   - name: "Paris outbound, DL from JFK to CDG, 4 hours late (not covered)"
-    situation: { flight.departs_eu: false, flight.arrives_eu: true, flight.carrier_is_eu: false, event.type: delay, event.cause: controllable, event.delay_minutes: 240, flight.distance_km: 5837 }
+    situation: { trip.journey_departs_eu: false, flight.departs_eu: false, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: true, flight.arrives_eu: true, flight.carrier_is_eu: false, event.type: delay, event.cause: controllable, event.delay_minutes: 240, flight.distance_km: 5837 }
     outcome: does_not_apply
   - name: "Paris return, DL from CDG to JFK, 4 hours late"
-    situation: { flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, event.type: delay, event.cause: controllable, event.delay_minutes: 240, flight.distance_km: 5837 }
+    situation: { trip.journey_departs_eu: true, flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: false, event.type: delay, event.cause: controllable, event.delay_minutes: 240, flight.distance_km: 5837 }
     outcome: applies
   - name: "JFK to CDG on an EU airline, 3 hours late"
-    situation: { flight.departs_eu: false, flight.arrives_eu: true, flight.carrier_is_eu: true, event.type: delay, event.cause: controllable, event.delay_minutes: 180 }
+    situation: { trip.journey_departs_eu: false, flight.departs_eu: false, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: true, flight.arrives_eu: true, flight.carrier_is_eu: true, event.type: delay, event.cause: controllable, event.delay_minutes: 180 }
+    outcome: applies
+  - name: "CDG-ATL-DEN on DL, delay on the ATL-DEN leg, 4 hours late at Denver"
+    situation: { trip.journey_departs_eu: true, flight.departs_eu: false, flight.arrives_eu: false, flight.carrier_is_eu: false, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: false, event.type: delay, event.cause: controllable, event.delay_minutes: 240, flight.distance_km: 8000 }
+    outcome: applies
+  - name: "DEN-ATL-CDG on DL, delay on the DEN-ATL leg, 4 hours late at Paris (non-EU airline into the EU)"
+    situation: { trip.journey_departs_eu: false, flight.departs_eu: false, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, event.type: delay, event.cause: controllable, event.delay_minutes: 240 }
+    outcome: does_not_apply
+  - name: "DEN-ATL-CDG on an EU airline, 4 hours late at Paris"
+    situation: { trip.journey_departs_eu: false, flight.departs_eu: false, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: true, event.type: delay, event.cause: controllable, event.delay_minutes: 240 }
+    outcome: applies
+  - name: "Reykjavik to New York, 3 hours late"
+    situation: { trip.journey_departs_eu: false, flight.departs_eu: false, flight.departs_iceland_norway_switzerland: true, trip.journey_arrives_eu: false, flight.carrier_is_eu: false, event.type: delay, event.cause: controllable, event.delay_minutes: 180 }
     outcome: applies
   - name: "flight within the EU on a non-EU airline, 3 hours late"
-    situation: { flight.departs_eu: true, flight.arrives_eu: true, flight.carrier_is_eu: false, event.type: delay, event.cause: controllable, event.delay_minutes: 180 }
+    situation: { trip.journey_departs_eu: true, flight.departs_eu: true, flight.arrives_eu: true, flight.carrier_is_eu: false, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: true, event.type: delay, event.cause: controllable, event.delay_minutes: 180 }
     outcome: applies
   - name: "cause is uncontrollable (extraordinary circumstances)"
-    situation: { flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, event.type: delay, event.cause: uncontrollable, event.delay_minutes: 300 }
+    situation: { trip.journey_departs_eu: true, flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: false, event.type: delay, event.cause: uncontrollable, event.delay_minutes: 300 }
     outcome: does_not_apply
   - name: "airline has not said why"
-    situation: { flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, event.type: delay, event.cause: unknown, event.delay_minutes: 180 }
+    situation: { trip.journey_departs_eu: true, flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: false, event.type: delay, event.cause: unknown, event.delay_minutes: 180 }
     outcome: applies
   - name: "cause not known to the app yet"
-    situation: { flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, event.type: delay, event.delay_minutes: 180 }
+    situation: { trip.journey_departs_eu: true, flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: false, event.type: delay, event.delay_minutes: 180 }
     outcome: may_apply
     missing_facts: [event.cause]
   - name: "delay length not known yet"
-    situation: { flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, event.type: delay, event.cause: controllable }
+    situation: { trip.journey_departs_eu: true, flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: false, event.type: delay, event.cause: controllable }
     outcome: may_apply
     missing_facts: [event.delay_minutes]
+  - name: "missed connection on one booking, exactly 180 minutes late at the final destination"
+    situation: { trip.journey_departs_eu: true, flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: false, event.type: missed_connection, event.cause: controllable, flight.single_ticket: true, event.delay_minutes: 180 }
+    outcome: applies
+  - name: "missed connection on one booking, 179 minutes late"
+    situation: { trip.journey_departs_eu: true, flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: false, event.type: missed_connection, event.cause: controllable, flight.single_ticket: true, event.delay_minutes: 179 }
+    outcome: does_not_apply
+  - name: "missed connection on separate bookings"
+    situation: { trip.journey_departs_eu: true, flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: false, event.type: missed_connection, event.cause: controllable, flight.single_ticket: false, event.delay_minutes: 240 }
+    outcome: does_not_apply
+  - name: "missed connection, not known whether it was one booking"
+    situation: { trip.journey_departs_eu: true, flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: false, event.type: missed_connection, event.cause: controllable, event.delay_minutes: 240 }
+    outcome: may_apply
+    missing_facts: [flight.single_ticket]
   - name: "a cancellation is not a delay"
-    situation: { flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, event.type: cancellation, event.cause: controllable, event.delay_minutes: 300 }
+    situation: { trip.journey_departs_eu: true, flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: false, event.type: cancellation, event.cause: controllable, event.delay_minutes: 300 }
     outcome: does_not_apply
   - name: "flight scope not known yet"
     situation: { event.type: delay, event.cause: controllable, event.delay_minutes: 180 }
     outcome: may_apply
-    missing_facts: [flight.departs_eu, flight.arrives_eu, flight.carrier_is_eu]
+    missing_facts: [trip.journey_departs_eu, flight.departs_eu, flight.departs_iceland_norway_switzerland, trip.journey_arrives_eu, flight.carrier_is_eu]
   - name: "inbound to the EU, airline licence not known yet"
-    situation: { flight.departs_eu: false, flight.arrives_eu: true, event.type: delay, event.cause: controllable, event.delay_minutes: 180 }
+    situation: { trip.journey_departs_eu: false, flight.departs_eu: false, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: true, event.type: delay, event.cause: controllable, event.delay_minutes: 180 }
     outcome: may_apply
     missing_facts: [flight.carrier_is_eu]
-  - name: "flight between two non-EU airports"
-    situation: { flight.departs_eu: false, flight.arrives_eu: false, flight.carrier_is_eu: true, event.type: delay, event.cause: controllable, event.delay_minutes: 300 }
+  - name: "journey between two non-EU airports"
+    situation: { trip.journey_departs_eu: false, flight.departs_eu: false, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: false, flight.carrier_is_eu: true, event.type: delay, event.cause: controllable, event.delay_minutes: 300 }
     outcome: does_not_apply

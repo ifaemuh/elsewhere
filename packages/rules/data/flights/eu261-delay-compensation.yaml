@@ -12,15 +12,25 @@ summary: >-
 applies_when:
   all:
     - any:
+        - fact: trip.journey_departs_eu
+          eq: true
         - fact: flight.departs_eu
           eq: true
+        - fact: flight.departs_iceland_norway_switzerland
+          eq: true
         - all:
-            - fact: flight.arrives_eu
+            - fact: trip.journey_arrives_eu
               eq: true
             - fact: flight.carrier_is_eu
               eq: true
-    - fact: event.type
-      in: [delay]
+    - any:
+        - fact: event.type
+          in: [delay]
+        - all:
+            - fact: event.type
+              in: [missed_connection]
+            - fact: flight.single_ticket
+              eq: true
     - fact: event.delay_minutes
       gte: 180
     - fact: event.cause
@@ -34,29 +44,29 @@ entitlement:
     all_other_flights_means: "More than 3 500 km (non-EU countries), that is, flights over 3500 kilometres that are not intra-Community"
     long_flights_3_to_4_hours_late: "EUR 300 for flights of more than 3 500 km that either (a) depart from the EU to a non-EU country, or (b) depart from a non-EU to an EU country and are operated by an EU airline, when the delay at arrival at the final destination is at least 3 hours but less than 4"
     long_flights_4_hours_or_more_late: "EUR 600 for more than 3 500 km (non-EU countries) when the delay at arrival at the final destination is 4 hours or more"
-    distance_basis: "In determining the distance, the basis shall be the last destination at which the denial of boarding or cancellation will delay the passenger's arrival after the scheduled time."
     distance_method: "The distances given in paragraphs 1 and 2 shall be measured by the great circle route method."
     payment_form: "paid in cash, by electronic bank transfer, bank orders or bank cheques or, with the signed agreement of the passenger, in travel vouchers and/or other services"
 how_to_claim:
   steps:
-    - "Work out how late you reached the place your ticket ends, not how late the first flight left. If you changed planes on one booking, the airline measures to your final destination. 3 hours or more late there is what counts."
+    - "Work out how late you reached your final destination; outbound and return count separately. If you changed planes on one booking, the airline measures to your final destination, not to where the first flight landed. 3 hours or more late there is what counts."
     - "The airline that actually flew you (the operating airline) owes the compensation, even if you bought your ticket from someone else. If it doesn't offer the compensation, ask it."
-    - "Check the distance band for your journey, measured in a straight line (great circle): EUR 250 up to 1500 km; EUR 400 for flights inside the EU over 1500 km and other flights from 1500 to 3500 km; EUR 600 over 3500 km, or EUR 300 if you were 3 to 4 hours late on those long flights between the EU and a non-EU country."
+    - "Check the distance band for your journey, measured in a straight line (great circle): EUR 250 up to 1500 km; EUR 400 for flights inside the EU over 1500 km and other flights from 1500 to 3500 km; EUR 600 for other flights over 3500 km, or EUR 300 if you were 3 to 4 hours late on those long flights between the EU and a non-EU country."
     - "If the airline says extraordinary circumstances caused the delay, ask for the reason in writing. The airline must prove it, for example with extracts from logbooks or incident reports. If you don't get a satisfactory explanation, you can contact the national enforcement body."
     - "The airline must pay in cash or by bank transfer. A voucher or other service is only allowed if you agree to it in writing, so you can say no."
     - "Contract terms cannot waive or limit these rights, and accepting less because you weren't told your rights does not stop you from claiming more. Review the claim letter we drafted, add your booking and flight details, and send it to the airline yourself."
     - "Always send your complaint to the airline first. If you get no reply within 2 months, or the reply is not satisfactory, you can complain to the national authority in the country where the incident took place."
   templates: [eu261_claim_letter]
 exceptions:
-  - "Not owed if the airline proves the delay was caused by extraordinary circumstances that could not have been avoided even if all reasonable measures had been taken. The guidance gives these examples of extraordinary circumstances: air traffic management decisions, political instability, adverse weather conditions and security risks. It says these are not: most technical problems found during maintenance or caused by failure to maintain an aircraft, a collision of mobile boarding stairs with an aircraft, and strikes by the airline's own staff. A strike outside the airline may count. The airline must prove the link and that the delay could not have been avoided."
-  - "The airline may cut the compensation by 50% (EUR 125, 200 or 300) if it offered you rerouting that got you to your final destination no more than 2 hours (flights up to 1500 km), 3 hours (EU flights over 1500 km and other flights of 1500 to 3500 km) or 4 hours (all other flights) after the original arrival time."
+  - "Not owed if the airline proves the delay was caused by extraordinary circumstances that could not have been avoided even if all reasonable measures had been taken. The European Commission's guidance gives these examples of extraordinary circumstances: air traffic management decisions, political instability, adverse weather conditions and security risks. It says these are not: most technical problems found during maintenance or caused by failure to maintain an aircraft, a collision of mobile boarding stairs with an aircraft, and strikes by the airline's own staff. A strike outside the airline may count. The airline must prove the link and that the delay could not have been avoided."
+  - "Only if the airline rerouted you: if it put you on an alternative flight to your final destination, it may cut the compensation by 50% (EUR 125, 200 or 300) when that flight arrived no more than 2 hours (flights up to 1500 km), 3 hours (EU flights over 1500 km and other flights of 1500 to 3500 km) or 4 hours (all other flights) after the original arrival time."
   - "Only applies if you had a confirmed reservation and, unless the airline set another time in advance and in writing, checked in at least 45 minutes before the published departure time. It also applies if the airline moved you from a flight you had booked to another one."
   - "Not owed for free tickets or tickets at a reduced fare not available directly or indirectly to the public. Tickets issued under a frequent flyer or other commercial programme are covered."
   - "Only covers passengers carried by motorised fixed wing aircraft."
   - "A flight arriving in the EU from outside the EU is covered only if the operating airline is licensed in an EU member state (an EU airline). A flight leaving the EU is covered whatever the airline. On a journey from outside the EU with connections, only the flights operated by EU airlines count."
-  - "Not owed if you already received benefits (compensation, re-routing, assistance) for this journey under the law of a non-EU country. For flights arriving in the EU, that includes benefits, compensation or assistance given in that third country."
+  - "If your flight came into the EU from outside it, these rules don't apply if, in that non-EU country, you already received benefits or compensation and were also given assistance."
   - "Not owed for a missed connection caused by delays at security checks, or if you did not respect the boarding time of your flight at the airport where you changed planes. Missed connections are covered when the flights were on a single reservation."
-  - "EU here means the 27 EU countries, including Guadeloupe, French Guiana, Martinique, Mayotte, Reunion, Saint Barthelemy, Saint-Martin, the Azores, Madeira and the Canary Islands, but not the Faeroe Islands. The guidance says the rules also apply to flights to and from Iceland, Norway and Switzerland, which this rule does not yet cover."
+  - "Your outbound and return flights count separately, even if they are on one booking. Each direction is its own journey."
+  - "EU here means the 27 EU countries, including Guadeloupe, French Guiana, Martinique, Mayotte, Reunion, Saint Barthelemy, Saint-Martin, the Azores, Madeira and the Canary Islands, but not the Faeroe Islands. The European Commission's guidance says the rules also apply to flights to and from Iceland, Norway and Switzerland; this rule covers flights leaving them."
   - "Deadlines for taking a claim to court depend on each EU country's own rules."
 sources:
   - id: s1
@@ -77,15 +87,13 @@ sources:
       - text: '"final destination" means the destination on the ticket presented at the check-in counter or, in the case of directly connecting flights, the destination of the last flight; alternative connecting flights available shall not be taken into account if the original planned arrival time is respected;'
         supports: [summary, applies_when, how_to_claim.steps.0]
       - text: "Where reference is made to this Article, passengers shall receive compensation amounting to:"
-        supports: [summary, entitlement.amount]
+        supports: [entitlement.amount]
       - text: "EUR 250 for all flights of 1500 kilometres or less;"
         supports: [summary, entitlement.amount, how_to_claim.steps.2]
       - text: "EUR 400 for all intra-Community flights of more than 1500 kilometres, and for all other flights between 1500 and 3500 kilometres;"
         supports: [summary, entitlement.amount, how_to_claim.steps.2]
       - text: "EUR 600 for all flights not falling under (a) or (b)."
         supports: [summary, entitlement.amount, how_to_claim.steps.2]
-      - text: "In determining the distance, the basis shall be the last destination at which the denial of boarding or cancellation will delay the passenger's arrival after the scheduled time."
-        supports: [entitlement.amount, how_to_claim.steps.2]
       - text: "The distances given in paragraphs 1 and 2 shall be measured by the great circle route method."
         supports: [entitlement.amount, how_to_claim.steps.2]
       - text: "The compensation referred to in paragraph 1 shall be paid in cash, by electronic bank transfer, bank orders or bank cheques or, with the signed agreement of the passenger, in travel vouchers and/or other services."
@@ -123,6 +131,20 @@ sources:
   - id: s2
     source: youreurope-air-passenger-rights
     quotes:
+      - text: "within the EU"
+        supports: [applies_when]
+      - text: "by an EU or a non-EU airline"
+        supports: [applies_when]
+      - text: "arrives in the EU"
+        supports: [applies_when]
+      - text: "by an EU airline"
+        supports: [applies_when]
+      - text: "departs from the EU"
+        supports: [applies_when]
+      - text: "you have not already received benefits"
+        supports: [applies_when, exceptions]
+      - text: "The outbound and return flights are always considered as two separate flights even if they were booked as part of one reservation."
+        supports: [applies_when, exceptions]
       - text: "and is operated either"
         supports: [applies_when]
       - text: "from outside the EU and is operated"
@@ -134,9 +156,9 @@ sources:
       - text: "EU means the 27 EU countries, including Guadeloupe, French Guiana, Martinique, Mayotte, Réunion, Saint Barthélemy, Saint-Martin (French Antilles), the Azores, Madeira and the Canary Islands, but not the Faeroe Islands."
         supports: [applies_when, exceptions]
       - text: "EU rules also apply to flights to and from"
-        supports: [exceptions]
+        supports: [applies_when, exceptions]
       - text: "and Switzerland."
-        supports: [exceptions]
+        supports: [applies_when, exceptions]
       - text: "at your final destination with"
         supports: [summary, applies_when, how_to_claim.steps.0]
       - text: "a delay of 3 hours or more"
@@ -164,13 +186,13 @@ sources:
       - text: "More than 1 500 km within the EU and all other flights between 1 500 and 3 500 km"
         supports: [entitlement.amount, how_to_claim.steps.2]
       - text: "If you miss a connecting flight travelling within the EU or outside the EU on a flight originating from an EU country, you should be entitled to compensation, if you arrive at your final destination"
-        supports: [summary, how_to_claim.steps.0, exceptions]
+        supports: [summary, applies_when, how_to_claim.steps.0, exceptions]
       - text: "It is not relevant if the carrier operating the connecting flight is an EU or non-EU airline."
         supports: [summary, how_to_claim.steps.0]
       - text: "Connecting flights are journeys where you have to take more than one flight to get to your final destination."
         supports: [summary, how_to_claim.steps.0]
       - text: "your flights were booked as part of a single reservation"
-        supports: [summary, exceptions]
+        supports: [summary, applies_when, exceptions]
       - text: "You are not entitled to compensation if you miss your connecting flight due to delays at security checks"
         supports: [exceptions]
       - text: "if you did not respect the boarding time of your flight at the airport of transfer."
