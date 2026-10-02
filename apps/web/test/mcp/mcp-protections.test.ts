@@ -1,0 +1,160 @@
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { checkRateLimit } from '@vercel/firewall';
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+import { handleMcp } from '@/lib/mcp/route-handler';
+import { hashKey } from '@/lib/rules-api/auth';
+import { fakeDb } from '../helpers/supabase-fake';
+import { setLibrary } from '../helpers/library-holder';
+import { standardLibrary } from '../helpers/fixture-library';
+
+const KEY = 'els_' + 'A1b2C3d4'.repeat(4);
+const open: Client[] = [];
+
+async function connect(headers: Record<string, string> = {}, name = 'vitest'): Promise<Client> {
+  const client = new Client({ name, version: '1.0.0' });
+  const transport = new StreamableHTTPClientTransport(new URL('https://elsewhere.test/api/mcp'), {
+    fetch: (url, init) => {
+      const merged = new Headers(init?.headers);
+      for (const [k, v] of Object.entries(headers)) merged.set(k, v);
+      return handleMcp(new Request(url, { ...init, headers: merged }));
+    },
+  });
+  await client.connect(transport);
+  open.push(client);
+  return client;
+}
+
+const post = (headers: Record<string, string>) =>
+  handleMcp(new Request('https://elsewhere.test/api/mcp', { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: '{}' }));
+
+const text = (r: { content?: unknown }) =>
+  ((r.content ?? []) as { type: string; text?: string }[]).map((b) => b.text ?? '').join('\n');
+
+afterEach(async () => {
+  vi.unstubAllEnvs();
+  await Promise.all(open.splice(0).map((c) => c.close()));
+});
+
+describe('MCP route protections', () => {
+  it('limits an invalid key as anonymous MCP (rules-mcp-anon) before answering 401', async () => {
+    vi.stubEnv('VERCEL', '1');
+    const res = await post({ authorization: 'Bearer els_bad' });
+    expect(res.status).toBe(401);
+    expect(vi.mocked(checkRateLimit).mock.calls[0][0]).toBe('rules-mcp-anon');
+  });
+
+  it('returns 429 for an invalid key when the anonymous limit is hit', async () => {
+    vi.stubEnv('VERCEL', '1');
+    vi.mocked(checkRateLimit).mockResolvedValueOnce({ rateLimited: true });
+    expect((await post({ authorization: 'Bearer els_bad' })).status).toBe(429);
+  });
+
+  it('uses rules-mcp-anon for anonymous callers and the key rule for partners', async () => {
+    vi.stubEnv('VERCEL', '1');
+    setLibrary(standardLibrary());
+    await (await connect()).listTools();
+    expect(vi.mocked(checkRateLimit).mock.calls[0][0]).toBe('rules-mcp-anon');
+
+    vi.mocked(checkRateLimit).mockClear();
+    fakeDb.apiKeys.push({ id: 'key-1', partner_id: 'acme', key_hash: hashKey(KEY), rate_limit_rule: 'rules-gold', revoked_at: null });
+    await (await connect({ authorization: `Bearer ${KEY}` })).listTools();
+    const [rule, options] = vi.mocked(checkRateLimit).mock.calls[0];
+    expect(rule).toBe('rules-gold');
+    expect(options).toMatchObject({ rateLimitKey: 'key-1' });
+  });
+
+  it('turns a key-lookup DB failure into a 503', async () => {
+    fakeDb.apiKeyError = 'boom';
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await post({ authorization: `Bearer ${KEY}` });
+    expect(res.status).toBe(503);
+    expect(JSON.stringify(spy.mock.calls)).not.toContain(KEY);
+    spy.mockRestore();
+  });
+
+  it('turns a library load failure into a 503', async () => {
+    setLibrary(null);
+    expect((await post({})).status).toBe(503);
+  });
+
+  it('tags partner links with the client name and records partner attribution', async () => {
+    setLibrary(standardLibrary());
+    fakeDb.apiKeys.push({ id: 'key-1', partner_id: 'acme', key_hash: hashKey(KEY), rate_limit_rule: 'rules-partner', revoked_at: null });
+    const client = await connect({ authorization: `Bearer ${KEY}` }, 'My Agent');
+    const result = await client.callTool({ name: 'search_rules', arguments: { query: 'cancelled flight refund' } });
+    const rules = (result.structuredContent as { rules: { page_url: string }[] }).rules;
+    expect(rules[0].page_url).toMatch(/utm_source=mcp&utm_medium=[a-z0-9._-]+&utm_campaign=rules/);
+  });
+
+  it('falls back to the User-Agent for attribution', async () => {
+    setLibrary(standardLibrary());
+    const client = await connect({ 'user-agent': 'Cursor/9.9' });
+    const result = await client.callTool({ name: 'search_rules', arguments: { query: 'cancelled flight refund' } });
+    const rules = (result.structuredContent as { rules: { page_url: string }[] }).rules;
+    expect(rules[0].page_url).toContain('utm_medium=cursor-9.9');
+  });
+
+  it('uses clientInfo from the per-request _meta envelope (2026-era request)', async () => {
+    setLibrary(standardLibrary());
+    const res = await handleMcp(
+      new Request('https://elsewhere.test/api/mcp', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          accept: 'application/json, text/event-stream',
+          'mcp-protocol-version': '2026-07-28',
+          'mcp-method': 'tools/call',
+          'mcp-name': 'search_rules',
+        },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'tools/call',
+          params: {
+            name: 'search_rules',
+            arguments: { query: 'cancelled flight refund' },
+            _meta: {
+              'io.modelcontextprotocol/clientInfo': { name: 'Claude Desktop', version: '3' },
+              'io.modelcontextprotocol/protocolVersion': '2026-07-28',
+              'io.modelcontextprotocol/clientCapabilities': {},
+            },
+          },
+        }),
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain('utm_medium=claude-desktop');
+  });
+});
+
+describe('draft safety', () => {
+  it('returns identical results for a draft id and an unknown id', async () => {
+    setLibrary(standardLibrary());
+    const client = await connect();
+    const draft = await client.callTool({ name: 'get_rule', arguments: { id: 'test-draft-rule' } });
+    const unknown = await client.callTool({ name: 'get_rule', arguments: { id: 'test-no-such-rule' } });
+    expect(draft.isError).toBe(true);
+    expect(text(draft).replace('test-draft-rule', 'X')).toBe(text(unknown).replace('test-no-such-rule', 'X'));
+    expect(draft.structuredContent).toEqual(unknown.structuredContent);
+  });
+
+  it('never leaks the draft through changes or match', async () => {
+    setLibrary(standardLibrary());
+    const client = await connect();
+    const changes = await client.callTool({ name: 'list_recent_changes', arguments: { since: '2020-01-01' } });
+    expect(JSON.stringify(changes)).not.toContain('test-draft-rule');
+    const match = await client.callTool({ name: 'match_situation', arguments: { facts: { 'event.type': 'cancellation' } } });
+    expect(JSON.stringify(match)).not.toContain('test-draft-rule');
+    expect(JSON.stringify(match)).not.toContain('Secret draft rule');
+  });
+
+  it('does not echo large invalid inputs back', async () => {
+    setLibrary(standardLibrary());
+    const client = await connect();
+    const big = 'x'.repeat(5000);
+    const bad = await client.callTool({ name: 'match_situation', arguments: { facts: { [big]: big } } }).catch((e) => e);
+    expect(JSON.stringify(bad).length).toBeLessThan(1500);
+    const badId = await client.callTool({ name: 'get_rule', arguments: { id: big } }).catch((e) => e);
+    expect(JSON.stringify(badId)).not.toContain(big);
+  });
+});
