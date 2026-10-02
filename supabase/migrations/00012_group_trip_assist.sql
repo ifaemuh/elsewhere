@@ -259,7 +259,14 @@ create table public.bookings (
   confirmation_code text,
   booked_via text,
   -- When the booking was made, as the confirmation printed it: a date, or a local date and time.
-  booked_at text check (booked_at is null or booked_at ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}(T[0-9]{2}:[0-9]{2})?$'),
+  booked_at text check (
+    booked_at is null
+    or case
+         when booked_at ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}(T([01][0-9]|2[0-3]):[0-5][0-9])?$'
+           then to_char(substr(booked_at, 1, 10)::date, 'YYYY-MM-DD') = substr(booked_at, 1, 10)
+         else false
+       end
+  ),
   passenger_names text[] not null default '{}',
   extraction_confidence numeric(3,2) not null check (extraction_confidence between 0 and 1),
   dedupe_key text not null,
@@ -610,6 +617,52 @@ language sql security definer set search_path = public as $$
 $$;
 revoke execute on function public.claim_due_notifications(timestamptz, int) from public, anon, authenticated;
 grant execute on function public.claim_due_notifications(timestamptz, int) to service_role;
+
+-- Saves one extracted booking and its segments in a single transaction, for the intake workflow.
+-- created = true means this message still has work to do on the booking: it was inserted now, or this
+-- same message inserted it before a retry (any missing segments are filled in; existing ones are kept).
+-- A booking another message already saved comes back created = false and is left alone.
+create or replace function public.save_booking(p_trip_id uuid, p_message_id uuid, p_booking jsonb, p_confirmed boolean)
+returns table (out_booking_id uuid, out_created boolean)
+language plpgsql security definer set search_path = public as $$
+declare
+  v_id uuid;
+  v_message uuid;
+  v_segment jsonb;
+  v_position int := 0;
+begin
+  insert into public.bookings (trip_id, inbound_message_id, kind, provider, confirmation_code, booked_via, booked_at,
+                               passenger_names, extraction_confidence, dedupe_key, confirmed_at)
+  values (p_trip_id, p_message_id, (p_booking->>'kind')::booking_kind, p_booking->>'provider', p_booking->>'confirmation_code',
+          p_booking->>'booked_via', p_booking->>'booked_at',
+          coalesce(array(select jsonb_array_elements_text(p_booking->'passenger_names')), '{}'),
+          round((p_booking->>'confidence')::numeric, 2), p_booking->>'dedupe_key',
+          case when p_confirmed then now() end)
+  on conflict (trip_id, dedupe_key) do nothing
+  returning id into v_id;
+
+  if v_id is null then
+    select b.id, b.inbound_message_id into v_id, v_message
+      from public.bookings b where b.trip_id = p_trip_id and b.dedupe_key = p_booking->>'dedupe_key';
+    if v_message is distinct from p_message_id then
+      return query select v_id, false;
+      return;
+    end if;
+  end if;
+
+  for v_segment in select * from jsonb_array_elements(coalesce(p_booking->'segments', '[]'::jsonb)) loop
+    v_position := v_position + 1;
+    insert into public.booking_segments (booking_id, trip_id, position, carrier_iata, flight_number, origin_iata,
+                                         destination_iata, departure_local, arrival_local)
+    values (v_id, p_trip_id, v_position, v_segment->>'carrier_iata', v_segment->>'flight_number', v_segment->>'origin_iata',
+            v_segment->>'destination_iata', v_segment->>'departure_local', v_segment->>'arrival_local')
+    on conflict (booking_id, position) do nothing;
+  end loop;
+  return query select v_id, true;
+end;
+$$;
+revoke execute on function public.save_booking(uuid, uuid, jsonb, boolean) from public, anon, authenticated;
+grant execute on function public.save_booking(uuid, uuid, jsonb, boolean) to service_role;
 
 -- 10. Indexes for RLS predicates and foreign keys ----------------------------------
 create index trip_members_user_idx on public.trip_members (user_id);

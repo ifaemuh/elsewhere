@@ -66,8 +66,8 @@ function htmlToText(html: string): string {
 export const MAX_IMAGES = 5;
 export const MAX_PDFS = 3;
 export const MAX_FILE_BYTES = 4 * 1024 * 1024;
-const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
-const PDF_TYPES = new Set(['application/pdf']);
+export const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
+export const PDF_TYPES = new Set(['application/pdf']);
 
 function boundFiles(files: ExtractionInput['images'], label: string, allowed: Set<string>, max: number, problems: string[]) {
   const kept: ExtractionInput['images'] = [];

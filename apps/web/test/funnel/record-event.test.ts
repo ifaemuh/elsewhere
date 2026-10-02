@@ -25,3 +25,13 @@ describe('recordEvent', () => {
     expect(error).toHaveBeenCalledWith('funnel event failed', 'denied');
   });
 });
+
+describe('recordEventStrict', () => {
+  it('treats the booking_forwarded duplicate as a no-op but throws on any other failure', async () => {
+    const { recordEventStrict } = await import('@/lib/funnel/events');
+    insert.mockResolvedValueOnce({ error: { code: '23505', message: 'dup' } });
+    await expect(recordEventStrict({ anonymousId: 'a'.repeat(32), event: 'booking_forwarded', tripId: 't' })).resolves.toBeUndefined();
+    insert.mockResolvedValueOnce({ error: { code: '42501', message: 'denied' } });
+    await expect(recordEventStrict({ anonymousId: 'a'.repeat(32), event: 'booking_forwarded', tripId: 't' })).rejects.toThrow('denied');
+  });
+});

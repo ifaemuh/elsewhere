@@ -158,4 +158,69 @@ describe('intake (Task 5)', () => {
     await insert('booked-at-time', '2026-10-01T09:30');
     await expect(insert('booked-at-bad', 'Oct 1, 2026')).rejects.toThrow(/violates check constraint/);
   });
+
+  it('rejects an impossible booked_at, and hides the column from authenticated users', async () => {
+    const insert = (key: string, bookedAt: string) =>
+      asService(db, () =>
+        db.query(
+          `insert into public.bookings (trip_id, kind, provider, booked_at, extraction_confidence, dedupe_key) values ($1, 'flight', 'TAP', $2, 0.95, $3)`,
+          [tripId, bookedAt, key],
+        ),
+      );
+    await expect(insert('booked-at-99', '2026-99-99')).rejects.toThrow(/out of range|violates check constraint/);
+    await expect(insert('booked-at-feb', '2026-02-30')).rejects.toThrow(/out of range|violates check constraint/);
+    await expect(insert('booked-at-hour', '2026-10-01T25:00')).rejects.toThrow(/violates check constraint/);
+    await rejects(() => asUser(db, PLANNER, () => db.query('select booked_at from public.bookings where trip_id = $1', [tripId])), /permission denied/);
+  });
+
+  describe('save_booking', () => {
+    const booking = (key: string, segments = 2) =>
+      JSON.stringify({
+        kind: 'flight', provider: 'TAP Air Portugal', confirmation_code: 'ABC123', booked_via: null, booked_at: '2026-10-01',
+        passenger_names: ['DOE/PAT MR'], confidence: 0.973, dedupe_key: key,
+        segments: Array.from({ length: segments }, (_, n) => ({
+          carrier_iata: 'TP', flight_number: String(204 + n), origin_iata: 'EWR', destination_iata: 'LIS', departure_local: `2026-11-0${3 + n}T18:15`, arrival_local: null,
+        })),
+      });
+    const save = (messageId: string, json: string, confirmed = true) =>
+      asService(db, () => one<{ out_booking_id: string; out_created: boolean }>('select * from public.save_booking($1, $2, $3::jsonb, $4)', [tripId, messageId, json, confirmed]));
+    const message = async (providerId: string) =>
+      (await asService(db, () => one<{ id: string }>("insert into public.inbound_messages (trip_id, source, provider_message_id) values ($1, 'email', $2) returning id", [tripId, providerId]))).id;
+    const segmentCount = (bookingId: string) =>
+      asService(db, async () => (await one<{ n: number }>('select count(*)::int as n from public.booking_segments where booking_id = $1', [bookingId])).n);
+
+    it('saves a booking with its segments, and a second run for the same message adds nothing', async () => {
+      const m1 = await message('em_sb_1');
+      const first = await save(m1, booking('flight|SB1'));
+      expect(first.out_created).toBe(true);
+      expect(await segmentCount(first.out_booking_id)).toBe(2);
+      const again = await save(m1, booking('flight|SB1'));
+      expect(again).toEqual({ out_booking_id: first.out_booking_id, out_created: true });
+      expect(await segmentCount(first.out_booking_id)).toBe(2);
+    });
+
+    it('heals a booking whose segments were never written, for the same message', async () => {
+      const m = await message('em_sb_2');
+      const inserted = await asService(db, () =>
+        one<{ id: string }>(
+          "insert into public.bookings (trip_id, inbound_message_id, kind, provider, extraction_confidence, dedupe_key) values ($1, $2, 'flight', 'TAP', 0.95, 'flight|SB2') returning id",
+          [tripId, m],
+        ),
+      );
+      expect(await segmentCount(inserted.id)).toBe(0);
+      expect(await save(m, booking('flight|SB2'))).toEqual({ out_booking_id: inserted.id, out_created: true });
+      expect(await segmentCount(inserted.id)).toBe(2);
+    });
+
+    it('leaves a booking another message saved alone', async () => {
+      const first = await save(await message('em_sb_3'), booking('flight|SB3'));
+      const other = await save(await message('em_sb_4'), booking('flight|SB3', 1));
+      expect(other).toEqual({ out_booking_id: first.out_booking_id, out_created: false });
+      expect(await segmentCount(first.out_booking_id)).toBe(2);
+    });
+
+    it('is not callable by authenticated users', async () => {
+      await rejects(() => asUser(db, PLANNER, () => db.query('select * from public.save_booking($1, $2, $3::jsonb, true)', [tripId, tripId, booking('flight|SB5')])), /permission denied/);
+    });
+  });
 });

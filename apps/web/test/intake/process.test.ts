@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { NormalizedBooking } from '@/lib/intake/normalize';
-import { processInboundMessage, type IntakeDeps } from '@/lib/intake/process';
+import { PermanentIntakeError, failPhase, processInboundMessage, type IntakeDeps } from '@/lib/intake/process';
 
 const booking = (overrides: Partial<NormalizedBooking> = {}): NormalizedBooking => ({
   kind: 'flight',
@@ -16,7 +16,7 @@ const booking = (overrides: Partial<NormalizedBooking> = {}): NormalizedBooking 
   ...overrides,
 });
 
-function harness(opts: { source?: 'email' | 'screenshot'; bookings?: NormalizedBooking[]; problems?: string[]; existing?: string[]; ownRetry?: string[]; afterConfirmedFails?: boolean } = {}) {
+function harness(opts: { source?: 'email' | 'screenshot'; bookings?: NormalizedBooking[]; problems?: string[]; existing?: string[]; ownRetry?: string[]; afterConfirmedFails?: boolean; emailProblems?: string[]; providerMessageId?: string | null; storagePath?: string | null } = {}) {
   const log = {
     saved: [] as { dedupeKey: string; confirmed: boolean }[],
     assigned: [] as { bookingId: string; memberIds: string[] }[],
@@ -28,8 +28,8 @@ function harness(opts: { source?: 'email' | 'screenshot'; bookings?: NormalizedB
     extracted: [] as unknown[],
   };
   const deps: IntakeDeps = {
-    loadMessage: async () => ({ id: 'msg-1', tripId: 'trip-1', source: opts.source ?? 'email', providerMessageId: 'em_1', storagePath: opts.source === 'screenshot' ? 'trip-1/screenshots/a.png' : null, subject: 'Your TAP booking' }),
-    loadEmail: async () => ({ id: 'em_1', from: 'pat@example.test', subject: 'Your TAP booking', text: 'itinerary', html: null, attachments: [] }),
+    loadMessage: async () => ({ id: 'msg-1', tripId: 'trip-1', source: opts.source ?? 'email', providerMessageId: opts.providerMessageId === undefined ? 'em_1' : opts.providerMessageId, storagePath: opts.storagePath !== undefined ? opts.storagePath : opts.source === 'screenshot' ? 'trip-1/screenshots/a.png' : null, subject: 'Your TAP booking' }),
+    loadEmail: async () => ({ id: 'em_1', from: 'pat@example.test', subject: 'Your TAP booking', text: 'itinerary', html: null, attachments: [], problems: opts.emailProblems ?? [] }),
     storeEmail: async () => 'trip-1/msg-1/email.json',
     loadScreenshot: async () => ({ data: new Uint8Array([1, 2, 3]), mediaType: 'image/png' }),
     extract: async (input) => {
@@ -133,6 +133,60 @@ describe('processInboundMessage', () => {
   it('lets a failed confirmation hook throw so the step retries', async () => {
     const { deps } = harness({ afterConfirmedFails: true });
     await expect(processInboundMessage('msg-1', deps)).rejects.toThrow('aeroapi down');
+  });
+
+  it('marks the message done only after the confirmation hook succeeds', async () => {
+    const { deps, log } = harness({ afterConfirmedFails: true });
+    await expect(processInboundMessage('msg-1', deps)).rejects.toThrow();
+    expect(log.status).toEqual([]);
+  });
+
+  it('retries a throwing recordForwarded without marking the message done', async () => {
+    const { deps, log } = harness();
+    deps.recordForwarded = async () => {
+      throw new Error('db down');
+    };
+    await expect(processInboundMessage('msg-1', deps)).rejects.toThrow('db down');
+    expect(log.status).toEqual([]);
+  });
+
+  it('carries attachment problems found while fetching the email', async () => {
+    const { deps, log } = harness({ emailProblems: ['a PDF was skipped: larger than 4 MB'] });
+    await processInboundMessage('msg-1', deps);
+    expect(log.errors).toEqual(['a PDF was skipped: larger than 4 MB']);
+  });
+
+  it('fails permanently, with a planner item, when the email has no provider id', async () => {
+    const { deps, log } = harness({ providerMessageId: null });
+    expect(await processInboundMessage('msg-1', deps)).toEqual({ status: 'failed', reason: 'missing provider message id' });
+    expect(log.status).toEqual(['failed']);
+    expect(log.items[0].title).toBe('We couldn’t read a booking');
+  });
+
+  it('fails permanently when a screenshot has no stored file', async () => {
+    const { deps } = harness({ source: 'screenshot', storagePath: null });
+    expect(await processInboundMessage('msg-1', deps)).toEqual({ status: 'failed', reason: 'screenshot has no stored file' });
+  });
+
+  it('lets a permanent error from a dependency end as a failed message, and a transient one throw', async () => {
+    const permanent = harness();
+    permanent.deps.extract = async () => {
+      throw new PermanentIntakeError('the model could not read this message');
+    };
+    expect(await processInboundMessage('msg-1', permanent.deps)).toMatchObject({ status: 'failed', reason: 'the model could not read this message' });
+    const transient = harness();
+    transient.deps.loadEmail = async () => {
+      throw new Error('resend 503');
+    };
+    await expect(processInboundMessage('msg-1', transient.deps)).rejects.toThrow('resend 503');
+    expect(transient.log.status).toEqual([]);
+  });
+
+  it('writes no email content into the failure record', async () => {
+    const { deps, log } = harness({ bookings: [] });
+    await failPhase('msg-1', 'processing did not finish', [], deps, { kind: 'lookup' });
+    expect(log.items).toEqual([]);
+    expect(log.errors).toEqual(['Processing did not finish']);
   });
 
   it('reads screenshots as images', async () => {

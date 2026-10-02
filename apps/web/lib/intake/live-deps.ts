@@ -1,10 +1,11 @@
 import 'server-only';
+import { NoObjectGeneratedError, NoOutputGeneratedError, TypeValidationError } from 'ai';
 import { onBookingsConfirmed } from '@/lib/bookings/confirm';
-import { recordEvent } from '@/lib/funnel/events';
+import { recordEventStrict } from '@/lib/funnel/events';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { extractBookings } from './extract';
-import { fetchInboundEmail } from './inbound-source';
-import type { IntakeDeps } from './process';
+import { fetchInboundEmail, InboundSourceError } from './inbound-source';
+import { PermanentIntakeError, type IntakeDeps } from './process';
 import { getInbound, putInbound } from './storage';
 
 /** Throws on a PostgREST error. For writes that return no rows. */
@@ -30,7 +31,14 @@ export function liveIntakeDeps(): IntakeDeps {
         ? { id: row.id, tripId: row.trip_id, source: row.source, providerMessageId: row.provider_message_id, storagePath: row.storage_path, subject: row.subject }
         : null;
     },
-    loadEmail: fetchInboundEmail,
+    async loadEmail(providerMessageId) {
+      try {
+        return await fetchInboundEmail(providerMessageId);
+      } catch (error) {
+        if (error instanceof InboundSourceError) throw new PermanentIntakeError(error.message);
+        throw error;
+      }
+    },
     async storeEmail(message, email) {
       const base = `${message.tripId}/${message.id}`;
       await putInbound(`${base}/email.json`, JSON.stringify({ from: email.from, subject: email.subject, text: email.text, html: email.html }), 'application/json');
@@ -43,51 +51,36 @@ export function liveIntakeDeps(): IntakeDeps {
       const mediaType = storagePath.endsWith('.png') ? 'image/png' : storagePath.endsWith('.webp') ? 'image/webp' : 'image/jpeg';
       return { data: await getInbound(storagePath), mediaType };
     },
-    extract: (input) => extractBookings(input),
+    async extract(input) {
+      try {
+        return await extractBookings(input);
+      } catch (error) {
+        // The model's output failed the schema: asking again will not make the email readable.
+        if (NoObjectGeneratedError.isInstance(error) || NoOutputGeneratedError.isInstance(error) || TypeValidationError.isInstance(error)) {
+          throw new PermanentIntakeError('the model could not read this message');
+        }
+        throw error;
+      }
+    },
     async members(tripId) {
       return must(await admin.from('trip_members').select('id, user_id, display_name, role').eq('trip_id', tripId));
     },
     async saveBooking(message, booking, { confirmed }) {
-      const inserted = must(
-        await admin
-          .from('bookings')
-          .upsert(
-            {
-              trip_id: message.tripId,
-              inbound_message_id: message.id,
-              kind: booking.kind,
-              provider: booking.provider,
-              confirmation_code: booking.confirmationCode,
-              booked_via: booking.bookedVia,
-              booked_at: booking.bookedAt,
-              passenger_names: booking.passengerNames,
-              extraction_confidence: Math.round(booking.confidence * 100) / 100,
-              dedupe_key: booking.dedupeKey,
-              confirmed_at: confirmed ? new Date().toISOString() : null,
-            },
-            { onConflict: 'trip_id,dedupe_key', ignoreDuplicates: true },
-          )
-          .select('id'),
-      );
-      // A booking this same message saved before a crash is a retry: finish it (segments, passengers, items).
-      // One that another message saved is a duplicate, and is left alone.
-      let bookingId: string;
-      if (inserted.length === 0) {
-        const existing = must(
-          await admin.from('bookings').select('id, inbound_message_id').eq('trip_id', message.tripId).eq('dedupe_key', booking.dedupeKey).single(),
-        );
-        if (existing.inbound_message_id !== message.id) return { bookingId: existing.id, created: false };
-        bookingId = existing.id;
-      } else {
-        bookingId = inserted[0].id as string;
-      }
-      if (booking.segments.length > 0) {
-        check(
-          await admin.from('booking_segments').upsert(
-            booking.segments.map((segment, index) => ({
-              booking_id: bookingId,
-              trip_id: message.tripId,
-              position: index + 1,
+      // One transaction in save_booking: the booking and its segments land together or not at all.
+      const rows = must(
+        await admin.rpc('save_booking', {
+          p_trip_id: message.tripId,
+          p_message_id: message.id,
+          p_booking: {
+            kind: booking.kind,
+            provider: booking.provider,
+            confirmation_code: booking.confirmationCode,
+            booked_via: booking.bookedVia,
+            booked_at: booking.bookedAt,
+            passenger_names: booking.passengerNames,
+            confidence: booking.confidence,
+            dedupe_key: booking.dedupeKey,
+            segments: booking.segments.map((segment) => ({
               carrier_iata: segment.carrierIata,
               flight_number: segment.flightNumber,
               origin_iata: segment.originIata,
@@ -95,11 +88,12 @@ export function liveIntakeDeps(): IntakeDeps {
               departure_local: segment.departureLocal,
               arrival_local: segment.arrivalLocal,
             })),
-            { onConflict: 'booking_id,position', ignoreDuplicates: true },
-          ),
-        );
-      }
-      return { bookingId, created: true };
+          },
+          p_confirmed: confirmed,
+        }),
+      );
+      const row = (rows as { out_booking_id: string; out_created: boolean }[])[0];
+      return { bookingId: row.out_booking_id, created: row.out_created };
     },
     async assignMembers(tripId, bookingId, memberIds) {
       check(
@@ -119,7 +113,7 @@ export function liveIntakeDeps(): IntakeDeps {
       if (!trip.created_anonymous_id) return;
       // Every email that adds a booking lands here. funnel_forwarded_trip_idx keeps the first, and recordEvent
       // treats the duplicate as a no-op, so the funnel counts trips, not emails.
-      await recordEvent({ anonymousId: trip.created_anonymous_id, event: 'booking_forwarded', tripId, utm: trip.created_utm as Record<string, string> });
+      await recordEventStrict({ anonymousId: trip.created_anonymous_id, event: 'booking_forwarded', tripId, utm: trip.created_utm as Record<string, string> });
     },
     afterConfirmed: onBookingsConfirmed,
   };
