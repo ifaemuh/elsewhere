@@ -1,0 +1,42 @@
+rule: us-dot-refund-significant-change
+cases:
+  - name: domestic, 179 minutes later is under the threshold
+    situation: { event.type: delay, flight.touches_us: true, passenger.accepted_alternative: false, flight.is_domestic_us: true, event.delay_minutes: 179 }
+    outcome: does_not_apply
+  - name: domestic, exactly 180 minutes later
+    situation: { event.type: delay, flight.touches_us: true, passenger.accepted_alternative: false, flight.is_domestic_us: true, event.delay_minutes: 180 }
+    outcome: applies
+  - name: international, 359 minutes later is under the threshold
+    situation: { event.type: delay, flight.touches_us: true, passenger.accepted_alternative: false, flight.is_domestic_us: false, event.delay_minutes: 359 }
+    outcome: does_not_apply
+  - name: international, exactly 360 minutes later
+    situation: { event.type: delay, flight.touches_us: true, passenger.accepted_alternative: false, flight.is_domestic_us: false, event.delay_minutes: 360 }
+    outcome: applies
+  - name: schedule change counts like a delay
+    situation: { event.type: schedule_change, flight.touches_us: true, passenger.accepted_alternative: false, flight.is_domestic_us: true, event.delay_minutes: 240 }
+    outcome: applies
+  - name: domestic or international not known, 200 minutes could go either way
+    situation: { event.type: delay, flight.touches_us: true, passenger.accepted_alternative: false, event.delay_minutes: 200 }
+    outcome: may_apply
+    missing_facts: [flight.is_domestic_us]
+  - name: domestic or international not known, 400 minutes passes either threshold but the matcher still asks
+    situation: { event.type: delay, flight.touches_us: true, passenger.accepted_alternative: false, event.delay_minutes: 400 }
+    outcome: may_apply
+    missing_facts: [flight.is_domestic_us]
+  - name: delay length not known yet
+    situation: { event.type: delay, flight.touches_us: true, passenger.accepted_alternative: false, flight.is_domestic_us: true }
+    outcome: may_apply
+    missing_facts: [event.delay_minutes]
+  - name: has not decided yet
+    situation: { event.type: delay, flight.touches_us: true, flight.is_domestic_us: true, event.delay_minutes: 300 }
+    outcome: may_apply
+    missing_facts: [passenger.accepted_alternative]
+  - name: accepted the changed flight
+    situation: { event.type: delay, flight.touches_us: true, passenger.accepted_alternative: true, flight.is_domestic_us: true, event.delay_minutes: 300 }
+    outcome: does_not_apply
+  - name: does not touch the US
+    situation: { event.type: delay, flight.touches_us: false, passenger.accepted_alternative: false, flight.is_domestic_us: false, event.delay_minutes: 500 }
+    outcome: does_not_apply
+  - name: cancellation is the other rule
+    situation: { event.type: cancellation, flight.touches_us: true, passenger.accepted_alternative: false, flight.is_domestic_us: true, event.delay_minutes: 500 }
+    outcome: does_not_apply

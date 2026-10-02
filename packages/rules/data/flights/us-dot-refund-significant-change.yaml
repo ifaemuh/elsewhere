@@ -1,0 +1,89 @@
+id: us-dot-refund-significant-change
+version: 1
+status: draft
+domain: flights
+jurisdiction: US-DOT
+title: "Flight delayed or changed by 3+ hours (6+ international)? Skip it and take the refund"
+summary: >-
+  If an airline delays or changes a flight to, from or within the US so you arrive 3 or more hours later than
+  scheduled on a domestic itinerary, or 6 or more hours later on an international one, and you don't accept the new
+  flight, a rebooking or a voucher, the airline owes you a full, prompt refund of the airfare.
+applies_when:
+  all:
+    - fact: event.type
+      in: [delay, schedule_change]
+    - fact: flight.touches_us
+      eq: true
+    - fact: passenger.accepted_alternative
+      eq: false
+    - any:
+        - all:
+            - fact: flight.is_domestic_us
+              eq: true
+            - fact: event.delay_minutes
+              gte: 180
+        - all:
+            - fact: flight.is_domestic_us
+              eq: false
+            - fact: event.delay_minutes
+              gte: 360
+entitlement:
+  kind: refund
+  amount:
+    fare: full airfare including any taxes and ancillary fees
+    form: original form of payment unless you agree to a cash equivalent
+    processing_fee_retained: false
+  timing: "within 7 business days for credit card purchases, within 20 calendar days for cash, check, debit card or other forms of purchase, counted from the earliest date the refund was requested as set forth in 14 CFR 260.6(a)(2)"
+how_to_claim:
+  steps:
+    - "Decline the delayed or changed flight, the rebooking, and any voucher, credit, or other compensation the airline offers instead of a refund."
+    - "If the refund doesn't arrive on its own, ask the airline for a full refund of the fare in writing. If you booked through a ticket agent, ask the agent."
+    - "Check that the money returns to your original form of payment, within 7 business days for a credit card or 20 calendar days for other payments."
+  templates: [airline_refund_request]
+exceptions:
+  - "Not owed if you accept the significantly delayed or changed flight, a rebooking on an alternative flight, or a voucher, credit, or other compensation offered as an alternative to a refund."
+  - "A carrier cannot treat you as having accepted a voucher, credit or other compensation unless you affirmatively agree to it."
+  - "This rule checks only the arrival-time trigger (arriving 3 hours or more later on a domestic itinerary, 6 hours or more later on an international itinerary). The regulation also counts as significant a departure that is scheduled that much earlier, a different origination or destination airport, more connection points, and a downgrade to a lower class of service. Any of those can also entitle you to a refund even when this rule does not match."
+  - "For an individual with a disability, a change to different connecting airports or to a substitute aircraft that lacks a needed accessibility feature is also a significant change."
+  - "The regulation states the duty for a consumer who holds a nonrefundable ticket on a scheduled flight to, from, or within the United States, and puts it on the covered carrier that is the merchant of record. Rules matching does not check ticket type or merchant of record, so confirm both."
+sources:
+  - id: s1
+    source: ecfr-14-cfr-260
+    quotes:
+      - text: "The consumer is scheduled to arrive at the destination airport three or more hours for domestic itineraries or six or more hours for international itineraries after the original scheduled arrival time;"
+        supports: [summary, applies_when]
+      - text: "Significantly delayed or changed flight means a covered flight itinerary with a delay or change made by a covered carrier where, as the result of the delay or change:"
+        supports: [summary, applies_when]
+      - text: "The consumer is scheduled to depart from the origination airport three hours or more for domestic itineraries and six hours or more for international itineraries earlier than the original scheduled departure time;"
+        supports: [exceptions]
+      - text: "The consumer is scheduled to depart from a different origination airport or arrive at a different destination airport;"
+        supports: [exceptions]
+      - text: "The consumer is scheduled to travel on an itinerary with more connection points than that of the original itinerary;"
+        supports: [exceptions]
+      - text: "The consumer is downgraded to a lower class of service;"
+        supports: [exceptions]
+      - text: "The consumer who is an individual with a disability is scheduled to travel through one or more connecting airports different from the original itinerary; or"
+        supports: [exceptions]
+      - text: "The consumer who is an individual with a disability is scheduled to travel on substitute aircraft on which one or more accessibility features needed by the customer are unavailable."
+        supports: [exceptions]
+      - text: "A covered carrier that is the merchant of record must provide a full and prompt refund of the airfare, including any taxes and ancillary fees, as set forth in paragraph (a)(2) of this section to a consumer that holds a nonrefundable ticket on a scheduled flight to, from, or within the United States for any cancelled flight or significantly delayed or changed flight where the consumer chooses not to:"
+        supports: [summary, applies_when, entitlement.amount, exceptions]
+      - text: "A consumer rejects the significantly delayed or changed flight, rebooking on an alternative flight, or any voucher, credit, or other form of compensation offered by the covered carrier pursuant to paragraph (c) of this section;"
+        supports: [applies_when, exceptions, how_to_claim.steps.0]
+      - text: "A covered carrier must not deem a consumer to have accepted an offer for travel credits, vouchers, or other compensation in lieu of a refund under § 260.6(c) unless the consumer affirmatively agrees to the alternative form of compensation."
+        supports: [exceptions, how_to_claim.steps.0]
+      - text: "Prompt refund means refunds made within 7 business days after the earliest date the refund was requested as set forth in § 260.6(a)(2) as required by 14 CFR 374.3 for credit card purchases and within 20 calendar days after the earliest date the refund was requested as set forth in § 260.6(a)(2) for cash, check, debit card, or other forms of purchases."
+        supports: [entitlement.timing, how_to_claim.steps.2]
+      - text: "the refund must be issued promptly in the original form of payment (i.e., money is returned to an individual using whatever payment method the individual used to make the original payment, such as a check, credit card, debit card, cash, or airline miles) unless the consumer agrees to receive the refunds in a different form of payment that is a cash equivalent as defined in § 260.2."
+        supports: [entitlement.amount, how_to_claim.steps.2]
+      - text: "Carriers may not retain a processing fee for issuing refunds that are due."
+        supports: [entitlement.amount]
+      - text: "after receiving a refund request by a consumer through the ticket agent, the carrier that canceled or significantly delayed or changed the flight must inform the ticket agent without delay whether the consumer is eligible for a refund under this section"
+        supports: [how_to_claim.steps.1]
+lead_character: pigeon
+tags: [refund, delay, schedule-change, airfare, dot]
+last_verified: null
+verified_by: null
+review_by: null
+history:
+  - { version: 1, status: draft, date: 2026-10-02 }

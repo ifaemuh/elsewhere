@@ -1,0 +1,59 @@
+rule: us-dot-bag-fee-refund-delayed-bag
+cases:
+  - name: lost bag needs no time threshold
+    situation: { event.type: bag_lost, flight.touches_us: true }
+    outcome: applies
+  - name: lost bag on a flight that does not touch the US
+    situation: { event.type: bag_lost, flight.touches_us: false }
+    outcome: does_not_apply
+  - name: damaged bag is not covered
+    situation: { event.type: bag_damaged, flight.touches_us: true, flight.is_domestic_us: true, event.delay_minutes: 2000 }
+    outcome: does_not_apply
+  - name: domestic, 719 minutes
+    situation: { event.type: bag_delayed, flight.touches_us: true, flight.is_domestic_us: true, event.delay_minutes: 719 }
+    outcome: does_not_apply
+  - name: domestic, exactly 12 hours is still within 12 hours
+    situation: { event.type: bag_delayed, flight.touches_us: true, flight.is_domestic_us: true, event.delay_minutes: 720 }
+    outcome: does_not_apply
+  - name: domestic, 721 minutes is past 12 hours
+    situation: { event.type: bag_delayed, flight.touches_us: true, flight.is_domestic_us: true, event.delay_minutes: 721 }
+    outcome: applies
+  - name: international short flight, 899 minutes
+    situation: { event.type: bag_delayed, flight.touches_us: true, flight.is_domestic_us: false, flight.scheduled_duration_minutes: 600, event.delay_minutes: 899 }
+    outcome: does_not_apply
+  - name: international short flight, exactly 15 hours is still within 15 hours
+    situation: { event.type: bag_delayed, flight.touches_us: true, flight.is_domestic_us: false, flight.scheduled_duration_minutes: 600, event.delay_minutes: 900 }
+    outcome: does_not_apply
+  - name: international short flight, 901 minutes is past 15 hours
+    situation: { event.type: bag_delayed, flight.touches_us: true, flight.is_domestic_us: false, flight.scheduled_duration_minutes: 600, event.delay_minutes: 901 }
+    outcome: applies
+  - name: international flight of exactly 12 hours uses the 15-hour limit
+    situation: { event.type: bag_delayed, flight.touches_us: true, flight.is_domestic_us: false, flight.scheduled_duration_minutes: 720, event.delay_minutes: 901 }
+    outcome: applies
+  - name: international long flight, 901 minutes is under the 30-hour limit
+    situation: { event.type: bag_delayed, flight.touches_us: true, flight.is_domestic_us: false, flight.scheduled_duration_minutes: 721, event.delay_minutes: 901 }
+    outcome: does_not_apply
+  - name: international long flight, exactly 30 hours is still within 30 hours
+    situation: { event.type: bag_delayed, flight.touches_us: true, flight.is_domestic_us: false, flight.scheduled_duration_minutes: 840, event.delay_minutes: 1800 }
+    outcome: does_not_apply
+  - name: international long flight, 1801 minutes is past 30 hours
+    situation: { event.type: bag_delayed, flight.touches_us: true, flight.is_domestic_us: false, flight.scheduled_duration_minutes: 840, event.delay_minutes: 1801 }
+    outcome: applies
+  - name: international, flight length not known and delay between 15 and 30 hours
+    situation: { event.type: bag_delayed, flight.touches_us: true, flight.is_domestic_us: false, event.delay_minutes: 1000 }
+    outcome: may_apply
+    missing_facts: [flight.scheduled_duration_minutes]
+  - name: international, flight length not known but delay is past 30 hours
+    situation: { event.type: bag_delayed, flight.touches_us: true, flight.is_domestic_us: false, event.delay_minutes: 1801 }
+    outcome: applies
+  - name: international, flight length not known and delay under 15 hours
+    situation: { event.type: bag_delayed, flight.touches_us: true, flight.is_domestic_us: false, event.delay_minutes: 600 }
+    outcome: does_not_apply
+  - name: domestic or international not known, 800 minutes
+    situation: { event.type: bag_delayed, flight.touches_us: true, event.delay_minutes: 800 }
+    outcome: may_apply
+    missing_facts: [flight.is_domestic_us]
+  - name: bag delay length not known yet
+    situation: { event.type: bag_delayed, flight.touches_us: true, flight.is_domestic_us: true }
+    outcome: may_apply
+    missing_facts: [event.delay_minutes]
