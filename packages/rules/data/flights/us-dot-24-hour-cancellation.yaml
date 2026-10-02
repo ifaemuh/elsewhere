@@ -19,8 +19,8 @@ applies_when:
       eq: direct
     - fact: trip.hours_since_booking
       lte: 24
-    - fact: trip.days_until_departure
-      gte: 7
+    - fact: trip.hours_booked_before_departure
+      gte: 168
 entitlement:
   kind: refund
   amount:

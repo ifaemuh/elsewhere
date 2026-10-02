@@ -1,4 +1,4 @@
 name: same trip booked through an OTA falls outside the airline's 24-hour rule
-situation: { trip.hours_since_booking: 20, trip.days_until_departure: 30, trip.booked_via: ota, flight.touches_us: true }
+situation: { trip.hours_since_booking: 20, trip.hours_booked_before_departure: 720, trip.booked_via: ota, flight.touches_us: true }
 rules: [fx-24h-free-cancellation]
 expect: []
