@@ -1,0 +1,50 @@
+id: fx-eu261-delay-compensation
+version: 1
+status: verified
+domain: flights
+jurisdiction: EU-261
+title: "Fixture: EU261 delay compensation"
+summary: >-
+  Arriving 3 hours or more late on a covered flight earns compensation unless the airline
+  proves extraordinary circumstances.
+applies_when:
+  all:
+    - any:
+        - fact: flight.departs_eu
+          eq: true
+        - all:
+            - fact: flight.arrives_eu
+              eq: true
+            - fact: flight.carrier_is_eu
+              eq: true
+    - fact: event.type
+      in: [delay]
+    - fact: event.delay_minutes
+      gte: 180
+    - fact: event.cause
+      in: [controllable, unknown]
+entitlement:
+  kind: compensation
+  amount: { currency: EUR, up_to_1500_km: 250 }
+how_to_claim:
+  steps:
+    - "Claim from the operating airline in writing."
+  templates: [eu261_claim_letter]
+exceptions:
+  - "Not owed if the airline proves extraordinary circumstances."
+sources:
+  - id: s1
+    source: fx-eu-guidance
+    quotes:
+      - text: 'If you arrived at your final destination with a delay of 3 hours or more, you are entitled to compensation, unless the delay was due to "extraordinary circumstances".'
+        supports: [summary, applies_when, exceptions]
+      - text: "Compensation is 250 euro for flights of 1 500 km or less."
+        supports: [entitlement.amount]
+lead_character: pigeon
+tags: [fixture, compensation]
+last_verified: 2026-10-06
+verified_by: fixture
+review_by: 2027-01-04
+history:
+  - { version: 1, status: draft, date: 2026-10-01 }
+  - { version: 1, status: verified, date: 2026-10-06 }
