@@ -127,3 +127,18 @@ describe('accessors do not mutate the library', () => {
     expect(lib).toEqual(before);
   });
 });
+
+describe('staticRuleParams', () => {
+  it('returns one param per prerendered rule', async () => {
+    const { staticRuleParams } = await import('@/lib/rules/accessors');
+    expect(staticRuleParams(library).map((p) => p.id)).toEqual(staticRuleIds(library));
+  });
+
+  it('falls back to a placeholder that resolves to missing when the library is empty', async () => {
+    const { staticRuleParams, resolveRulePage } = await import('@/lib/rules/accessors');
+    const empty = { ...library, rules: [] } as typeof library;
+    const params = staticRuleParams(empty);
+    expect(params).toHaveLength(1);
+    expect(resolveRulePage(empty, params[0].id).kind).toBe('missing');
+  });
+});

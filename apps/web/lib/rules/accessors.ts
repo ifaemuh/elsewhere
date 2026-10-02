@@ -28,6 +28,18 @@ export function staticRuleIds(library: RulesLibrary): string[] {
   return library.rules.filter((rule) => rule.status !== 'draft').map((rule) => rule.id);
 }
 
+/** Id that matches no rule; prerendered only while the library is empty (it renders as a 404). */
+export const EMPTY_LIBRARY_PLACEHOLDER_ID = '_none';
+
+/**
+ * Cache Components rejects a generateStaticParams that returns nothing, so an empty library
+ * yields one placeholder param. It resolves to 'missing' and never appears as a real URL.
+ */
+export function staticRuleParams(library: RulesLibrary): { id: string }[] {
+  const ids = staticRuleIds(library);
+  return (ids.length > 0 ? ids : [EMPTY_LIBRARY_PLACEHOLDER_ID]).map((id) => ({ id }));
+}
+
 export function findRule(library: RulesLibrary, id: string): Rule | null {
   return library.rules.find((rule) => rule.id === id) ?? null;
 }
