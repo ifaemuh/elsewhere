@@ -1,6 +1,9 @@
+/** A missing or empty setting. Retrying cannot fix it, so delivery treats it as a permanent failure. */
+export class ConfigError extends Error {}
+
 export function requireEnv(name: string): string {
   const value = process.env[name];
-  if (!value) throw new Error(`Missing required environment variable ${name}`);
+  if (!value) throw new ConfigError(`Missing required environment variable ${name}`);
   return value;
 }
 

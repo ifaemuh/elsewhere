@@ -43,6 +43,7 @@ vi.mock('@/lib/supabase/admin', () => ({
 }));
 vi.mock('@/lib/notify/deliver', () => ({ deliver: deliverMock }));
 
+import { ConfigError } from '@/lib/env';
 import { flushDue, queueNotifications } from '@/lib/notify/queue';
 
 const input = { userIds: ['u1', 'u2', 'u3'], tripId: null, template: 'incident', rendered: { subject: 'S', text: 'T', sms: 'M' }, urgent: true };
@@ -125,9 +126,26 @@ describe('flushDue', () => {
     expect(notificationUpdates[0].values).toEqual({ status: 'failed', attempts: 1 });
   });
 
-  it('surfaces a failed status update instead of swallowing it', async () => {
+  it('does not requeue or resend a delivered row when recording it fails', async () => {
     dueRows.push(row());
     state.updateError = { message: 'db down' };
+    expect(await flushDue(NOW)).toBe(1);
+    expect(deliverMock).toHaveBeenCalledTimes(1);
+    expect(notificationUpdates).toHaveLength(1);
+    expect((notificationUpdates[0].values as { status: string }).status).toBe('sent');
+  });
+
+  it('surfaces a failed update when marking a failure', async () => {
+    dueRows.push(row());
+    deliverMock.mockRejectedValueOnce(Object.assign(new Error('bad'), { status: 400 }));
+    state.updateError = { message: 'db down' };
     await expect(flushDue(NOW)).rejects.toThrow(/db down/);
+  });
+
+  it('fails a missing-configuration error immediately', async () => {
+    dueRows.push(row());
+    deliverMock.mockRejectedValueOnce(new ConfigError('Missing required environment variable RESEND_API_KEY'));
+    await flushDue(NOW);
+    expect(notificationUpdates[0].values).toEqual({ status: 'failed', attempts: 1 });
   });
 });

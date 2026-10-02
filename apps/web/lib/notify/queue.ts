@@ -1,6 +1,7 @@
 import 'server-only';
 import { smsEnabled } from '@/lib/auth/phone';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { ConfigError } from '@/lib/env';
 import { deliver } from './deliver';
 import { planDeliveries, type NotifyInput, type Recipient } from './plan';
 
@@ -34,6 +35,7 @@ const BACKOFF_MS = [5 * 60_000, 30 * 60_000, 2 * 60 * 60_000];
 
 /** 429, 5xx, 408 and errors with no HTTP status (network) are transient; any other 4xx is permanent. */
 export function isTransientError(error: unknown): boolean {
+  if (error instanceof ConfigError) return false;
   const e = error as { status?: unknown; statusCode?: unknown } | null;
   const code = typeof e?.status === 'number' ? e.status : typeof e?.statusCode === 'number' ? e.statusCode : null;
   if (code === null) return true;
@@ -60,10 +62,9 @@ export async function flushDue(now: Date = new Date()): Promise<number> {
       check(await admin.from('notifications').update({ status: 'skipped' }).eq('id', row.id));
       continue;
     }
+    let providerMessageId: string;
     try {
-      const { providerMessageId } = await deliver({ channel: row.channel, to, subject: row.subject, body: row.body });
-      check(await admin.from('notifications').update({ status: 'sent', provider_message_id: providerMessageId, attempts: row.attempts + 1 }).eq('id', row.id));
-      sent += 1;
+      ({ providerMessageId } = await deliver({ channel: row.channel, to, subject: row.subject, body: row.body }));
     } catch (deliveryError) {
       console.error('notification failed', row.id, deliveryError instanceof Error ? deliveryError.message : 'unknown error');
       const attempts = row.attempts + 1;
@@ -72,7 +73,16 @@ export async function flushDue(now: Date = new Date()): Promise<number> {
         ? { status: 'queued', attempts, claimed_at: null, send_after: new Date(now.getTime() + BACKOFF_MS[attempts - 1]).toISOString() }
         : { status: 'failed', attempts };
       check(await admin.from('notifications').update(values).eq('id', row.id));
+      continue;
     }
+    sent += 1;
+    // The message is out. If recording it fails, leave the row 'sending' (never requeue it): reclaim retries it
+    // after 10 minutes, a small at-least-once window, instead of sending again now.
+    const { error: sentError } = await admin
+      .from('notifications')
+      .update({ status: 'sent', provider_message_id: providerMessageId, attempts: row.attempts + 1 })
+      .eq('id', row.id);
+    if (sentError) console.error('notification sent but not recorded', row.id, sentError.message);
   }
   return sent;
 }
