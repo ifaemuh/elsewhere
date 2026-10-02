@@ -8,15 +8,15 @@ dot-tarmac-delays: { select: article }
 dot-mishandled-baggage: { select: article }
 dot-customer-service-dashboard: { select: main }
 youreurope-air-passenger-rights: { select: main }
-eurlex-261-2004: { select: '#TexteOnly', execute_client_scripts: true }  # plain fetch is empty; the select waits out the bot-check page
+eurlex-261-2004: { select: '#TexteOnly', execute_client_scripts: true }  # plain fetch is empty; the select waits out the bot-check page. First attempt fails, succeeds on the engine's retry
 tsa-real-id: { select: main }
 uk-eta: { select: main }
 uk-caa-delays-cancellations: { select: main }
 dl-contract-of-carriage: { select: main }
-ua-contract-of-carriage: { select: "#main-content", execute_client_scripts: true }
-ua-customer-service-plan: { select: "#main-content", execute_client_scripts: true }
-eu-etias: { select: main, execute_client_scripts: true }  # JS shell
-eu-ees: { select: main, execute_client_scripts: true }  # JS shell
+ua-contract-of-carriage: { select: '#main-content', execute_client_scripts: true }
+ua-customer-service-plan: { select: '#main-content', execute_client_scripts: true }
+eu-etias: { select: main, execute_client_scripts: true }  # JS shell; first attempt fails, succeeds on the engine's retry
+eu-ees: { select: main, execute_client_scripts: true }  # JS shell; first attempt fails, succeeds on the engine's retry
 aa-contract-of-carriage: { select: main }
 aa-customer-service-plan: { select: main }
 dl-customer-service-plan: { select: .content-block }
