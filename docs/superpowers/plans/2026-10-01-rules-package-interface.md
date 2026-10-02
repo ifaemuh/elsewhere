@@ -12,8 +12,14 @@ first, in its own commit.
 ## Package
 
 - **Name:** `@elsewhere/rules`, at `packages/rules`, in an npm workspace.
-- **Module:** ESM (`"type": "module"`), TypeScript 5.5+. It exports TypeScript sources
-  via `exports` → `./src/index.ts`; the Next.js app and `tsx` both compile it.
+- **Module:** ESM (`"type": "module"`), TypeScript 5.5+. It exports TypeScript sources;
+  the Next.js app and `tsx` both compile it. Two entry points:
+  - `"."` → `./src/index.ts`: everything public, including the Node-only loader
+    (`loadRules`, `loadSources`, `RulesValidationError`). Used by CLIs, scripts, and tests.
+  - `"./core"` → `./src/core.ts`: everything public **except** the loader. It imports no
+    `node:` module and evaluates no `import.meta.url`, so it is safe in any bundle. **App
+    code (the web app and Track D) imports from `@elsewhere/rules/core`, never from the
+    bare package.**
 - **Dependencies:** `zod@^4.6`, `yaml@^2.9`. Dev: `tsx@^4.19`, `@types/node@^22`.
 - **Tests:** `node --import tsx --test test/**/*.test.ts` (the same runner foundry uses).
 - **Scripts:** `test`, `typecheck` (`tsc --noEmit`), `rules:build`, `rules:check-quotes`.
@@ -295,6 +301,10 @@ note naming the failing source). The nightly backstop uses this, then opens a PR
 - **Fixture rules:** `packages/rules/test/fixtures/rules/*.yaml`. These are synthetic
   rules whose quotes come from `test/fixtures/sources/*.md`, not real rules.
 
-## Index (`src/index.ts`)
+## Index (`src/index.ts`) and core (`src/core.ts`)
 
-Re-exports everything above. Nothing else is public.
+`src/index.ts` re-exports everything above. Nothing else is public.
+
+`src/core.ts` re-exports everything above except `src/load.ts` (`loadRules`, `loadSources`,
+`RulesValidationError`). A test fails if `core.ts`, or anything it imports, imports
+`./load` or any `node:` module.
