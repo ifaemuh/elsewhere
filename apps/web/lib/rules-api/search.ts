@@ -8,16 +8,35 @@ const STOPWORDS = new Set([
 const MAX_QUERY_LENGTH = 2000;
 const SUFFIXES = ['ations', 'ation', 'ings', 'ing', 'ed', 'es', 's'];
 
+const MIN_STEM = 3;
+
+/**
+ * Strips one common suffix (keeping at least MIN_STEM characters), then collapses a trailing doubled
+ * consonant so "cancelled" and "canceled" meet at "cancel". No regexes: linear in the word length.
+ */
 export function stem(word: string): string {
+  let out = word;
   for (const suffix of SUFFIXES) {
-    if (word.length - suffix.length >= 2 && word.endsWith(suffix)) return word.slice(0, -suffix.length);
+    if (word.length - suffix.length >= MIN_STEM && word.endsWith(suffix)) {
+      out = word.slice(0, -suffix.length);
+      break;
+    }
   }
-  return word;
+  const n = out.length;
+  if (n > MIN_STEM && out[n - 1] === out[n - 2] && /[b-df-hj-np-tv-z]/.test(out[n - 1])) out = out.slice(0, -1);
+  return out;
 }
 
+function words(text: string): string[] {
+  return text.slice(0, MAX_QUERY_LENGTH).toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 2);
+}
+
+/**
+ * Query terms: stopwords dropped, stemmed, de-duplicated. A query made only of stopwords therefore
+ * yields no tokens, and searchRules returns an empty result for it (it does not fall back to listing).
+ */
 export function tokenize(q: string): string[] {
-  const words = q.slice(0, MAX_QUERY_LENGTH).toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 2 && !STOPWORDS.has(w));
-  return [...new Set(words.map(stem))];
+  return [...new Set(words(q).filter((w) => !STOPWORDS.has(w)).map(stem))];
 }
 
 export interface SearchParams {
@@ -30,15 +49,20 @@ export interface SearchParams {
 
 export const DEFAULT_SEARCH_STATUSES: RuleStatus[] = ['verified', 'needs_review'];
 
+/** Whole-word stem matches outrank prefix matches; title > tags > summary either way. */
+function fieldScore(fieldWords: string[], token: string, whole: number, prefix: number): number {
+  if (fieldWords.includes(token)) return whole;
+  if (token.length >= 4 && fieldWords.some((w) => w.startsWith(token))) return prefix;
+  return 0;
+}
+
 function scoreRule(rule: Rule, tokens: string[]): number {
-  const title = rule.title.toLowerCase();
-  const summary = rule.summary.toLowerCase();
-  const tags = rule.tags.map((t) => t.toLowerCase());
+  const title = words(rule.title).map(stem);
+  const summary = words(rule.summary).map(stem);
+  const tags = rule.tags.flatMap((t) => words(t)).map(stem);
   let score = 0;
   for (const token of tokens) {
-    if (title.includes(token)) score += 3;
-    if (tags.some((tag) => tag.includes(token))) score += 2;
-    if (summary.includes(token)) score += 1;
+    score += fieldScore(title, token, 12, 6) + fieldScore(tags, token, 6, 3) + fieldScore(summary, token, 2, 1);
   }
   return score;
 }
