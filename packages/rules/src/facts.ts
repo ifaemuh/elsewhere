@@ -45,10 +45,6 @@ export const FACTS = {
   'flight.distance_km': { type: 'number', description: 'Great-circle distance between origin and final destination, in km.' },
   'flight.single_ticket': { type: 'boolean', description: 'All flights in the journey are on one ticket or booking reference.' },
   'flight.departs_us': { type: 'boolean', description: 'The flight departs from a US airport.' },
-  'flight.scheduled_duration_minutes': {
-    type: 'number',
-    description: 'Scheduled gate-to-gate time of the flight, in minutes.',
-  },
   'passenger.accepted_alternative': {
     type: 'boolean',
     description: 'The passenger accepted the rebooking, the changed flight, or a voucher or credit.',
@@ -64,6 +60,15 @@ export const FACTS = {
   'trip.booked_via': { type: 'enum', values: ['direct', 'ota'], description: 'Booked with the airline or hotel directly, or through an online travel agency.' },
   'trip.hours_since_booking': { type: 'number', description: 'Hours since the booking was made.' },
   'trip.days_until_departure': { type: 'number', description: 'Days from now until the first departure.' },
+  'trip.itinerary_domestic_us': {
+    type: 'boolean',
+    description:
+      'Every flight on the ticket is within the United States. False when any flight on the ticket goes to or from another country, even if this flight is a domestic connection.',
+  },
+  'trip.us_foreign_nonstop_minutes': {
+    type: 'number',
+    description: "Scheduled minutes of the ticket's nonstop flight between the United States and a foreign point, on the same journey as the event.",
+  },
   'lodging.kind': { type: 'enum', values: ['hotel', 'short_term_rental'], description: 'Kind of lodging.' },
   'lodging.booked_via': { type: 'enum', values: ['direct', 'ota'], description: 'Booked with the property directly, or through an online travel agency.' },
 } as const satisfies Record<string, FactDef>;

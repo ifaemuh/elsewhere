@@ -33,6 +33,6 @@ test('validateSituation rejects wrong primitive types', () => {
 });
 
 test('the departure and duration facts exist', () => {
-  validateSituation({ 'flight.departs_us': true, 'flight.scheduled_duration_minutes': 780 });
-  assert.throws(() => validateSituation({ 'flight.scheduled_duration_minutes': '13h' }), /expects a number/);
+  validateSituation({ 'flight.departs_us': true, 'trip.us_foreign_nonstop_minutes': 780 });
+  assert.throws(() => validateSituation({ 'trip.us_foreign_nonstop_minutes': '13h' }), /expects a number/);
 });
