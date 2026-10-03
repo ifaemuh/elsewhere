@@ -1,8 +1,10 @@
 import { timingSafeEqual } from 'node:crypto';
+import { start } from 'workflow/api';
 import type { AeroFlight } from '@/lib/flights/aeroapi';
 import { recordFlightSnapshot } from '@/lib/monitor/record';
 import { snapshotFromAero } from '@/lib/monitor/snapshot';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { incidentWorkflow } from '@/workflows/incident';
 
 function secretMatches(given: string): boolean {
   const expected = Buffer.from(process.env.AEROAPI_WEBHOOK_SECRET ?? '');
@@ -40,6 +42,15 @@ export async function POST(request: Request, { params }: { params: Promise<{ sec
     if (error) throw new Error(error.message);
     if (!segment) return Response.json({ ignored: 'unknown alert' });
     const { incidentId } = await recordFlightSnapshot(segment.id, snapshotFromAero(body.flight), 'alert');
+    if (incidentId) {
+      try {
+        await start(incidentWorkflow, [incidentId]);
+      } catch (error) {
+        // The alert is recorded and deduped, so AeroAPI won't resend it. The segment's next poll starts every
+        // incident that was never notified, this one included.
+        console.error('incident workflow did not start', incidentId, error);
+      }
+    }
     return Response.json({ incidentId });
   } catch (error) {
     // Release the dedupe claim so AeroAPI's retry of this delivery is processed instead of dropped as a duplicate.

@@ -1,4 +1,5 @@
 import 'server-only';
+import { askPlanner, assessIncident, isNotified, notifyAffected, recordAnswer, releaseHeldPlaybooks, requestReview, savePlaybook, unnotifiedIncidentIds } from '@/lib/assist/incidents';
 import { runDocumentChecks } from '@/lib/documents/service';
 import { appUrl, requireEnv } from '@/lib/env';
 import { aeroApi, type AeroFlight } from '@/lib/flights/aeroapi';
@@ -143,5 +144,16 @@ export function livePorts(): WorkflowPorts {
       console.error('AeroAPI polling keeps failing', segmentId);
       check(await admin.from('booking_segments').update({ monitor_state: 'polling_only' }).eq('id', segmentId));
     },
+    async assessIncident(incidentId) {
+      return { question: (await assessIncident(incidentId)).question };
+    },
+    isNotified,
+    askPlanner,
+    recordAnswer,
+    generatePlaybook: savePlaybook,
+    requestReview,
+    releaseHeldPlaybooks,
+    notifyAffected,
+    unnotifiedIncidentIds,
   };
 }

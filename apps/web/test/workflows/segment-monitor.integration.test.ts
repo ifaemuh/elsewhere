@@ -1,6 +1,6 @@
 import { getRun, start } from 'workflow/api';
 import { waitForSleep } from '@workflow/vitest';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { memoryState, resetMemoryPorts } from '@/lib/workflows/memory-ports';
 import { driveToEnd, sleepIntervals, sleepResumeTimes } from './helpers';
 import { segmentMonitorWorkflow } from '@/workflows/segment-monitor';
@@ -27,6 +27,7 @@ describe('segmentMonitorWorkflow', () => {
       if (state.pollResults.length === 0) break;
     }
     const result = await run.returnValue;
+    await vi.waitFor(() => expect(memoryState().notified).toContain('inc-1'), { timeout: 5000 });
 
     expect(state.monitorStates.get('seg-1')).toBe('polling_only');
     expect(result).toEqual({ segmentId: 'seg-1', status: 'ended', incidents: ['inc-1'] });

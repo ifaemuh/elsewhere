@@ -1,7 +1,9 @@
 import { FatalError, createHook, sleep } from 'workflow';
+import { start } from 'workflow/api';
 import { HOUR, nextStopAt, pollWait } from '@/lib/monitor/cadence';
 import { workflowPorts, type WorkflowPorts } from '@/lib/workflows/ports';
 import { segmentMonitorToken } from '@/lib/workflows/tokens';
+import { incidentWorkflow } from './incident';
 
 export async function segmentMonitorWorkflow(segmentId: string) {
   'use workflow';
@@ -43,6 +45,9 @@ export async function segmentMonitorWorkflow(segmentId: string) {
       }
       failures = 0;
       if (polled.incidentId) incidents.push(polled.incidentId);
+      // New incidents, and any whose start failed in the alert route, get a run. A run that already
+      // handles an incident makes the new one exit (incidentRunToken).
+      for (const incidentId of await unnotifiedStep(segmentId)) await start(incidentWorkflow, [incidentId]);
       if (polled.ended) break;
       stopAt = nextStopAt(stopAt, scheduledEnd, polled.latestArrival);
     }
@@ -90,4 +95,9 @@ async function endStep(segmentId: string) {
 async function flagTroubleStep(segmentId: string) {
   'use step';
   await withPorts((ports) => ports.flagMonitorTrouble(segmentId));
+}
+
+async function unnotifiedStep(segmentId: string) {
+  'use step';
+  return withPorts((ports) => ports.unnotifiedIncidentIds(segmentId));
 }

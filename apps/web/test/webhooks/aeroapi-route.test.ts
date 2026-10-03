@@ -2,7 +2,10 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const state: { insertError: { code?: string; message: string } | null; segment: { id: string } | null; deleted: string[]; releaseError: string | null } = { insertError: null, segment: { id: 's1' }, deleted: [], releaseError: null };
 const record = vi.hoisted(() => vi.fn());
+const startRun = vi.hoisted(() => vi.fn(async (..._args: unknown[]) => ({ runId: 'run-1' })));
 vi.mock('@/lib/monitor/record', () => ({ recordFlightSnapshot: record }));
+vi.mock('workflow/api', () => ({ start: startRun }));
+vi.mock('@/workflows/incident', () => ({ incidentWorkflow: 'incidentWorkflow' }));
 vi.mock('@/lib/supabase/admin', () => ({
   createAdminClient: () => ({
     from: (table: string) => ({
@@ -19,6 +22,7 @@ beforeAll(() => {
 beforeEach(() => {
   Object.assign(state, { insertError: null, segment: { id: 's1' }, deleted: [], releaseError: null });
   record.mockReset().mockResolvedValue({ incidentId: 'inc-1' });
+  startRun.mockReset().mockResolvedValue({ runId: 'run-1' });
 });
 
 const flight = { fa_flight_id: 'TAP204-1', cancelled: true, diverted: false, scheduled_out: null, estimated_in: null, scheduled_in: null };
@@ -54,6 +58,30 @@ describe('POST /api/webhooks/aeroapi/[secret]', () => {
     const res = await post('hook-secret-123');
     expect(await res.json()).toEqual({ incidentId: 'inc-1' });
     expect(record).toHaveBeenCalledWith('s1', expect.objectContaining({ cancelled: true, faFlightId: 'TAP204-1' }), 'alert');
+  });
+
+  it('starts the incident workflow for the incident the alert recorded', async () => {
+    await post('hook-secret-123');
+    expect(startRun).toHaveBeenCalledWith('incidentWorkflow', ['inc-1']);
+  });
+
+  it('starts nothing when the alert opened no incident', async () => {
+    record.mockResolvedValue({ incidentId: null });
+    await post('hook-secret-123');
+    expect(startRun).not.toHaveBeenCalled();
+  });
+
+  it('still answers, and keeps the delivery, when the workflow does not start: the next poll picks the incident up', async () => {
+    startRun.mockRejectedValue(new Error('workflow down'));
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const res = await post('hook-secret-123');
+      expect(await res.json()).toEqual({ incidentId: 'inc-1' });
+      expect(state.deleted).toHaveLength(0);
+      expect(error).toHaveBeenCalledWith('incident workflow did not start', 'inc-1', expect.any(Error));
+    } finally {
+      error.mockRestore();
+    }
   });
 
   it('ignores a repeated delivery', async () => {

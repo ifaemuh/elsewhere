@@ -1,3 +1,4 @@
+import type { PlannerAnswer, PlannerQuestion } from '@/lib/assist/questions';
 import { assertTestSeamAllowed } from '@/lib/env';
 
 export interface MonitoredSegment {
@@ -24,6 +25,16 @@ export interface WorkflowPorts {
   pollAndRecord(segmentId: string): Promise<{ incidentId: string | null; ended: boolean; failed?: boolean; latestArrival?: string | null }>;
   endSegment(segmentId: string): Promise<void>;
   flagMonitorTrouble(segmentId: string): Promise<void>;
+  assessIncident(incidentId: string): Promise<{ question: PlannerQuestion | null }>;
+  /** True once the group has been notified of the incident. */
+  isNotified(incidentId: string): Promise<boolean>;
+  askPlanner(incidentId: string, question: PlannerQuestion): Promise<void>;
+  recordAnswer(incidentId: string, answer: PlannerAnswer | null): Promise<void>;
+  generatePlaybook(incidentId: string): Promise<{ playbookId: string; held: boolean }>;
+  requestReview(incidentId: string): Promise<void>;
+  releaseHeldPlaybooks(incidentId: string): Promise<void>;
+  notifyAffected(incidentId: string): Promise<void>;
+  unnotifiedIncidentIds(segmentId: string): Promise<string[]>;
 }
 
 /** Live ports load lazily, so memory-mode integration tests never import server-only modules. */
