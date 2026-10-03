@@ -750,3 +750,73 @@ describe('expenses and settlements (Task 14)', () => {
     expect(settled.rows).toHaveLength(0);
   });
 });
+
+describe('leaving a trip with an open balance (Task 15)', () => {
+  const KEY = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+  let trip: string;
+  const leave = (as: string) =>
+    asUser(db, as, () => db.query('delete from public.trip_members where trip_id = $1 and user_id = $2', [trip, as]));
+  const onTrip = (user: string) =>
+    asService(db, () => one<{ n: number }>('select count(*)::int as n from public.trip_members where trip_id = $1 and user_id = $2', [trip, user]));
+  const spend = (payer: string, amount: number, users: string[]) =>
+    asUser(db, payer, () =>
+      db.query(
+        "insert into public.expenses (trip_id, payer_user_id, amount_cents, description, split, created_by) values ($1, $2, $3, 'Dinner', $4::jsonb, $2)",
+        [trip, payer, amount, JSON.stringify({ kind: 'equal', user_ids: users })],
+      ),
+    );
+
+  beforeAll(async () => {
+    trip = await asUser(db, PLANNER, async () =>
+      (await one<{ id: string }>(`select public.create_trip('Leavers', 'PT', '2026-11-03', '2026-11-10', 'trip-leave-l2l2', 'Pat', null, '{}'::jsonb) as id`)).id,
+    );
+    const token = 'leavers-invite-token-0123456789';
+    await asUser(db, PLANNER, () => db.query("select public.set_join_token($1, $2, now() + interval '7 days')", [trip, token]));
+    await asUser(db, MEMBER, () => db.query("select public.join_trip($1, 'Sam')", [token]));
+    await asUser(db, JOINER, () => db.query("select public.join_trip($1, 'Jo')", [token]));
+  });
+
+  it('lets a member with a zero balance leave', async () => {
+    await leave(JOINER);
+    expect((await onTrip(JOINER)).n).toBe(0);
+    await asUser(db, JOINER, () => db.query("select public.join_trip($1, 'Jo')", ['leavers-invite-token-0123456789']));
+  });
+
+  it('refuses to let a member leave while they owe, and lets them once they have paid', async () => {
+    await spend(PLANNER, 9000, [PLANNER, MEMBER, JOINER]);
+    await rejects(() => leave(MEMBER), /settle up before leaving/);
+    await rejects(() => leave(JOINER), /settle up before leaving/);
+    expect((await onTrip(MEMBER)).n).toBe(1);
+    await asUser(db, MEMBER, () => db.query('select public.record_settlement($1, $2, $3, 3000, $4)', [trip, MEMBER, PLANNER, KEY]));
+    await leave(MEMBER);
+    expect((await onTrip(MEMBER)).n).toBe(0);
+    await rejects(() => leave(JOINER), /settle up before leaving/);
+  });
+
+  it('refuses a member who is owed money', async () => {
+    const creditTrip = await asUser(db, PLANNER, async () =>
+      (await one<{ id: string }>(`select public.create_trip('Credit', 'PT', '2026-11-03', '2026-11-10', 'trip-credit-c3c3', 'Pat', null, '{}'::jsonb) as id`)).id,
+    );
+    await asUser(db, PLANNER, () => db.query("select public.set_join_token($1, $2, now() + interval '7 days')", [creditTrip, 'credit-invite-token-0123456789']));
+    await asUser(db, MEMBER, () => db.query("select public.join_trip($1, 'Sam')", ['credit-invite-token-0123456789']));
+    await asUser(db, MEMBER, () =>
+      db.query("insert into public.expenses (trip_id, payer_user_id, amount_cents, description, split, created_by) values ($1, $2, 5000, 'Taxi', $3::jsonb, $2)", [
+        creditTrip,
+        MEMBER,
+        JSON.stringify({ kind: 'equal', user_ids: [MEMBER, PLANNER] }),
+      ]),
+    );
+    await rejects(() => asUser(db, MEMBER, () => db.query('delete from public.trip_members where trip_id = $1 and user_id = $2', [creditTrip, MEMBER])), /settle up before leaving/);
+  });
+
+  it('never lets the planner leave, balance or not', async () => {
+    const result = await leave(PLANNER);
+    expect(result.affectedRows).toBe(0);
+    expect((await onTrip(PLANNER)).n).toBe(1);
+  });
+
+  it('still lets a trip with a ledger be deleted', async () => {
+    await asService(db, () => db.query('delete from public.trips where id = $1', [trip]));
+    expect((await onTrip(JOINER)).n).toBe(0);
+  });
+});

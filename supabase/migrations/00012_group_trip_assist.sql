@@ -671,6 +671,45 @@ $$;
 revoke execute on function public.record_settlement(uuid, uuid, uuid, int, uuid) from public, anon;
 grant execute on function public.record_settlement(uuid, uuid, uuid, int, uuid) to authenticated;
 
+-- Leaving with an open balance would strand it: record_settlement refuses anyone who is no longer a member. So a
+-- member (or anyone else) is removed only once their net balance on the trip is zero, from the same expense, share and
+-- settlement totals record_settlement uses. A trip being deleted cascades its members away; its ledger goes with it, so
+-- the check stands down once the trip row is gone. The per-trip lock is the one record_settlement takes.
+create or replace function public.check_member_balance_on_leave() returns trigger
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare
+  v_net bigint;
+begin
+  if not exists (select 1 from public.trips where id = old.trip_id) then
+    return old;
+  end if;
+  perform pg_advisory_xact_lock(hashtext(old.trip_id::text));
+  with lines as (
+    select e.payer_user_id as uid, e.amount_cents::bigint as cents from public.expenses e where e.trip_id = old.trip_id
+    union all
+    select x.value::uuid, -(e.amount_cents / jsonb_array_length(e.split -> 'user_ids') + case when x.ord <= e.amount_cents % jsonb_array_length(e.split -> 'user_ids') then 1 else 0 end)::bigint
+      from public.expenses e, jsonb_array_elements_text(e.split -> 'user_ids') with ordinality as x(value, ord)
+      where e.trip_id = old.trip_id and e.split ->> 'kind' = 'equal'
+    union all
+    select s.key::uuid, -s.value::bigint
+      from public.expenses e, jsonb_each_text(e.split -> 'shares') s
+      where e.trip_id = old.trip_id and e.split ->> 'kind' = 'shares'
+    union all
+    select st.from_user_id, st.amount_cents::bigint from public.settlements st where st.trip_id = old.trip_id
+    union all
+    select st.to_user_id, -st.amount_cents::bigint from public.settlements st where st.trip_id = old.trip_id
+  )
+  select coalesce(sum(cents) filter (where uid = old.user_id), 0) into v_net from lines;
+  if v_net <> 0 then
+    raise exception 'settle up before leaving the trip' using errcode = '23514';
+  end if;
+  return old;
+end;
+$$;
+revoke execute on function public.check_member_balance_on_leave() from public, anon, authenticated;
+create trigger trip_members_balance_check before delete on public.trip_members
+  for each row execute function public.check_member_balance_on_leave();
+
 -- 8. Notifications, consents, passes, webhooks ------------------------------------
 create table public.notifications (
   id uuid primary key default gen_random_uuid(),
