@@ -274,9 +274,11 @@ describe('EU261 facts', () => {
 
   it('reports, of several offers, the soonest arrival among those leaving within the notice limit', () => {
     const offer = (scheduledOut: string, scheduledIn: string) => [leg('TP', 'EWR', 'LIS', scheduledOut, scheduledIn)];
-    // Told 2 days ahead, so the limit is 1 hour early. The 2-hours-early flight arrives soonest, but is outside it.
+    // Told 2 days ahead (AeroAPI still showed the original schedule before detection), so the limit is 1 hour early.
+    // The 2-hours-early flight arrives soonest, but is outside it.
     const offers = [offer('2026-11-03T21:15:00Z', '2026-11-04T04:35:00Z'), offer('2026-11-04T10:00:00Z', '2026-11-04T17:20:00Z'), offer('2026-11-03T22:45:00Z', '2026-11-04T06:05:00Z')];
-    expect(situation(roundTrip[1], roundTrip, { type: 'cancellation', offers })).toMatchObject({
+    expect(situation(roundTrip[1], roundTrip, { type: 'cancellation', offers, observed: [seen(roundTrip[1])] })).toMatchObject({
+      'event.notice_days': 2,
       'event.reroute_departs_early_minutes': 30,
       'event.reroute_arrival_delay_minutes': 0,
     });

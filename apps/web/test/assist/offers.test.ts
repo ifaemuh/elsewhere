@@ -268,6 +268,65 @@ describe('3: offers that leave at the same time', () => {
   });
 });
 
+describe('round 5: booked journey flights listed before the first new flight', () => {
+  it('#91: [MAD→SFO, SFO→JFK] listed, then a new MAD→OPO that leaves before they land', () => {
+    const A = leg('TP', 'MAD', 'SFO', 192, 285);
+    const B = leg('UA', 'SFO', 'JFK', 471, 647);
+    const f = leg('AA', 'JFK', 'OPO', 807, 1112);
+    expect(cancelled(f, [A, B, f], [A, B, leg('UA', 'MAD', 'OPO', 594, 957)])).toEqual({ early: UNSET, arrival: UNSET });
+  });
+  it('#12: [LIS→OPO] listed, then a new LIS→ORD', () => {
+    const A = leg('AA', 'LIS', 'OPO', 131, 296);
+    const f = leg('UA', 'OPO', 'ORD', 436, 822);
+    expect(cancelled(f, [A, f], [A, leg('UA', 'LIS', 'ORD', 216, 400)])).toEqual({ early: UNSET, arrival: UNSET });
+  });
+  it('#31: [MAD→OPO, OPO→ORD] listed, then a new MAD→SFO', () => {
+    const A = leg('TP', 'MAD', 'OPO', 40, 387);
+    const B = leg('IB', 'OPO', 'ORD', 546, 696);
+    const f = leg('TP', 'ORD', 'SFO', 848, 1212);
+    expect(cancelled(f, [A, B, f], [A, B, leg('UA', 'MAD', 'SFO', 191, 397)])).toEqual({ early: UNSET, arrival: UNSET });
+  });
+  it('listing the booked flights up to where the offer takes over is unchanged', () => {
+    const A = leg('UA', 'SFO', 'ORD', 0, 240);
+    const B = leg('UA', 'ORD', 'EWR', 300, 450);
+    const f = leg('TP', 'EWR', 'LIS', 540, 960);
+    // B cancelled: [A, a new ORD→EWR, f].
+    expect(cancelled(B, [A, B, f], [A, leg('AA', 'ORD', 'EWR', 300, 450), f])).toEqual({ early: 0, arrival: 0 });
+    // f cancelled: [B, a new EWR→LIS], B being the tail of [A, B].
+    expect(cancelled(f, [A, B, f], [B, leg('TP', 'EWR', 'LIS', 510, 930)])).toEqual({ early: 30, arrival: 0 });
+  });
+  it('a schedule change: a rebooking listing the flight at its original time before the new one', () => {
+    const next = leg('TP', 'EWR', 'LIS', '2026-11-04T23:15:00Z', '2026-11-05T06:35:00Z');
+    const moved = snapshot({ scheduledOut: '2026-11-04T01:15:00Z', estimatedOut: '2026-11-04T01:15:00Z', scheduledIn: '2026-11-04T08:35:00Z' });
+    const change = (offer: ItinerarySegment[]) => facts(input(tp, [tp], { type: 'schedule_change', observed: [moved], offers: [offer] }));
+    expect(change([next])).toEqual({ early: 0, arrival: 120 });
+    expect(change([tp, next])).toEqual({ early: UNSET, arrival: UNSET });
+  });
+});
+
+describe('round 5: with the notice unknown, every departure limit must pick the same offer', () => {
+  const ninetyEarly = [leg('TP', 'EWR', 'LIS', '2026-11-03T21:45:00Z', '2026-11-04T04:35:00Z')]; // arrives 2 h early
+  const thirtyEarly = [leg('TP', 'EWR', 'LIS', '2026-11-03T22:45:00Z', '2026-11-04T08:35:00Z')]; // arrives 2 h late
+  /** A sighting of the original schedule an hour before detection makes the notice known. */
+  const told = (detectedAt: string, ...offers: ItinerarySegment[][]) => {
+    const sighting = snapshot({ observedAt: new Date(Date.parse(detectedAt) - HOUR).toISOString(), scheduledOut: tp.scheduledOut });
+    return facts(input(tp, [tp], { offers, observed: [sighting], detectedAt }));
+  };
+  it('the 1-hour and 2-hour readings pick different offers: both unset, in either order', () => {
+    expect(cancelled(tp, [tp], ninetyEarly, thirtyEarly)).toEqual({ early: UNSET, arrival: UNSET });
+    expect(cancelled(tp, [tp], thirtyEarly, ninetyEarly)).toEqual({ early: UNSET, arrival: UNSET });
+  });
+  it('every reading picks the same offer: unchanged', () => {
+    const soonest = [leg('TP', 'EWR', 'LIS', '2026-11-03T22:45:00Z', '2026-11-04T05:35:00Z')]; // 30 early, an hour early in
+    const later = [leg('TP', 'EWR', 'LIS', '2026-11-04T00:15:00Z', '2026-11-04T07:35:00Z')];
+    expect(cancelled(tp, [tp], soonest, later)).toEqual({ early: 30, arrival: 0 });
+  });
+  it('with the notice known, its limit decides as before', () => {
+    expect(told('2026-11-01T12:00:00Z', ninetyEarly, thirtyEarly)).toEqual({ early: 30, arrival: 120 }); // 2 days: 1 hour
+    expect(told('2026-10-24T12:00:00Z', ninetyEarly, thirtyEarly)).toEqual({ early: 90, arrival: 0 }); // 10 days: 2 hours
+  });
+});
+
 // ---------------------------------------------------------------------------------------------------------------------
 // HEAD 1c2c335's re-routing derivation, verbatim, for the monotonic-safety comparison.
 interface HeadTimes {

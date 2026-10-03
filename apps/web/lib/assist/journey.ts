@@ -79,11 +79,13 @@ export const departsEarlyMinutes = (bookedOut: number, leaves: number): number =
  * 1. A cancelled flight won't operate, so a listed copy of it is dropped from the offer.
  * 2. The offer's new flights are those not on the booking. A rebooking often repeats booked flights, of this
  *    journey or of another (a re-issued ticket lists the return too); without a new flight, nothing is known.
- * 3. The offer takes over at the journey airport its first new flight leaves from. The itinerary is the journey's
- *    flights before that airport, then the offer's flights from its first new one on, ending at the first arrival
- *    at the final destination when only booked flights of other journeys follow it. If the offer stops short of
- *    the final destination, the booked flights onward from where it stops complete it; the disrupted flight never
- *    does. A takeover airport that isn't on the journey makes the offer unknown.
+ * 3. The offer takes over at the journey airport its first new flight leaves from. Journey flights it lists before
+ *    that flight must be the last ones the passenger flies up to there, in order; others make the offer
+ *    contradictory, so unknown (a schedule change's flight listed at its original time is one). The itinerary is
+ *    the journey's flights before that airport, then the offer's flights from its first new one on, ending at the
+ *    first arrival at the final destination when only booked flights of other journeys follow it. If the offer
+ *    stops short of the final destination, the booked flights onward from where it stops complete it; the
+ *    disrupted flight never does. A takeover airport that isn't on the journey makes the offer unknown.
  * 4. The itinerary must hold end to end: each flight leaves the airport the one before reached, with both times
  *    known, at least MIN_CONNECTION_MINUTES after it lands, and the last, and only the last, reaches the final
  *    destination, at a known time. Otherwise its arrival is null. A flight that leaves before the one before it
@@ -100,6 +102,11 @@ export function offerTimes(offer: ItinerarySegment[], journey: ItinerarySegment[
   if (first < 0) return UNKNOWN;
   const takeover = journey.findIndex((f) => f.originIata === flights[first].originIata);
   if (takeover < 0) return UNKNOWN;
+  // Journey flights listed before the first new one must be the tail of what the passenger flies up to the takeover;
+  // any others put them on two paths at once.
+  const listed = flights.slice(0, first).filter((f) => journey.some((b) => sameFlight(b, f)));
+  const tail = journey.slice(takeover - listed.length, takeover);
+  if (listed.length > takeover || listed.some((f, i) => !sameFlight(f, tail[i]))) return UNKNOWN;
   const finalDestination = journey[journey.length - 1].destinationIata;
   const rest = flights.slice(first);
   // A re-issued ticket also lists the booking's other journeys, such as the unchanged return. When only those follow
@@ -139,19 +146,27 @@ export function offerTimes(offer: ItinerarySegment[], journey: ItinerarySegment[
 }
 
 /**
- * The offer the contract says to report: of those leaving no more than 1 hour (notice under 7 days, or unknown) or
- * 2 hours (notice under 14 days) early, the one that arrives soonest; if none does, any of them. A lone offer is
- * reported as it is. With several, which one is meant turns on when each leaves, so an unknown departure leaves
- * nothing reported. An unknown arrival among those in the running does too, since that one might arrive sooner,
- * unless every one in the running gives the same early departure: then that is reported, without an arrival.
- * Arrivals that tie report the smaller early departure, the one less favourable to a claim, so the result never
- * depends on the order the offers came in.
+ * The offer the contract says to report: of those leaving no more than 1 hour (notice under 7 days) or 2 hours
+ * (notice under 14 days) early, the one that arrives soonest; if none does, any of them. While the notice is
+ * unknown, the choice is made under each limit (1 hour, 2 hours, none), and stands only if all three give the same
+ * early departure and arrival. A lone offer is reported as it is. With several, which one is meant turns on when
+ * each leaves, so an unknown departure leaves nothing reported. An unknown arrival among those in the running does
+ * too, since that one might arrive sooner, unless every one in the running gives the same early departure: then
+ * that is reported, without an arrival. Arrivals that tie report the smaller early departure, the one less
+ * favourable to a claim, so the result never depends on the order the offers came in.
  */
 export function chooseOffer(offers: OfferTimes[], bookedOut: number, noticeDays: number | null): OfferTimes | null {
+  if (noticeDays !== null) return chooseWithin(offers, bookedOut, noticeDays < 7 ? HOUR : noticeDays < 14 ? 2 * HOUR : Infinity);
+  const [first, ...others] = [HOUR, 2 * HOUR, Infinity].map((limit) => chooseWithin(offers, bookedOut, limit));
+  const early = (o: OfferTimes) => (o.leaves === null ? null : departsEarlyMinutes(bookedOut, o.leaves));
+  const same = (o: OfferTimes | null) => o === first || (o !== null && first !== null && early(o) === early(first) && o.arrives === first.arrives);
+  return others.every(same) ? first : null;
+}
+
+function chooseWithin(offers: OfferTimes[], bookedOut: number, limit: number): OfferTimes | null {
   if (offers.length <= 1) return offers[0] ?? null;
   if (offers.some((o) => o.leaves === null)) return null;
   const early = (o: OfferTimes) => departsEarlyMinutes(bookedOut, o.leaves!);
-  const limit = noticeDays === null || noticeDays < 7 ? HOUR : noticeDays < 14 ? 2 * HOUR : Infinity;
   const inLimit = offers.filter((o) => bookedOut - o.leaves! <= limit);
   const running = inLimit.length > 0 ? inLimit : offers;
   if (running.some((o) => o.arrives === null)) {
