@@ -34,6 +34,23 @@ describe('segmentMonitorWorkflow', () => {
     expect(state.ended).toContain('seg-1');
   });
 
+  it('keeps polling to the end when starting incident runs fails', async () => {
+    const state = memoryState();
+    const departs = new Date(Date.now() + 30 * 60 * 60 * 1000).toISOString();
+    const arrives = new Date(Date.now() + 38 * 60 * 60 * 1000).toISOString();
+    state.segments.set('seg-5', { id: 'seg-5', tripId: 'trip-1', ident: 'TP207', departureDate: departs.slice(0, 10), originIata: 'EWR', destinationIata: 'LIS', scheduledOut: departs, scheduledIn: arrives, alertId: 'a5' });
+    state.unnotifiedFails = true;
+    state.pollResults = [
+      { incidentId: null, ended: false },
+      { incidentId: null, ended: true },
+    ];
+    const run = await start(segmentMonitorWorkflow, ['seg-5']);
+    await driveToEnd(run);
+    expect(await run.returnValue).toEqual({ segmentId: 'seg-5', status: 'ended', incidents: [] });
+    expect(state.calls.filter((c) => c === 'poll:seg-5')).toHaveLength(2);
+    expect(state.ended).toContain('seg-5');
+  });
+
   it('exits when another run already watches the segment', async () => {
     const state = memoryState();
     const departs = new Date(Date.now() + 60 * 60 * 60 * 1000).toISOString();

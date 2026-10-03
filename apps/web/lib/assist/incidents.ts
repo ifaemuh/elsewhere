@@ -25,17 +25,19 @@ async function loadIncident(incidentId: string) {
   const admin = createAdminClient();
   const { data: incident, error } = await admin
     .from('incidents')
-    .select('id, trip_id, segment_id, event_type, delay_minutes, detected_at, facts, raw_payload, affected_user_ids, trips!inner(name, pass_status)')
+    .select('id, trip_id, segment_id, event_type, delay_minutes, detected_at, facts, raw_payload, previous_status, previous_status_at, affected_user_ids, trips!inner(name, pass_status)')
     .eq('id', incidentId)
     .single();
-  if (error || !incident) throw new Error(`incident ${incidentId} not found`);
+  if (error) throw new Error(`incident ${incidentId} could not be read: ${error.message}`);
+  if (!incident) throw new Error(`incident ${incidentId} not found`);
   // last_status is AeroAPI's latest snapshot of the flight; raw_payload (above) is the one that raised the incident.
   const { data: segment, error: segmentError } = await admin
     .from('booking_segments')
     .select(`booking_id, flight_number, departure_local, distance_km, last_status, last_status_at, ${LEG}`)
     .eq('id', incident.segment_id)
     .single();
-  if (segmentError || !segment) throw new Error(`segment of incident ${incidentId} not found`);
+  if (segmentError) throw new Error(`segment of incident ${incidentId} could not be read: ${segmentError.message}`);
+  if (!segment) throw new Error(`segment of incident ${incidentId} not found`);
   // The itinerary and journey facts need every flight on the booking, with its airports, countries, and scheduled times.
   const { data: booking, error: bookingError } = await admin.from('bookings').select('booked_via, booked_at, confirmation_code').eq('id', segment.booking_id).single();
   if (bookingError) throw new Error(bookingError.message);
@@ -103,6 +105,16 @@ async function hasEvent(incidentId: string, kind: string, fact?: string): Promis
   return (data ?? []).some((event) => fact === undefined || (event.detail as { fact?: string } | null)?.fact === fact);
 }
 
+/**
+ * True when a notification for this incident and template is already queued. The guard against sending twice
+ * when a step is retried after it queued the messages but before it wrote its event.
+ */
+async function alreadyQueued(incidentId: string, template: string): Promise<boolean> {
+  const { data, error } = await createAdminClient().from('notifications').select('id').eq('related_entity_id', incidentId).eq('template', template).limit(1);
+  if (error) throw new Error(`notifications for incident ${incidentId} could not be read: ${error.message}`);
+  return (data ?? []).length > 0;
+}
+
 /** True once the group has been told: the guard that keeps a restarted run from notifying twice. */
 export async function isNotified(incidentId: string): Promise<boolean> {
   return hasEvent(incidentId, 'notified');
@@ -113,19 +125,23 @@ export async function askPlanner(incidentId: string, question: PlannerQuestion):
   if (await hasEvent(incidentId, 'question_asked', question.fact)) return;
   const admin = createAdminClient();
   const { data: incident, error } = await admin.from('incidents').select('trip_id, trips!inner(name)').eq('id', incidentId).single();
-  if (error || !incident) throw new Error(`incident ${incidentId} not found`);
+  if (error) throw new Error(`incident ${incidentId} could not be read: ${error.message}`);
+  if (!incident) throw new Error(`incident ${incidentId} not found`);
   const { data: planner, error: plannerError } = await admin.from('trip_members').select('user_id').eq('trip_id', incident.trip_id).eq('role', 'planner').maybeSingle();
   if (plannerError) throw new Error(plannerError.message);
   check(await admin.from('incidents').update({ status: 'needs_answer', pending_question: question }).eq('id', incidentId));
   const trip = first(incident.trips as { name: string } | { name: string }[])!;
-  await queueNotifications({
-    userIds: planner ? [planner.user_id] : [],
-    tripId: incident.trip_id,
-    template: 'incident_question',
-    rendered: questionNotice({ tripName: trip.name, prompt: question.prompt, url: `${appUrl()}/trips/${incident.trip_id}/incidents/${incidentId}` }),
-    urgent: true,
-    relatedEntityId: incidentId,
-  });
+  // A retry after the text went out but before the event was written must not text the planner again.
+  if (!(await alreadyQueued(incidentId, 'incident_question'))) {
+    await queueNotifications({
+      userIds: planner ? [planner.user_id] : [],
+      tripId: incident.trip_id,
+      template: 'incident_question',
+      rendered: questionNotice({ tripName: trip.name, prompt: question.prompt, url: `${appUrl()}/trips/${incident.trip_id}/incidents/${incidentId}` }),
+      urgent: true,
+      relatedEntityId: incidentId,
+    });
+  }
   check(await admin.from('incident_events').insert({ incident_id: incidentId, kind: 'question_asked', detail: { fact: question.fact } }));
 }
 
@@ -155,10 +171,15 @@ export async function recordAnswer(incidentId: string, answer: PlannerAnswer | n
 /** Saves the playbook. On a hand-run trip it is saved held: hidden from the group by RLS until releaseHeldPlaybooks. */
 export async function savePlaybook(incidentId: string): Promise<{ playbookId: string; held: boolean }> {
   const admin = createAdminClient();
-  // A retried step reuses the playbook it already saved instead of generating (and paying for) another.
-  const { data: existing, error: existingError } = await admin.from('playbooks').select('id, held_for_review').eq('incident_id', incidentId).order('created_at', { ascending: false }).limit(1).maybeSingle();
-  if (existingError) throw new Error(existingError.message);
-  if (existing) return { playbookId: existing.id, held: existing.held_for_review };
+  // A retried step reuses the playbook it already saved instead of generating (and paying for) another, unless the
+  // planner has answered since: that playbook was drafted without the answer.
+  const { data: existing, error: existingError } = await admin.from('playbooks').select('id, held_for_review, created_at').eq('incident_id', incidentId).order('created_at', { ascending: false }).limit(1).maybeSingle();
+  if (existingError) throw new Error(`playbooks of incident ${incidentId} could not be read: ${existingError.message}`);
+  if (existing) {
+    const { data: answers, error: answersError } = await admin.from('incident_events').select('created_at').eq('incident_id', incidentId).eq('kind', 'answered').gt('created_at', existing.created_at).limit(1);
+    if (answersError) throw new Error(`answers of incident ${incidentId} could not be read: ${answersError.message}`);
+    if ((answers ?? []).length === 0) return { playbookId: existing.id, held: existing.held_for_review };
+  }
 
   const assessment = await assessIncident(incidentId);
   // Backstop beside generatePlaybook's own: only verified rules are cited.
@@ -234,27 +255,31 @@ export async function notifyAffected(incidentId: string): Promise<void> {
     .select('trip_id, event_type, delay_minutes, affected_user_ids, booking_segments!inner(carrier_iata, flight_number, origin_iata, departure_local), trips!inner(name)')
     .eq('id', incidentId)
     .single();
-  if (error || !incident) throw new Error(`incident ${incidentId} not found`);
+  if (error) throw new Error(`incident ${incidentId} could not be read: ${error.message}`);
+  if (!incident) throw new Error(`incident ${incidentId} not found`);
   const segment = first(incident.booking_segments as Record<string, string> | Record<string, string>[])!;
   const trip = first(incident.trips as { name: string } | { name: string }[])!;
-  await queueNotifications({
-    userIds: incident.affected_user_ids,
-    tripId: incident.trip_id,
-    template: 'incident',
-    rendered: incidentNotice({
-      tripName: trip.name,
-      headline: summarizeEvent({
-        carrierIata: segment.carrier_iata,
-        flightNumber: segment.flight_number,
-        originIata: segment.origin_iata,
-        departureLocal: segment.departure_local,
-        eventType: incident.event_type,
-        delayMinutes: incident.delay_minutes,
+  // A retry after the messages were queued but before the event was written must not send them again.
+  if (!(await alreadyQueued(incidentId, 'incident'))) {
+    await queueNotifications({
+      userIds: incident.affected_user_ids,
+      tripId: incident.trip_id,
+      template: 'incident',
+      rendered: incidentNotice({
+        tripName: trip.name,
+        headline: summarizeEvent({
+          carrierIata: segment.carrier_iata,
+          flightNumber: segment.flight_number,
+          originIata: segment.origin_iata,
+          departureLocal: segment.departure_local,
+          eventType: incident.event_type,
+          delayMinutes: incident.delay_minutes,
+        }),
+        url: `${appUrl()}/trips/${incident.trip_id}/incidents/${incidentId}`,
       }),
-      url: `${appUrl()}/trips/${incident.trip_id}/incidents/${incidentId}`,
-    }),
-    urgent: true,
-    relatedEntityId: incidentId,
-  });
+      urgent: true,
+      relatedEntityId: incidentId,
+    });
+  }
   check(await admin.from('incident_events').insert({ incident_id: incidentId, kind: 'notified', detail: { users: incident.affected_user_ids.length } }));
 }

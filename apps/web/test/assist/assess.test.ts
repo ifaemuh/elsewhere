@@ -119,22 +119,20 @@ describe('assess', () => {
       expect(viaCodeshare.situation).not.toEqual(unknown.situation);
     });
 
-    it('stamps the snapshots with when they were taken, so notice days are known only for a change we watched', () => {
+    it('knows the notice given from the status stored before a schedule change, and only then', () => {
+      // The flight showed its original schedule 4 hours before the change was detected, 10 days out.
       const original = snapshot(tp204.scheduled_out, null);
-      // Seen on schedule early on Nov 1, cancelled when detected at noon: both bound the notice at 2 whole days before the Nov 3 departure.
-      const watched = assess({
+      const moved = { ...snapshot('2026-11-04T23:15:00Z', null), scheduledOut: '2026-11-04T23:15:00Z', source: 'poll' };
+      // What recordFlightSnapshot leaves: previous_status on the incident, and last_status overwritten by the opening snapshot.
+      const stored = {
         ...base,
-        incident: { ...base.incident, raw_payload: { ...snapshot(tp204.scheduled_out, null, true), source: 'poll' } },
-        segment: { ...base.segment, last_status: original, last_status_at: '2026-11-01T06:00:00Z' },
-      });
-      expect(watched.situation['event.notice_days']).toBe(2);
-      // A latest snapshot with no recorded time cannot count as a sighting before the change.
-      const untimed = assess({
-        ...base,
-        incident: { ...base.incident, raw_payload: { ...snapshot(tp204.scheduled_out, null, true), source: 'poll' } },
-        segment: { ...base.segment, last_status: original, last_status_at: null },
-      });
-      expect(untimed.situation).not.toHaveProperty('event.notice_days');
+        incident: { ...base.incident, event_type: 'schedule_change' as const, detected_at: '2026-10-24T12:00:00Z', raw_payload: moved, previous_status: original, previous_status_at: '2026-10-24T08:00:00Z' },
+        segment: { ...base.segment, last_status: moved, last_status_at: '2026-10-24T12:00:30Z' },
+      };
+      expect(assess(stored).situation['event.notice_days']).toBe(10);
+      // Without the earlier status there is no sighting, so the fact stays unset rather than wrong.
+      expect(assess({ ...stored, incident: { ...stored.incident, previous_status: null, previous_status_at: null } }).situation).not.toHaveProperty('event.notice_days');
+      expect(assess({ ...stored, incident: { ...stored.incident, previous_status_at: null } }).situation).not.toHaveProperty('event.notice_days');
     });
 
     it('passes only the raw-payload snapshot when the segment has no latest status', () => {

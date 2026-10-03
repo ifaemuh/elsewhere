@@ -9,6 +9,8 @@ interface Op {
 }
 const selects: Record<string, Result> = {};
 const ops: Op[] = [];
+/** Tables whose next insert fails once. */
+const failInsert = new Set<string>();
 
 function from(table: string) {
   const filters: unknown[][] = [];
@@ -26,13 +28,16 @@ function from(table: string) {
     eq: chain('eq'),
     neq: chain('neq'),
     in: chain('in'),
+    gt: chain('gt'),
     order: chain('order'),
     limit: chain('limit'),
     insert: (payload: Record<string, unknown>) => {
-      ops.push({ table, op: 'insert', payload, filters });
+      const failed = failInsert.delete(table);
+      if (!failed) ops.push({ table, op: 'insert', payload, filters });
+      const outcome: Result = failed ? { data: null, error: { message: `${table} insert failed` } } : { data: null, error: null };
       return Object.assign(Object.create(q) as object, {
         select: () => ({ single: async () => ({ data: { id: 'pb-new' }, error: null }) }),
-        then: (resolve: (v: Result) => void) => resolve({ data: null, error: null }),
+        then: (resolve: (v: Result) => void) => resolve(outcome),
       });
     },
     update: write('update'),
@@ -60,7 +65,8 @@ beforeEach(() => {
   process.env.NEXT_PUBLIC_APP_URL = 'https://elsewhere.test';
   for (const key of Object.keys(selects)) delete selects[key];
   ops.length = 0;
-  queueNotifications.mockClear();
+  failInsert.clear();
+  queueNotifications.mockReset().mockResolvedValue(undefined);
   generatePlaybook.mockReset();
 });
 
@@ -102,6 +108,20 @@ describe('askPlanner', () => {
     expect(writes('incidents', 'update')).toEqual([{ status: 'needs_answer', pending_question: question }]);
     expect(queueNotifications).toHaveBeenCalledWith(expect.objectContaining({ userIds: ['planner-1'], template: 'incident_question', urgent: true }));
     expect(writes('incident_events', 'insert')).toEqual([{ incident_id: 'inc', kind: 'question_asked', detail: { fact: question.fact } }]);
+  });
+
+  it('texts the planner once when the event insert fails and the step is retried', async () => {
+    const queued: { id: string }[] = [];
+    selects.notifications = { data: queued, error: null };
+    queueNotifications.mockImplementation(async () => void queued.push({ id: 'n1' }));
+    selects.incident_events = { data: [], error: null };
+    selects.incidents = { data: { trip_id: 't1', trips: { name: 'Lisbon 2026' } }, error: null };
+    selects.trip_members = { data: { user_id: 'planner-1' }, error: null };
+    failInsert.add('incident_events');
+    await expect(askPlanner('inc', question)).rejects.toThrow('incident_events insert failed');
+    await askPlanner('inc', question);
+    expect(queueNotifications).toHaveBeenCalledTimes(1);
+    expect(writes('incident_events', 'insert')).toHaveLength(1);
   });
 
   it('does not ask, or text the planner, again on a retry', async () => {
@@ -152,6 +172,16 @@ describe('savePlaybook', () => {
     expect(ops).toEqual([]);
   });
 
+  it('drafts a new playbook after a newer answer, and the newer one is the one saved', async () => {
+    assessmentRows();
+    selects.playbooks = { data: { id: 'pb-old', held_for_review: false, created_at: '2026-11-01T12:00:00Z' }, error: null };
+    // An answer arrived after that playbook was drafted.
+    selects.incident_events = { data: [{ created_at: '2026-11-01T12:30:00Z', detail: {} }], error: null };
+    expect(await savePlaybook('inc')).toEqual({ playbookId: 'pb-new', held: false });
+    expect(generatePlaybook).toHaveBeenCalledTimes(1);
+    expect(writes('playbooks', 'insert')).toHaveLength(1);
+  });
+
   it('hands the generator only verified rules', async () => {
     assessmentRows();
     await savePlaybook('inc');
@@ -181,6 +211,41 @@ describe('notifyAffected', () => {
     expect(queueNotifications).toHaveBeenCalledWith(expect.objectContaining({ userIds: ['u1', 'u2'], tripId: 't1', template: 'incident', urgent: true, relatedEntityId: 'inc' }));
     expect(JSON.stringify(queueNotifications.mock.calls[0][0])).toContain('TP 204 from EWR on Nov 3 was cancelled.');
     expect(writes('incident_events', 'insert')).toEqual([{ incident_id: 'inc', kind: 'notified', detail: { users: 2 } }]);
+  });
+
+  it('sends the alert only once when the event insert fails and the step is retried', async () => {
+    const queued: { id: string }[] = [];
+    selects.notifications = { data: queued, error: null };
+    queueNotifications.mockImplementation(async () => void queued.push({ id: 'n1' }));
+    selects.incident_events = { data: [], error: null };
+    selects.incidents = { data: incident, error: null };
+    failInsert.add('incident_events');
+    await expect(notifyAffected('inc')).rejects.toThrow('incident_events insert failed');
+    await notifyAffected('inc');
+    expect(queueNotifications).toHaveBeenCalledTimes(1);
+    expect(writes('incident_events', 'insert')).toEqual([{ incident_id: 'inc', kind: 'notified', detail: { users: 2 } }]);
+  });
+
+  it('queues the alert exactly once when delivery throws after the rows were queued', async () => {
+    const queued: { id: string }[] = [];
+    selects.notifications = { data: queued, error: null };
+    // queueNotifications inserts the rows, then flushDue throws.
+    queueNotifications.mockImplementationOnce(async () => {
+      queued.push({ id: 'n1' });
+      throw new Error('flush failed');
+    });
+    selects.incident_events = { data: [], error: null };
+    selects.incidents = { data: incident, error: null };
+    await expect(notifyAffected('inc')).rejects.toThrow('flush failed');
+    await notifyAffected('inc');
+    expect(queueNotifications).toHaveBeenCalledTimes(1);
+    expect(writes('incident_events', 'insert')).toHaveLength(1);
+  });
+
+  it('keeps the database error when the incident cannot be read', async () => {
+    selects.incident_events = { data: [], error: null };
+    selects.incidents = { data: null, error: { message: 'connection reset' } };
+    await expect(notifyAffected('inc')).rejects.toThrow(/could not be read: connection reset/);
   });
 
   it('sends nothing when the incident was already notified', async () => {

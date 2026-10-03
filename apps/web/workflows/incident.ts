@@ -17,8 +17,9 @@ export async function incidentWorkflow(incidentId: string) {
 
     const { question } = await assessStep(incidentId);
     if (question) {
-      await askStep(incidentId, question);
+      // The hook exists before the planner is asked, so an answer that arrives right after the text still gets through.
       const hook = createHook<PlannerAnswer>({ token: incidentAnswerToken(incidentId) });
+      await askStep(incidentId, question);
       const answer = await Promise.race([hook.then((a) => a), sleep('6h').then(() => null)]);
       hook.dispose();
       await answerStep(incidentId, answer);

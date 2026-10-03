@@ -40,7 +40,7 @@ export interface LegRow {
 
 export interface AssessmentInput {
   /** `raw_payload` is the FlightSnapshot that raised the incident (Task 9), or `{}`. It was taken at `detected_at`. */
-  incident: { id: string; event_type: 'cancellation' | 'delay' | 'schedule_change'; delay_minutes: number | null; detected_at: string; facts: Record<string, Primitive>; raw_payload: unknown };
+  incident: { id: string; event_type: 'cancellation' | 'delay' | 'schedule_change'; delay_minutes: number | null; detected_at: string; facts: Record<string, Primitive>; raw_payload: unknown; previous_status?: unknown; previous_status_at?: string | null };
   /** The disrupted flight. `last_status` is the latest FlightSnapshot of it (Task 9), taken at `last_status_at`; both null before the first poll. */
   segment: LegRow & { flight_number: string; departure_local: string; distance_km: number | null; last_status: unknown; last_status_at: string | null };
   /** The booking the segment is on: when it was made (as printed), and every one of its flights, in order. */
@@ -90,14 +90,17 @@ function observe(value: unknown, observedAt: string): ObservedFlight | null {
 }
 
 /**
- * The two snapshots we keep, oldest first. The one that raised the incident was taken when it was detected. The latest
- * has its own time; a row saved before that was recorded falls back to the detection time, which can never make it count
- * as a sighting of the original schedule before the change (event.notice_days then stays unset rather than wrong).
+ * The snapshots we keep, oldest first. The status before the one that raised the incident carries its own time (it is
+ * the only sighting that can prove the original schedule stood before the change); with no time it is left out. The one
+ * that raised the incident was taken when it was detected. The latest has its own time; a row saved before that was
+ * recorded falls back to the detection time, which can never make it count as a sighting of the original schedule
+ * before the change (event.notice_days then stays unset rather than wrong).
  */
 function observedFlights(incident: AssessmentInput['incident'], segment: AssessmentInput['segment']): ObservedFlight[] {
+  const before = incident.previous_status_at ? observe(incident.previous_status, incident.previous_status_at) : null;
   const atDetection = observe(incident.raw_payload, incident.detected_at);
   const latest = segment.last_status === null ? null : observe(segment.last_status, segment.last_status_at ?? incident.detected_at);
-  return [atDetection, latest].filter((o): o is ObservedFlight => o !== null);
+  return [before, atDetection, latest].filter((o): o is ObservedFlight => o !== null);
 }
 
 /** Pure: everything an incident needs, from loaded rows. */

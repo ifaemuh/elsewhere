@@ -6,6 +6,7 @@ import { answerQuestion } from './actions';
 
 export function AnswerButtons({ tripId, incidentId, fact, options }: { tripId: string; incidentId: string; fact: string; options: { value: string; label: string }[] }) {
   const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState(false);
   const [pending, startTransition] = useTransition();
   return (
     <>
@@ -15,10 +16,12 @@ export function AnswerButtons({ tripId, incidentId, fact, options }: { tripId: s
             key={option.value}
             type="button"
             variant="outline"
-            disabled={pending}
+            disabled={pending || done}
             onClick={() =>
               startTransition(async () => {
-                setError((await answerQuestion(tripId, incidentId, fact, option.value)).error);
+                const result = await answerQuestion(tripId, incidentId, fact, option.value);
+                setError(result.error);
+                setDone(result.error === null);
               })
             }
           >
@@ -26,6 +29,11 @@ export function AnswerButtons({ tripId, incidentId, fact, options }: { tripId: s
           </Button>
         ))}
       </div>
+      {done ? (
+        <p role="status" className="mt-2 text-sm text-[#4b5745]">
+          Thanks, we have your answer. We’re drafting the plan now.
+        </p>
+      ) : null}
       {error ? (
         <p role="alert" className="mt-2 text-sm text-[#b4532a]">
           {error}

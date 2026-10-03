@@ -479,6 +479,14 @@ describe('hand-run trips and held playbooks (Task 12)', () => {
     expect(stamp.at).toBe('2026-11-01T10:00');
   });
 
+  it('keeps the previous flight status on the incident, readable by the planner', async () => {
+    await asService(db, () =>
+      db.query(`update public.incidents set previous_status = '{"cancelled":false}', previous_status_at = '2026-11-01T08:00:00Z' where id = $1`, [incidentId]),
+    );
+    const read = await asUser(db, PLANNER, () => db.query<{ s: unknown; at: string }>("select previous_status as s, to_char(previous_status_at at time zone 'UTC', 'YYYY-MM-DD\"T\"HH24:MI') as at from public.incidents where id = $1", [incidentId]));
+    expect(read.rows[0]).toEqual({ s: { cancelled: false }, at: '2026-11-01T08:00' });
+  });
+
   it('hides a held playbook from the planner and the affected members until it is released', async () => {
     await asService(db, () =>
       db.query(

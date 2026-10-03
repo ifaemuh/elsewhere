@@ -17,7 +17,7 @@ function check(result: { error: { message: string } | null }): void {
  */
 export async function recordFlightSnapshot(segmentId: string, snapshot: FlightSnapshot, source: 'alert' | 'poll'): Promise<{ incidentId: string | null }> {
   const admin = createAdminClient();
-  const { data: segment, error } = await admin.from('booking_segments').select('id, trip_id, booking_id, scheduled_out, last_status').eq('id', segmentId).maybeSingle();
+  const { data: segment, error } = await admin.from('booking_segments').select('id, trip_id, booking_id, scheduled_out, last_status, last_status_at').eq('id', segmentId).maybeSingle();
   if (error) throw new Error(error.message);
   if (!segment) return { incidentId: null };
   // scheduled_out is the departure as booked; a snapshot that moves it is a schedule change.
@@ -41,6 +41,9 @@ export async function recordFlightSnapshot(segmentId: string, snapshot: FlightSn
           delay_minutes: event.delayMinutes,
           dedupe_key: `${segmentId}:${event.dedupeSuffix}`,
           raw_payload: { ...snapshot, source },
+          // The opening snapshot overwrites last_status below, so keep what it replaced, for the notice-days fact.
+          previous_status: segment.last_status ?? null,
+          previous_status_at: segment.last_status_at ?? null,
           affected_user_ids: affectedUserIds,
         },
         { onConflict: 'dedupe_key', ignoreDuplicates: true },

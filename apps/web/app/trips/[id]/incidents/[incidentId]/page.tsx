@@ -21,12 +21,12 @@ export default function IncidentPage({ params }: { params: Params }) {
   );
 }
 
-/** Links each cited rule by its title. An id the library does not publish gets no link. */
+/** Links each cited rule by its title. Only a verified rule is shown beside a claim: one being re-checked, or not published, gets no link. */
 function Cites({ ids }: { ids: string[] }) {
   const library = getLibrary();
   const rules = ids.flatMap((id) => {
     const rule = findRule(library, id);
-    return rule && rule.status !== 'draft' ? [rule] : [];
+    return rule && rule.status === 'verified' ? [rule] : [];
   });
   if (rules.length === 0) return null;
   return (
@@ -52,7 +52,8 @@ async function IncidentContent({ params }: { params: Params }) {
   const { data: latest } = await supabase.from('playbooks').select('content, rules_cited').eq('incident_id', incidentId).order('created_at', { ascending: false }).limit(1).maybeSingle();
   const parsed = latest ? PlaybookSchema.safeParse(latest.content) : null;
   const playbook = parsed?.success ? parsed.data : null;
-  const firstRule = playbook ? findRule(getLibrary(), (latest!.rules_cited as { rule_id: string }[])[0]?.rule_id ?? '') : null;
+  const firstCited = playbook ? findRule(getLibrary(), (latest!.rules_cited as { rule_id: string }[])[0]?.rule_id ?? '') : null;
+  const firstRule = firstCited?.status === 'verified' ? firstCited : null;
   const question = incident.pending_question as { fact: string; prompt: string; options: { value: string; label: string }[] } | null;
 
   return (

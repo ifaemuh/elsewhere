@@ -47,7 +47,12 @@ export async function segmentMonitorWorkflow(segmentId: string) {
       if (polled.incidentId) incidents.push(polled.incidentId);
       // New incidents, and any whose start failed in the alert route, get a run. A run that already
       // handles an incident makes the new one exit (incidentRunToken).
-      for (const incidentId of await unnotifiedStep(segmentId)) await start(incidentWorkflow, [incidentId]);
+      // Failing to start one must not end the monitoring: the next poll tries again.
+      try {
+        for (const incidentId of await unnotifiedStep(segmentId)) await start(incidentWorkflow, [incidentId]);
+      } catch (error) {
+        console.error('could not start incident runs', segmentId, error instanceof Error ? error.message : 'unknown');
+      }
       if (polled.ended) break;
       stopAt = nextStopAt(stopAt, scheduledEnd, polled.latestArrival);
     }

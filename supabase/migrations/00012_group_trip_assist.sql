@@ -407,6 +407,10 @@ create table public.incidents (
   delay_minutes int,
   dedupe_key text not null unique,
   raw_payload jsonb not null default '{}',
+  -- The flight's status just before the snapshot that opened this incident, and when that was taken. The segment's
+  -- last_status is overwritten by the opening snapshot, so this is the only record of what the airline showed before.
+  previous_status jsonb,
+  previous_status_at timestamptz,
   affected_user_ids uuid[] not null default '{}',
   facts jsonb not null default '{}',
   pending_question jsonb,

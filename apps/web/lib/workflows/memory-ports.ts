@@ -1,4 +1,5 @@
 import type { PlannerAnswer, PlannerQuestion } from '@/lib/assist/questions';
+import { incidentAnswerToken } from './tokens';
 import type { MonitoredSegment, WorkflowPorts } from './ports';
 
 /** Shared through globalThis: steps run from generated bundles, a different module graph from the test file. */
@@ -18,13 +19,17 @@ interface MemoryState {
   released: string[];
   notified: string[];
   segmentIncidents: Map<string, string[]>;
+  /** Make unnotifiedIncidentIds throw, to show a failed start does not end monitoring. */
+  unnotifiedFails: boolean;
+  /** Answer an incident's question the moment it is asked, to show the answer hook already exists. */
+  answerOnAsk: Map<string, { fact: string; value: string }>;
 }
 
 const KEY = '__elsewhereWorkflowMemory';
 
 export function memoryState(): MemoryState {
   const g = globalThis as unknown as Record<string, MemoryState | undefined>;
-  g[KEY] ??= { segments: new Map(), alertFails: false, monitorStates: new Map(), pollResults: [], ended: [], troubled: [], preTrip: [], calls: [], questions: new Map(), answers: new Map(), reviewed: new Set(), reviewRequested: [], released: [], notified: [], segmentIncidents: new Map() };
+  g[KEY] ??= { segments: new Map(), alertFails: false, monitorStates: new Map(), pollResults: [], ended: [], troubled: [], preTrip: [], calls: [], questions: new Map(), answers: new Map(), reviewed: new Set(), reviewRequested: [], released: [], notified: [], segmentIncidents: new Map(), unnotifiedFails: false, answerOnAsk: new Map() };
   return g[KEY]!;
 }
 
@@ -76,6 +81,8 @@ export function memoryPorts(): WorkflowPorts {
     },
     async askPlanner(incidentId) {
       state.calls.push(`ask:${incidentId}`);
+      const early = state.answerOnAsk.get(incidentId);
+      if (early) await (await import('workflow/api')).resumeHook(incidentAnswerToken(incidentId), early);
     },
     async recordAnswer(incidentId, answer) {
       state.answers.set(incidentId, answer);
@@ -93,6 +100,7 @@ export function memoryPorts(): WorkflowPorts {
       state.notified.push(incidentId);
     },
     async unnotifiedIncidentIds(segmentId) {
+      if (state.unnotifiedFails) throw new Error('unnotified lookup failed');
       return (state.segmentIncidents.get(segmentId) ?? []).filter((incidentId) => !state.notified.includes(incidentId));
     },
   };

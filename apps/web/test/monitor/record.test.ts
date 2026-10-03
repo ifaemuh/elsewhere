@@ -81,7 +81,7 @@ const cancelled = { ...snap, cancelled: true };
 
 beforeEach(() => {
   Object.assign(db, {
-    segment: { id: 's1', trip_id: 't1', booking_id: 'b1', scheduled_out: '2026-11-03T23:15:00Z', last_status: snap },
+    segment: { id: 's1', trip_id: 't1', booking_id: 'b1', scheduled_out: '2026-11-03T23:15:00Z', last_status: snap, last_status_at: '2026-11-01T08:00:00Z' },
     members: [{ trip_members: { user_id: 'u1' } }, { trip_members: [{ user_id: 'u2' }] }],
     incidents: [],
     events: [],
@@ -99,6 +99,18 @@ describe('recordFlightSnapshot', () => {
     expect(db.segmentUpdates).toHaveLength(1);
     // The snapshot and the time it was taken are written in the same update.
     expect(db.segmentUpdates[0]).toMatchObject({ last_status: cancelled, last_status_at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/) });
+  });
+
+  it('keeps the status it replaces on the incident it opens, with the time that status was taken', async () => {
+    await recordFlightSnapshot('s1', cancelled, 'poll');
+    expect(db.incidents[0]).toMatchObject({ previous_status: snap, previous_status_at: '2026-11-01T08:00:00Z' });
+    expect(db.incidents[0].raw_payload).not.toHaveProperty('previous_status');
+  });
+
+  it('stores nulls when the flight had no earlier status', async () => {
+    db.segment = { ...(db.segment as Row), last_status: null, last_status_at: null };
+    await recordFlightSnapshot('s1', cancelled, 'poll');
+    expect(db.incidents[0]).toMatchObject({ previous_status: null, previous_status_at: null });
   });
 
   it('only saves the snapshot when nothing changed', async () => {

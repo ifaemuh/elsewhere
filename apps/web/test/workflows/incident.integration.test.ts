@@ -19,6 +19,15 @@ describe('incidentWorkflow', () => {
     expect(state.notified).toEqual(['inc-1']);
   });
 
+  it('takes an answer that arrives the moment the planner is asked', async () => {
+    const state = memoryState();
+    state.questions.set('inc-7', { fact: 'event.cause', prompt: 'Why?', options: [] });
+    state.answerOnAsk.set('inc-7', { fact: 'event.cause', value: 'unknown' });
+    const run = await start(incidentWorkflow, ['inc-7']);
+    expect(await run.returnValue).toMatchObject({ status: 'notified' });
+    expect(state.answers.get('inc-7')).toEqual({ fact: 'event.cause', value: 'unknown' });
+  });
+
   it('drafts without an answer after six hours', async () => {
     const state = memoryState();
     state.questions.set('inc-2', { fact: 'event.cause', prompt: 'Why?', options: [] });
