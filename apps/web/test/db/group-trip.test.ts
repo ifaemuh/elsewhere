@@ -436,3 +436,64 @@ describe('incident detection (Task 9)', () => {
     expect(count.n).toBe(1);
   });
 });
+
+describe('hand-run trips and held playbooks (Task 12)', () => {
+  let incidentId: string;
+  let segmentId: string;
+
+  beforeAll(async () => {
+    const ids = await asService(db, async () => {
+      const booking = await one<{ id: string }>(
+        `insert into public.bookings (trip_id, kind, provider, extraction_confidence, dedupe_key) values ($1, 'flight', 'TAP Air Portugal', 0.97, 'held-test') returning id`,
+        [tripId],
+      );
+      const segment = await one<{ id: string }>(
+        `insert into public.booking_segments (booking_id, trip_id, position, carrier_iata, flight_number, origin_iata, destination_iata, departure_local)
+         values ($1, $2, 1, 'TP', '204', 'EWR', 'LIS', '2026-11-03T18:15') returning id`,
+        [booking.id, tripId],
+      );
+      const incident = await one<{ id: string }>(
+        `insert into public.incidents (trip_id, segment_id, event_type, dedupe_key, affected_user_ids) values ($1, $2, 'cancellation', 'held-test:cancellation', $3) returning id`,
+        [tripId, segment.id, `{${MEMBER}}`],
+      );
+      return { segment: segment.id, incident: incident.id };
+    });
+    incidentId = ids.incident;
+    segmentId = ids.segment;
+  });
+
+  it('only the service role marks a trip hand-run, and a planner cannot read the flag', async () => {
+    await rejects(() => asUser(db, PLANNER, () => db.query('update public.trips set hand_run = true where id = $1', [tripId])));
+    await rejects(() => asUser(db, PLANNER, () => db.query('select hand_run from public.trips where id = $1', [tripId])));
+    await asService(db, () => db.query('update public.trips set hand_run = true where id = $1', [tripId]));
+    const trip = await asService(db, () => one<{ hand_run: boolean }>('select hand_run from public.trips where id = $1', [tripId]));
+    expect(trip.hand_run).toBe(true);
+    await asService(db, () => db.query('update public.trips set hand_run = false where id = $1', [tripId]));
+  });
+
+  it('keeps the time of the last flight status beside it', async () => {
+    const stamp = await asService(db, async () => {
+      await db.query(`update public.booking_segments set last_status = '{"cancelled":false}', last_status_at = '2026-11-01T10:00:00Z' where id = $1`, [segmentId]);
+      return one<{ at: string }>(`select to_char(last_status_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI') as at from public.booking_segments where id = $1`, [segmentId]);
+    });
+    expect(stamp.at).toBe('2026-11-01T10:00');
+  });
+
+  it('hides a held playbook from the planner and the affected members until it is released', async () => {
+    await asService(db, () =>
+      db.query(
+        `insert into public.playbooks (incident_id, content, rules_cited, model, citation_check_passed, held_for_review) values ($1, '{}', '[]', 'test', true, true)`,
+        [incidentId],
+      ),
+    );
+    const read = (user: string) => asUser(db, user, () => db.query('select id from public.playbooks where incident_id = $1', [incidentId]));
+    expect((await read(PLANNER)).rows).toHaveLength(0);
+    expect((await read(MEMBER)).rows).toHaveLength(0);
+    const service = await asService(db, () => db.query('select id from public.playbooks where incident_id = $1', [incidentId]));
+    expect(service.rows).toHaveLength(1);
+    await asService(db, () => db.query('update public.playbooks set held_for_review = false where incident_id = $1', [incidentId]));
+    expect((await read(PLANNER)).rows).toHaveLength(1);
+    expect((await read(MEMBER)).rows).toHaveLength(1);
+    expect((await read(OUTSIDER)).rows).toHaveLength(0);
+  });
+});

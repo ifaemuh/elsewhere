@@ -67,6 +67,6 @@ export async function recordFlightSnapshot(segmentId: string, snapshot: FlightSn
       }
     }
   }
-  check(await admin.from('booking_segments').update({ last_status: snapshot, fa_flight_id: snapshot.faFlightId }).eq('id', segmentId));
+  check(await admin.from('booking_segments').update({ last_status: snapshot, last_status_at: new Date().toISOString(), fa_flight_id: snapshot.faFlightId }).eq('id', segmentId));
   return { incidentId };
 }

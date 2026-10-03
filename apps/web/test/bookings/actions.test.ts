@@ -320,6 +320,7 @@ describe('correctFlight', () => {
       operator_iata: null,
       fa_flight_id: null,
       last_status: null,
+      last_status_at: null,
     });
     expect(adminOps[1].filters).toEqual(expect.arrayContaining([['id', SEGMENT], ['trip_id', TRIP]]));
     // Only the item found by the ownership check: no source_kind or entity filter that could reach older done items.

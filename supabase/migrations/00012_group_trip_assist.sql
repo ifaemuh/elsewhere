@@ -87,7 +87,10 @@ alter table public.trips
   add column join_token_expires_at timestamptz,
   add column pass_status pass_status not null default 'none',
   add column created_anonymous_id text,
-  add column created_utm jsonb not null default '{}';
+  add column created_utm jsonb not null default '{}',
+  -- Set by /admin's comp action: the founder runs this trip by hand, so its playbooks wait for review.
+  -- A 100% promotion code also makes a comp pass, but not a hand-run trip.
+  add column hand_run boolean not null default false;
 update public.trips set inbound_code = 'trip-' || replace(gen_random_uuid()::text, '-', '') where inbound_code is null;
 alter table public.trips alter column inbound_code set not null;
 
@@ -306,6 +309,8 @@ create table public.booking_segments (
   fa_flight_id text,
   aeroapi_alert_id text,
   last_status jsonb,
+  -- When last_status was taken: the observation time that notice-days facts need. Written in the same update as last_status.
+  last_status_at timestamptz,
   monitor_state text not null default 'idle' check (monitor_state in ('idle', 'monitoring', 'polling_only', 'ended')),
   foreign key (booking_id, trip_id) references public.bookings(id, trip_id) on delete cascade,
   unique (booking_id, position)
@@ -426,6 +431,8 @@ create table public.playbooks (
   rules_cited jsonb not null,
   model text not null,
   citation_check_passed boolean not null,
+  -- True while a hand-run trip's playbook waits for the founder. Only the service role sees it then.
+  held_for_review boolean not null default false,
   created_at timestamptz not null default now()
 );
 
@@ -837,9 +844,11 @@ create policy "Readers of the incident read its events" on public.incident_event
   exists (select 1 from public.incidents i where i.id = incident_id
           and (public.is_trip_planner(i.trip_id) or auth.uid() = any (i.affected_user_ids)))
 );
-create policy "Readers of the incident read its playbooks" on public.playbooks for select using (
-  exists (select 1 from public.incidents i where i.id = incident_id
-          and (public.is_trip_planner(i.trip_id) or auth.uid() = any (i.affected_user_ids)))
+-- A playbook held for the founder's review stays hidden, from the planner too, until it is released.
+create policy "Readers of the incident read its released playbooks" on public.playbooks for select using (
+  not held_for_review
+  and exists (select 1 from public.incidents i where i.id = incident_id
+              and (public.is_trip_planner(i.trip_id) or auth.uid() = any (i.affected_user_ids)))
 );
 
 create policy "Assignees or planner read action items" on public.action_items for select

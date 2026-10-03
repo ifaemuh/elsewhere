@@ -216,6 +216,7 @@ export async function correctFlight(tripId: string, segmentId: string, _prev: Fo
       operator_iata: null,
       fa_flight_id: null,
       last_status: null,
+      last_status_at: null,
     })
     .eq('id', segmentId)
     .eq('trip_id', tripId);

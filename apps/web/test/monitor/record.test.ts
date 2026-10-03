@@ -97,6 +97,8 @@ describe('recordFlightSnapshot', () => {
     expect(db.incidents[0]).toMatchObject({ event_type: 'cancellation', dedupe_key: 's1:cancellation', affected_user_ids: ['u1', 'u2'] });
     expect(db.events).toHaveLength(1);
     expect(db.segmentUpdates).toHaveLength(1);
+    // The snapshot and the time it was taken are written in the same update.
+    expect(db.segmentUpdates[0]).toMatchObject({ last_status: cancelled, last_status_at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/) });
   });
 
   it('only saves the snapshot when nothing changed', async () => {
