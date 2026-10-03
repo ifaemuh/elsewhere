@@ -1,4 +1,4 @@
-import { FACTS, isFactName, type MatchResult, type Primitive } from '@elsewhere/rules/core';
+import { FACTS, factValueFits, isFactName, type MatchResult, type Primitive } from '@elsewhere/rules/core';
 
 /** Thrown for an answer to a fact we never ask about, or a value the question does not offer. */
 export class PlannerAnswerError extends Error {
@@ -90,6 +90,13 @@ export function nextQuestion(results: MatchResult[], alreadyAsked: string[]): Pl
   const missing = new Set(results.filter((r) => r.outcome === 'may_apply').flatMap((r) => r.missing_facts as string[]));
   const fact = ASK_ORDER.find((f) => missing.has(f) && !alreadyAsked.includes(f));
   return fact ? { fact, ...ASKABLE[fact] } : null;
+}
+
+/** True for a stored answer that `answerValue` could have produced: a listed option, of the fact's own type. */
+export function storedAnswerFits(fact: string, value: unknown): boolean {
+  const question = ASKABLE[fact];
+  if (!question || !(ASK_ORDER as readonly string[]).includes(fact) || !isFactName(fact) || !factValueFits(fact, value)) return false;
+  return value !== MIXED && question.options.some((o) => o.value === String(value));
 }
 
 /**

@@ -55,6 +55,12 @@ function airlineOf(ident: string | null | undefined): string | null {
   return ident?.match(/^([A-Z0-9]{2})\d{1,4}[A-Z]?$/)?.[1] ?? null;
 }
 
+function operatorOf(s: { ident_iata: string | null; actual_ident_iata?: string | null; actual_ident?: string | null }): string | null {
+  const actual = [s.actual_ident_iata, s.actual_ident].filter((v): v is string => typeof v === 'string' && v.length > 0);
+  if (actual.length > 0) return actual.map(airlineOf).find((a) => a !== null) ?? null;
+  return airlineOf(s.ident_iata);
+}
+
 /** Turns "TP 204, Nov 3 18:15 local" into scheduled UTC times, countries, and distance. */
 export async function resolveSegment(segment: SegmentToResolve, api: AeroApi): Promise<Resolution> {
   if (!LOCAL_DATETIME.test(segment.departureLocal) || Number.isNaN(Date.parse(`${segment.departureLocal}:00Z`))) {
@@ -90,7 +96,8 @@ export async function resolveSegment(segment: SegmentToResolve, api: AeroApi): P
     originCountry: origin?.country_code ?? null,
     destinationCountry: destination?.country_code ?? null,
     distanceKm: distance,
-    // actual_ident_iata is AeroAPI's operating ident on a codeshare; otherwise the scheduled ident's airline.
-    operatorIata: airlineOf(match.actual_ident_iata) ?? airlineOf(match.ident_iata),
+    // AeroAPI's actual ident names the operator on a codeshare. When it reports one that is not a two-character
+    // IATA ident (an ICAO-only operator, or a malformed one), the operator is unknown, never the marketing carrier.
+    operatorIata: operatorOf(match),
   };
 }

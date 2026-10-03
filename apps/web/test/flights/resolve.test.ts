@@ -43,8 +43,19 @@ describe('resolveSegment', () => {
     const times = { origin_iata: 'EWR', destination_iata: 'LIS', scheduled_out: '2026-11-03T23:15:00Z', scheduled_in: '2026-11-04T06:35:00Z' };
     expect(await resolveSegment(segment, api([{ ident_iata: 'KL6101', actual_ident_iata: 'DL8606', ...times }]))).toMatchObject({ operatorIata: 'DL' });
     expect(await resolveSegment(segment, api([{ ident_iata: '9K1234', ...times }]))).toMatchObject({ operatorIata: '9K' });
-    expect(await resolveSegment(segment, api([{ ident_iata: 'TP204', actual_ident_iata: 'junk', ...times }]))).toMatchObject({ operatorIata: 'TP' });
+    expect(await resolveSegment(segment, api([{ ident_iata: 'TP204', actual_ident_iata: 'junk', ...times }]))).toMatchObject({ operatorIata: null });
     expect(await resolveSegment(segment, api([{ ident_iata: null, ...times }]))).toMatchObject({ operatorIata: null });
+  });
+
+  it('leaves the operator null when AeroAPI reports an actual ident that is not a two-character IATA ident', async () => {
+    const times = { ident_iata: 'KL6101', origin_iata: 'EWR', destination_iata: 'LIS', scheduled_out: '2026-11-03T23:15:00Z', scheduled_in: '2026-11-04T06:35:00Z' };
+    for (const bad of ['DAL8606', 'dl8606', 'DL 8606', 'DL86060']) {
+      expect(await resolveSegment(segment, api([{ ...times, actual_ident_iata: bad }])), bad).toMatchObject({ operatorIata: null });
+      expect(await resolveSegment(segment, api([{ ...times, actual_ident: bad }])), bad).toMatchObject({ operatorIata: null });
+    }
+    // A parsing IATA ident wins over an ICAO actual_ident; with neither field present the scheduled ident is used.
+    expect(await resolveSegment(segment, api([{ ...times, actual_ident_iata: 'DL8606', actual_ident: 'DAL8606' }]))).toMatchObject({ operatorIata: 'DL' });
+    expect(await resolveSegment(segment, api([times]))).toMatchObject({ operatorIata: 'KL' });
   });
 
   it('keeps the distance in whole kilometres, never rounded to 10', async () => {

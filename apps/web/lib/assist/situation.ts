@@ -3,7 +3,7 @@ import { haversineKm } from '@/lib/flights/geo';
 import { EU_MEMBER_STATES, ICELAND_NORWAY_SWITZERLAND, UK, US_JURISDICTION } from '@/lib/flights/regions';
 import { isEuCarrier, isUsCarrier } from './carriers';
 import { chooseOffer, DAY, HOUR, journeyOf, MINUTE, offerTimes, positionOf, sameFlight, time, type OfferTimes } from './journey';
-import { ASK_ORDER } from './questions';
+import { ASK_ORDER, storedAnswerFits } from './questions';
 
 /** One flight on the booking. The itinerary and journey facts are computed over all of them. */
 export interface ItinerarySegment {
@@ -22,12 +22,12 @@ export interface ItinerarySegment {
 /** What AeroAPI reported about the disrupted flight: the fields of Task 9's `FlightSnapshot` read here. */
 export interface ObservedFlight {
   /**
-   * When this snapshot was taken. Task 9's `FlightSnapshot` lacks it, so Task 12 supplies it from the
-   * `incident_events` or `last_status` timestamps. The notice period is known only from it.
+   * When this snapshot was taken. Task 9's `FlightSnapshot` lacks it, and no timestamped history of snapshots is
+   * persisted today, so in production `event.notice_days` stays unset until Task 12 supplies real values here.
    */
   observedAt: string;
   /** Task 9's `cancelled`: a cancelled snapshot does not count as still showing the original schedule. */
-  cancelled?: boolean;
+  cancelled: boolean;
   diverted: boolean;
   scheduledOut: string | null;
   estimatedOut: string | null;
@@ -105,29 +105,39 @@ function usForeignNonstopMinutes(journey: ItinerarySegment[]): number | null {
 /**
  * How long after its scheduled departure the disrupted flight left, or AeroAPI expected it to leave: the
  * longest of every estimate and the actual time kept, so an announced delay that later shrank still counts.
- * Unknown for a diverted flight, and for one AeroAPI re-timed by an hour or more, where a delay against the
- * booked time is ambiguous.
+ * Unknown for a diverted flight, and for one that any snapshot shows re-timed by an hour or more, where a delay
+ * against the booked time is ambiguous.
  */
 function departureDelayMinutes(bookedOut: number | null, observed: ObservedFlight[]): number | null {
   if (bookedOut === null || observed.some((o) => o.diverted)) return null;
-  const rescheduled = time(observed.at(-1)?.scheduledOut ?? null);
-  if (rescheduled !== null && Math.abs(rescheduled - bookedOut) >= HOUR) return null;
+  const retimed = observed.some((o) => {
+    const out = time(o.scheduledOut);
+    return out !== null && Math.abs(out - bookedOut) >= HOUR;
+  });
+  if (retimed) return null;
   const seen = observed.flatMap((o) => [time(o.estimatedOut), time(o.actualOut)]).filter((t): t is number => t !== null);
   return seen.length === 0 ? null : Math.max(0, Math.floor((Math.max(...seen) - bookedOut) / MINUTE));
 }
 
 /**
- * Whole days of notice the airline gave, known only when we watched the change happen: the last snapshot still
- * showing the original schedule and uncancelled, and the moment the incident was detected, bound when the
- * airline can have told the passenger. Both bounds must give the same day count.
+ * Whole days of notice the airline gave, known only when we watched the change happen: a snapshot that showed the
+ * original schedule, uncancelled, strictly before detection, and before any snapshot that departed from it (so a
+ * cancellation or re-time that was later undone proves nothing). The last such sighting and the moment of
+ * detection bound when the airline can have told the passenger; both must give the same day count.
  */
 function noticeDaysOf(bookedOut: number | null, detectedAt: string, observed: ObservedFlight[]): number | null {
   if (bookedOut === null) return null;
-  const stillOriginal = observed.filter((o) => !o.cancelled && !o.diverted && time(o.scheduledOut) === bookedOut).map((o) => Date.parse(o.observedAt));
-  if (stillOriginal.length === 0) return null;
+  const detected = Date.parse(detectedAt);
+  const at = (o: ObservedFlight) => Date.parse(o.observedAt);
+  const departed = observed.filter((o) => o.cancelled || o.diverted || (time(o.scheduledOut) !== null && time(o.scheduledOut) !== bookedOut)).map(at);
+  const firstDeparture = departed.length > 0 ? Math.min(...departed) : Infinity;
+  const sightings = observed
+    .filter((o) => !o.cancelled && !o.diverted && time(o.scheduledOut) === bookedOut && at(o) < detected && at(o) < firstDeparture)
+    .map(at);
+  if (sightings.length === 0) return null;
   const days = (toldAt: number) => Math.max(0, Math.floor((bookedOut - toldAt) / DAY));
-  const early = days(Math.max(...stillOriginal));
-  return early === days(Date.parse(detectedAt)) ? early : null;
+  const early = days(Math.max(...sightings));
+  return early === days(detected) ? early : null;
 }
 
 /** A fact is set only when we know it, so matchRules reports "may apply, needs X" rather than a wrong answer. */
@@ -186,8 +196,9 @@ export function buildSituation(input: SituationInput): Situation {
     if (touches !== null) s['trip.touches_us'] = touches;
     const domestic = allTrue(segments.map((seg) => allTrue([isUs(seg.originCountry), isUs(seg.destinationCountry)])));
     if (domestic !== null) s['trip.itinerary_domestic_us'] = domestic;
-    // The airline the booking was made with: known when every flight on it is a U.S. airline's, or none is.
-    const usCarrier = segments.map((seg) => isUsCarrier(seg.operatorIata));
+    // The airline the booking was made with: known when every flight on it is sold by a U.S. airline, or none is.
+    // The selling (marketing) carrier, not the operator.
+    const usCarrier = segments.map((seg) => isUsCarrier(seg.carrierIata));
     if (usCarrier.every((v) => v === true)) s['trip.booked_with_us_carrier'] = true;
     else if (usCarrier.every((v) => v === false)) s['trip.booked_with_us_carrier'] = false;
     if (input.booking.bookedAt && segments.every((seg) => seg.scheduledOut)) {
@@ -237,7 +248,7 @@ export function buildSituation(input: SituationInput): Situation {
   // The planner's answers fill only the facts a traveler can answer, and only while nothing derived is known.
   for (const fact of ASK_ORDER) {
     const answer = input.answers[fact];
-    if (answer !== undefined && !(fact in s)) s[fact] = answer;
+    if (answer !== undefined && !(fact in s) && storedAnswerFits(fact, answer)) s[fact] = answer;
   }
   return s;
 }

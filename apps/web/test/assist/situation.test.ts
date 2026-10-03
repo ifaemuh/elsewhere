@@ -119,6 +119,7 @@ const situation = (
 /** What AeroAPI shows for a flight: its schedule, the airline's estimate, and when it actually left. */
 const seen = (flight: ItinerarySegment, change: Partial<ObservedFlight> = {}): ObservedFlight => ({
   observedAt: '2026-11-01T10:00:00Z',
+  cancelled: false,
   diverted: false,
   scheduledOut: flight.scheduledOut,
   estimatedOut: flight.scheduledOut,

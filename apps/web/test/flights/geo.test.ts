@@ -3,8 +3,8 @@ import { haversineKm, localDateTime } from '@/lib/flights/geo';
 
 describe('geo', () => {
   it('measures great-circle distance', () => {
-    // EWR (40.6925, -74.1687) to LIS (38.7813, -9.13592): 5,433 km, so 5,430 to the nearest 10
-    expect(Math.round(haversineKm({ latitude: 40.6925, longitude: -74.1687 }, { latitude: 38.7813, longitude: -9.13592 }) / 10) * 10).toBe(5430);
+    // EWR (40.6925, -74.1687) to LIS (38.7813, -9.13592): 5,433 km in whole km
+    expect(Math.round(haversineKm({ latitude: 40.6925, longitude: -74.1687 }, { latitude: 38.7813, longitude: -9.13592 }))).toBe(5433);
   });
 
   it('renders a UTC instant as local wall-clock time', () => {

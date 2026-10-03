@@ -7,12 +7,12 @@ export const US_CARRIERS = new Set([
 
 /**
  * Community carriers for EU261 that U.S. travelers fly most. Extend by PR.
- * Left out on purpose, so their carrier facts stay unset: U2 (easyJet operates under UK, EU, and Swiss licences),
+ * Left out on purpose, so their carrier facts stay unset: U2 (easyJet operates under UK, EU, and Swiss licences), SK (SAS also operates under a Norwegian AOC),
  * and DY (Norway) and LX (Switzerland), which are not licensed in an EU member state.
  */
 export const EU_CARRIERS = new Set([
   'A3', 'AF', 'AY', 'AZ', 'BT', 'DE', 'D8', 'EI', 'EN', 'EW', 'FR', 'HV', 'IB', 'KL', 'LG', 'LH',
-  'LO', 'OK', 'OS', 'RO', 'SK', 'SN', 'TP', 'UX', 'V7', 'VY', 'W6', 'X3', '4Y',
+  'LO', 'OK', 'OS', 'RO', 'SN', 'TP', 'UX', 'V7', 'VY', 'W6', 'X3', '4Y',
   'TO', 'I2', 'NT', 'SS', 'BF', 'TX', 'UU', 'OU', 'KM', 'QS', 'FB', 'OA', 'YW',
 ]);
 

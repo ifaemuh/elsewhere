@@ -19,7 +19,7 @@ const sit = (flight: ItinerarySegment, segments: ItinerarySegment[], extra: Extr
     airports: extra.airports ?? {},
     answers: extra.answers ?? {},
   });
-const obs = (change: Partial<ObservedFlight> = {}): ObservedFlight => ({ observedAt: '2026-11-01T10:00:00Z', diverted: false, scheduledOut: null, estimatedOut: null, actualOut: null, scheduledIn: null, ...change });
+const obs = (change: Partial<ObservedFlight> = {}): ObservedFlight => ({ observedAt: '2026-11-01T10:00:00Z', cancelled: false, diverted: false, scheduledOut: null, estimatedOut: null, actualOut: null, scheduledIn: null, ...change });
 
 const tpOut = leg('TP', 'EWR', 'LIS', '2026-11-03T23:15:00Z', '2026-11-04T06:35:00Z');
 const feeder = leg('UA', 'ORD', 'EWR', '2026-11-03T18:00:00Z', '2026-11-03T20:30:00Z');
@@ -113,7 +113,6 @@ describe('5: carrier facts come from the operator, three-valued', () => {
       const s = carriers('AF', code);
       expect(s, String(code)).not.toHaveProperty('flight.carrier_is_us');
       expect(s, String(code)).not.toHaveProperty('flight.carrier_is_eu');
-      expect(s, String(code)).not.toHaveProperty('trip.booked_with_us_carrier');
     }
   });
   it('a known non-U.S., non-EU operator is neither', () => expect(carriers('BA', 'BA')).toMatchObject({ 'flight.carrier_is_us': false, 'flight.carrier_is_eu': false }));

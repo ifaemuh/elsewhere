@@ -79,7 +79,8 @@ export function offerTimes(offer: ItinerarySegment[], booked: ItinerarySegment[]
   const leaves = time(departing?.scheduledOut ?? null);
   const start = offer.findIndex((f) => !booked.some((b) => sameFlight(b, f)));
   if (leaves === null || start < 0) return 'unknown';
-  for (let i = start; i < offer.length; i += 1) {
+  // Start at the last repeated flight, so the connection into the first new flight is checked too.
+  for (let i = Math.max(0, start - 1); i < offer.length; i += 1) {
     const landed = time(offer[i].scheduledIn);
     if (landed === null) return 'unknown';
     if (offer[i].destinationIata === finalDestination) return { leaves, arrives: landed };
@@ -87,6 +88,9 @@ export function offerTimes(offer: ItinerarySegment[], booked: ItinerarySegment[]
     if (!next) break;
     const nextOut = time(next.scheduledOut);
     if (nextOut === null) return 'unknown';
+    // A new flight that leaves before the flight into its airport lands is contradictory data: unknown.
+    // (A booked flight left behind by a late new one is a known missed connection: the arrival is unset.)
+    if (nextOut < landed && !booked.some((b) => sameFlight(b, next))) return 'unknown';
     if (next.originIata !== offer[i].destinationIata || nextOut - landed < MIN_CONNECTION_MINUTES * MINUTE) break;
   }
   return { leaves, arrives: null };
