@@ -9,6 +9,9 @@ export async function intakeWorkflow(messageId: string) {
   const result = await runIntake(messageId, { claim: claimStep, extract: extractStep, persist: persistStep, confirm: confirmStep, markFailed: markFailedStep });
   if ('monitorSegmentIds' in result) {
     for (const segmentId of result.monitorSegmentIds) await start(segmentMonitorWorkflow, [segmentId]);
+    // Only an active pass returns segments. A running trip monitor then re-reads the first departure and schedules the briefing.
+    // A separate step, so a failed wake retries only the wake and never re-runs the confirm.
+    if (result.monitorSegmentIds.length > 0) await wakeStep(result.tripId);
   }
   return result;
 }
@@ -56,4 +59,9 @@ async function confirmStep(extraction: ReadyExtraction, persisted: PersistOutcom
 async function markFailedStep(messageId: string, reason: string, problems: string[], kind: FailureKind, storagePath: string | null): Promise<IntakeResult> {
   'use step';
   return (await import('../lib/intake/process')).failPhase(messageId, reason, problems, await liveDeps(), { kind, storagePath });
+}
+
+async function wakeStep(tripId: string): Promise<void> {
+  'use step';
+  await (await import('../lib/workflows/wake')).wakeTripMonitor(tripId);
 }

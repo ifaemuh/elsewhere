@@ -73,7 +73,7 @@ describe('processInboundMessage', () => {
   it('auto-confirms a clear booking whose passengers all match', async () => {
     const { deps, log } = harness();
     const result = await processInboundMessage('msg-1', deps);
-    expect(result).toEqual({ status: 'parsed', bookingIds: ['bk-flight|ABC123|TP204@2026-11-03'], monitorSegmentIds: ['seg-1'] });
+    expect(result).toEqual({ status: 'parsed', tripId: 'trip-1', bookingIds: ['bk-flight|ABC123|TP204@2026-11-03'], monitorSegmentIds: ['seg-1'] });
     expect(log.saved).toEqual([{ dedupeKey: 'flight|ABC123|TP204@2026-11-03', confirmed: true }]);
     expect(log.assigned).toEqual([{ bookingId: 'bk-flight|ABC123|TP204@2026-11-03', memberIds: ['m-pat', 'm-sam'] }]);
     expect(log.confirmed).toEqual([['bk-flight|ABC123|TP204@2026-11-03']]);

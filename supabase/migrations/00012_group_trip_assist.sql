@@ -733,6 +733,8 @@ create index document_checks_trip_idx on public.document_checks (trip_id);
 create index incidents_trip_idx on public.incidents (trip_id);
 create index incidents_affected_gin on public.incidents using gin (affected_user_ids);
 create index incident_events_incident_idx on public.incident_events (incident_id);
+-- An incident is detected once, however many alerts and polls report it at the same moment.
+create unique index incident_events_detected_once on public.incident_events (incident_id) where kind = 'detected';
 create index playbooks_incident_idx on public.playbooks (incident_id);
 create index action_items_assigned_gin on public.action_items using gin (assigned_user_ids);
 create index votes_trip_idx on public.votes (trip_id);

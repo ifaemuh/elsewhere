@@ -392,3 +392,30 @@ describe('booking seats (Task 8)', () => {
     await rejects(() => asUser(db, OUTSIDER, () => db.query('select public.assign_booking_member($1, $2)', [bookingId, memberMemberId])), /only the planner/);
   });
 });
+
+describe('incident detection (Task 9)', () => {
+  it('records an incident as detected once, however many writers report it', async () => {
+    const booking = await asService(db, () =>
+      one<{ id: string }>("insert into public.bookings (trip_id, kind, provider, extraction_confidence, dedupe_key) values ($1, 'flight', 'TAP', 0.95, 'flight|DET1') returning id", [tripId]),
+    );
+    const segment = await asService(db, () =>
+      one<{ id: string }>(
+        "insert into public.booking_segments (booking_id, trip_id, position, carrier_iata, flight_number, origin_iata, destination_iata, departure_local) values ($1, $2, 1, 'TP', '204', 'EWR', 'LIS', '2026-11-03T18:15') returning id",
+        [booking.id, tripId],
+      ),
+    );
+    const incident = await asService(db, () =>
+      one<{ id: string }>("insert into public.incidents (trip_id, segment_id, event_type, dedupe_key) values ($1, $2, 'cancellation', 'det-1:cancellation') returning id", [tripId, segment.id]),
+    );
+    const insert = (kind: string) => db.query("insert into public.incident_events (incident_id, kind) values ($1, $2)", [incident.id, kind]);
+    await asService(db, () => insert('detected'));
+    await rejects(() => asService(db, () => insert('detected')), /incident_events_detected_once|duplicate key/);
+    // Other kinds repeat freely.
+    await asService(db, () => insert('notified'));
+    await asService(db, () => insert('notified'));
+    // And an on-conflict-do-nothing insert, as record.ts does, is a quiet no-op.
+    await asService(db, () => db.query("insert into public.incident_events (incident_id, kind) values ($1, 'detected') on conflict do nothing", [incident.id]));
+    const count = await asService(db, () => one<{ n: number }>("select count(*)::int as n from public.incident_events where incident_id = $1 and kind = 'detected'", [incident.id]));
+    expect(count.n).toBe(1);
+  });
+});

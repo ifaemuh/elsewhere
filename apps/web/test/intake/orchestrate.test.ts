@@ -10,7 +10,7 @@ function steps(overrides: Partial<IntakeSteps> = {}) {
     claim: vi.fn(async () => true),
     extract: vi.fn(async () => extraction()),
     persist: vi.fn(async () => ({ bookingIds: ['b'], confirmedIds: ['b'], needsConfirmation: false })),
-    confirm: vi.fn(async () => ({ status: 'parsed' as const, bookingIds: ['b'], monitorSegmentIds: ['s'] })),
+    confirm: vi.fn(async () => ({ status: 'parsed' as const, tripId: 't', bookingIds: ['b'], monitorSegmentIds: ['s'] })),
     markFailed: vi.fn(async (_id: string, reason: string) => ({ status: 'failed' as const, reason })),
     ...overrides,
   };

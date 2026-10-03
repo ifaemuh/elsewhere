@@ -58,7 +58,12 @@ export async function recordFlightSnapshot(segmentId: string, snapshot: FlightSn
       const { data: logged, error: loggedError } = await admin.from('incident_events').select('id').eq('incident_id', incidentId).eq('kind', 'detected').limit(1);
       if (loggedError) throw new Error(loggedError.message);
       if ((logged ?? []).length === 0) {
-        check(await admin.from('incident_events').insert({ incident_id: incidentId, kind: 'detected', detail: { source, type: event.type, delay_minutes: event.delayMinutes } }));
+        // A unique index on (incident_id) where kind = 'detected' rejects a concurrent writer's second insert (23505).
+        // PostgREST cannot name a partial index in ON CONFLICT, so that rejection is read as "someone else wrote it".
+        const { error: insertError } = await admin
+          .from('incident_events')
+          .insert({ incident_id: incidentId, kind: 'detected', detail: { source, type: event.type, delay_minutes: event.delayMinutes } });
+        if (insertError && insertError.code !== '23505') throw new Error(insertError.message);
       }
     }
   }

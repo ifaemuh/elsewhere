@@ -53,7 +53,7 @@ export type IntakeResult =
   | { status: 'missing' }
   | { status: 'claimed_elsewhere' }
   | { status: 'failed'; reason: string; problems?: string[] }
-  | { status: 'parsed' | 'needs_confirmation'; bookingIds: string[]; monitorSegmentIds: string[] };
+  | { status: 'parsed' | 'needs_confirmation'; tripId: string; bookingIds: string[]; monitorSegmentIds: string[] };
 
 /** Small enough to be a step result: no attachment bytes, no email body. */
 export type ExtractOutcome =
@@ -164,7 +164,7 @@ export async function confirmPhase(extraction: ReadyExtraction, persisted: Persi
     persisted.confirmedIds.length > 0 ? await deps.afterConfirmed(message.tripId, persisted.confirmedIds) : { monitorSegmentIds: [] };
   const status = persisted.needsConfirmation ? 'needs_confirmation' : 'parsed';
   await deps.setStatus(message.id, status, problems.length > 0 ? problems.join('; ') : null, storagePath);
-  return { status, bookingIds: persisted.bookingIds, monitorSegmentIds };
+  return { status, tripId: message.tripId, bookingIds: persisted.bookingIds, monitorSegmentIds };
 }
 
 /**

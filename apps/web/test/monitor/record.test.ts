@@ -2,13 +2,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FlightSnapshot } from '@/lib/monitor/snapshot';
 
 type Row = Record<string, unknown>;
-const db: { segment: Row | null; members: Row[]; incidents: Row[]; events: Row[]; segmentUpdates: Row[]; failOnce: Set<string> } = {
+const db: { segment: Row | null; members: Row[]; incidents: Row[]; events: Row[]; segmentUpdates: Row[]; failOnce: Set<string>; duplicateDetected: boolean } = {
   segment: null,
   members: [],
   incidents: [],
   events: [],
   segmentUpdates: [],
   failOnce: new Set(),
+  duplicateDetected: false,
 };
 
 /** A small in-memory stand-in for the three tables recordFlightSnapshot touches. */
@@ -35,6 +36,7 @@ function from(table: string) {
     if (op === 'insert') {
       const failed = fail('insert');
       if (failed) return failed;
+      if (db.duplicateDetected && payload.kind === 'detected') return { data: null, error: { code: '23505', message: 'duplicate key value violates unique constraint' } as { message: string } };
       db.events.push(payload);
       return { data: null, error: null };
     }
@@ -85,6 +87,7 @@ beforeEach(() => {
     events: [],
     segmentUpdates: [],
     failOnce: new Set(),
+    duplicateDetected: false,
   });
 });
 
@@ -123,6 +126,12 @@ describe('recordFlightSnapshot', () => {
     db.segment = { ...(db.segment as Row), last_status: snap };
     expect(await recordFlightSnapshot('s1', cancelled, 'poll')).toEqual({ incidentId: 'inc-1' });
     expect(db.events).toHaveLength(1);
+  });
+
+  it('treats the unique-index rejection of a concurrent detected insert as success', async () => {
+    db.duplicateDetected = true;
+    expect(await recordFlightSnapshot('s1', cancelled, 'alert')).toEqual({ incidentId: 'inc-1' });
+    expect(db.segmentUpdates).toHaveLength(1);
   });
 
   it('ignores a segment that no longer exists', async () => {
