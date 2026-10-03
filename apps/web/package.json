@@ -11,6 +11,7 @@
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
     "predev": "npm run rules:build -w @elsewhere/rules",
     "prebuild": "npm run rules:build -w @elsewhere/rules",
     "pretypecheck": "npm run rules:build -w @elsewhere/rules"
@@ -43,6 +44,7 @@
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "@vitejs/plugin-react": "6.1.1",
+    "@workflow/vitest": "^5.0.1",
     "standardwebhooks": "^1.1.1",
     "tailwindcss": "4.3.3",
     "tsx": "^4.19.2",

@@ -6,7 +6,10 @@ import { createAdminClient } from '@/lib/supabase/admin';
 
 /**
  * Runs whenever bookings become confirmed: by the planner, by high-confidence intake, or by manual entry.
- * Returns the segment ids the caller should start monitoring (Task 9 fills this in).
+ * Returns the segment ids the caller should start monitoring: the resolved segments of these bookings, once the
+ * trip has a pass. Computed on every exit that does not throw, including the early returns, so a retry after a
+ * partial failure still returns the segments an earlier attempt resolved. A duplicate start is safe: the monitor
+ * workflow claims a hook token and a second run exits.
  *
  * AeroAPI bills per call: resolved segments (scheduled_out set) are skipped, and so are segments whose
  * flight-not-found item is still open or snoozed. That is at most one lookup per planner action; marking
@@ -17,7 +20,8 @@ import { createAdminClient } from '@/lib/supabase/admin';
 export async function onBookingsConfirmed(tripId: string, bookingIds: string[]): Promise<{ monitorSegmentIds: string[] }> {
   if (bookingIds.length === 0) return { monitorSegmentIds: [] };
   try {
-    return await resolveConfirmedSegments(tripId, bookingIds);
+    await resolveConfirmedSegments(tripId, bookingIds);
+    return { monitorSegmentIds: await monitorableSegmentIds(tripId, bookingIds) };
   } finally {
     // Bookings changed, so passengers and flights may have too. Runs on every exit, and never masks the flight result or error.
     try {
@@ -28,7 +32,17 @@ export async function onBookingsConfirmed(tripId: string, bookingIds: string[]):
   }
 }
 
-async function resolveConfirmedSegments(tripId: string, bookingIds: string[]): Promise<{ monitorSegmentIds: string[] }> {
+async function monitorableSegmentIds(tripId: string, bookingIds: string[]): Promise<string[]> {
+  const admin = createAdminClient();
+  const { data: trip, error: tripError } = await admin.from('trips').select('pass_status').eq('id', tripId).single();
+  if (tripError) throw new Error(tripError.message);
+  if (!trip || trip.pass_status === 'none') return [];
+  const { data: ready, error } = await admin.from('booking_segments').select('id').in('booking_id', bookingIds).not('scheduled_out', 'is', null);
+  if (error) throw new Error(error.message);
+  return (ready ?? []).map((s) => s.id as string);
+}
+
+async function resolveConfirmedSegments(tripId: string, bookingIds: string[]): Promise<void> {
   const admin = createAdminClient();
   const { data: found, error } = await admin
     .from('booking_segments')
@@ -36,7 +50,7 @@ async function resolveConfirmedSegments(tripId: string, bookingIds: string[]): P
     .in('booking_id', bookingIds)
     .is('scheduled_out', null);
   if (error) throw new Error(error.message);
-  if (!found || found.length === 0) return { monitorSegmentIds: [] };
+  if (!found || found.length === 0) return;
 
   const { data: flagged, error: flaggedError } = await admin
     .from('action_items')
@@ -48,7 +62,7 @@ async function resolveConfirmedSegments(tripId: string, bookingIds: string[]): P
   if (flaggedError) throw new Error(flaggedError.message);
   const alreadyFlagged = new Set((flagged ?? []).map((i) => i.related_entity_id));
   const segments = found.filter((s) => !alreadyFlagged.has(s.id));
-  if (segments.length === 0) return { monitorSegmentIds: [] };
+  if (segments.length === 0) return;
 
   const api = await aeroApi();
   const { data: planner } = await admin.from('trip_members').select('user_id').eq('trip_id', tripId).eq('role', 'planner').single();
@@ -98,5 +112,4 @@ async function resolveConfirmedSegments(tripId: string, bookingIds: string[]): P
     if (updateError) throw new Error(updateError.message);
   }
   if (firstFailure) throw firstFailure;
-  return { monitorSegmentIds: [] };
 }

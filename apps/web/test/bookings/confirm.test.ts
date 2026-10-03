@@ -12,7 +12,10 @@ const state: {
   itemFilters: [string, unknown[]][];
   updateError: string | null;
   upsertError: string | null;
-} = { schedulesCalls: 0, scheduled: [], failIdents: new Set(), segments: [], existingItems: [], upserts: [], updates: [], itemFilters: [], updateError: null, upsertError: null };
+  passStatus: string;
+  ready: Row[];
+  readyFilters: [string, unknown[]][];
+} = { schedulesCalls: 0, scheduled: [], failIdents: new Set(), segments: [], existingItems: [], upserts: [], updates: [], itemFilters: [], updateError: null, upsertError: null, passStatus: 'active', ready: [], readyFilters: [] };
 
 vi.mock('@/lib/flights/aeroapi', async () => {
   const actual = await vi.importActual<typeof import('@/lib/flights/aeroapi')>('@/lib/flights/aeroapi');
@@ -47,9 +50,10 @@ function query(table: string) {
   Object.assign(q, {
     select: () => q,
     in: filter('in'),
+    not: filter('not'),
     is: filter('is'),
     eq: filter('eq'),
-    single: async () => ({ data: { user_id: 'u1' }, error: null }),
+    single: async () => ({ data: table === 'trips' ? { pass_status: state.passStatus } : { user_id: 'u1' }, error: null }),
     upsert: async (row: Row, options: Row) => {
       state.upserts.push({ row, options });
       return { error: state.upsertError ? { message: state.upsertError } : null };
@@ -68,6 +72,10 @@ function query(table: string) {
         state.itemFilters = filters;
         return resolve({ data: state.existingItems, error: null });
       }
+      if (filters.some(([name]) => name === 'not')) {
+        state.readyFilters = filters;
+        return resolve({ data: state.ready, error: null });
+      }
       return resolve({ data: state.segments, error: null });
     },
   });
@@ -85,7 +93,7 @@ const tp204 = { ident_iata: 'TP204', origin_iata: 'EWR', destination_iata: 'LIS'
 
 beforeEach(() => {
   runDocumentChecks.mockClear();
-  Object.assign(state, { schedulesCalls: 0, scheduled: [], failIdents: new Set(), segments: [seg], existingItems: [], upserts: [], updates: [], itemFilters: [], updateError: null, upsertError: null });
+  Object.assign(state, { schedulesCalls: 0, scheduled: [], failIdents: new Set(), segments: [seg], existingItems: [], upserts: [], updates: [], itemFilters: [], updateError: null, upsertError: null, passStatus: 'active', ready: [], readyFilters: [] });
 });
 
 describe('onBookingsConfirmed', () => {
@@ -148,6 +156,40 @@ describe('onBookingsConfirmed', () => {
     expect(state.updates).toHaveLength(1);
     expect(state.updates[0].filters).toContainEqual(['eq', ['id', 's2']]);
     expect(state.upserts).toHaveLength(0);
+  });
+
+  describe('segments to monitor', () => {
+    it('returns the resolved segments of these bookings once the trip has a pass', async () => {
+      state.scheduled = [tp204];
+      state.ready = [{ id: 's1' }];
+      expect(await onBookingsConfirmed('t1', ['b1'])).toEqual({ monitorSegmentIds: ['s1'] });
+      expect(state.readyFilters).toContainEqual(['in', ['booking_id', ['b1']]]);
+      expect(state.readyFilters).toContainEqual(['not', ['scheduled_out', 'is', null]]);
+    });
+
+    it('still returns the ready segments when nothing needed resolving (early return)', async () => {
+      state.segments = [];
+      state.ready = [{ id: 's1' }, { id: 's2' }];
+      expect(await onBookingsConfirmed('t1', ['b1'])).toEqual({ monitorSegmentIds: ['s1', 's2'] });
+    });
+
+    it('still returns the ready segments when every unresolved one is already flagged (early return)', async () => {
+      state.existingItems = [{ related_entity_id: 's1' }];
+      state.ready = [{ id: 's9' }];
+      expect(await onBookingsConfirmed('t1', ['b1'])).toEqual({ monitorSegmentIds: ['s9'] });
+    });
+
+    it('returns none while the trip has no pass', async () => {
+      state.passStatus = 'none';
+      state.ready = [{ id: 's1' }];
+      expect(await onBookingsConfirmed('t1', ['b1'])).toEqual({ monitorSegmentIds: [] });
+    });
+
+    it('returns none when the flight lookup throws, so the retry computes them', async () => {
+      state.ready = [{ id: 's1' }];
+      state.upsertError = 'db down';
+      await expect(onBookingsConfirmed('t1', ['b1'])).rejects.toThrow('db down');
+    });
   });
 
   describe('document re-check', () => {
