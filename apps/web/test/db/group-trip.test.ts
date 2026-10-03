@@ -605,3 +605,93 @@ describe('votes (Task 13)', () => {
     );
   });
 });
+
+describe('expenses and settlements (Task 14)', () => {
+  const addExpense = (as: string, fields: { payer?: string; amount?: number; description?: string; split?: unknown; key?: string | null; trip?: string }) =>
+    asUser(db, as, () =>
+      db.query(
+        'insert into public.expenses (trip_id, payer_user_id, amount_cents, description, split, created_by, client_key) values ($1, $2, $3, $4, $5::jsonb, $6, $7)',
+        [fields.trip ?? tripId, fields.payer ?? as, fields.amount ?? 10000, fields.description ?? 'Airport hotel', JSON.stringify(fields.split ?? { kind: 'equal', user_ids: [PLANNER, MEMBER] }), as, fields.key === undefined ? null : fields.key],
+      ),
+    );
+  const settle = (as: string, from: string, to: string, key: string | null = null, amount = 5000) =>
+    asUser(db, as, () =>
+      db.query('insert into public.settlements (trip_id, from_user_id, to_user_id, amount_cents, settled_by, client_key) values ($1, $2, $3, $4, $5, $6)', [tripId, from, to, amount, as, key]),
+    );
+  const KEY_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  const KEY_B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+
+  it('members add expenses with an equal or exact split', async () => {
+    await addExpense(MEMBER, {});
+    await addExpense(PLANNER, { split: { kind: 'shares', shares: { [PLANNER]: 7000, [MEMBER]: 3000 } } });
+  });
+
+  it('a second submit with the same key cannot make a second expense; keyless rows are unaffected', async () => {
+    await addExpense(MEMBER, { key: KEY_A });
+    await rejects(() => addExpense(MEMBER, { key: KEY_A }), /duplicate key|unique/);
+    await addExpense(MEMBER, { key: KEY_B });
+    await addExpense(MEMBER, {});
+    await addExpense(MEMBER, {});
+    const n = await asService(db, () => one<{ n: number }>('select count(*)::int as n from public.expenses where client_key = $1', [KEY_A]));
+    expect(n.n).toBe(1);
+  });
+
+  it('refuses a payer or a split member from outside the trip, and a split that lists someone twice', async () => {
+    await rejects(() => addExpense(MEMBER, { payer: OUTSIDER }), /payer is not on this trip/);
+    await rejects(() => addExpense(MEMBER, { split: { kind: 'equal', user_ids: [MEMBER, OUTSIDER] } }), /not on this trip/);
+    await rejects(() => addExpense(MEMBER, { split: { kind: 'shares', shares: { [MEMBER]: 5000, [OUTSIDER]: 5000 } } }), /not on this trip/);
+    await rejects(() => addExpense(MEMBER, { split: { kind: 'equal', user_ids: [MEMBER, MEMBER] } }), /twice/);
+    await rejects(() => addExpense(MEMBER, { split: { kind: 'equal', user_ids: ['not-a-uuid'] } }), /not on this trip/);
+  });
+
+  it('refuses a user who belongs to another trip being put on this one', async () => {
+    // JOINER is on tripId only through the invite test; use a user who plans a different trip.
+    const otherTrip = await asUser(db, OUTSIDER, async () =>
+      (await one<{ id: string }>(`select public.create_trip('Other', 'FR', '2026-12-01', '2026-12-05', 'trip-ledger-x1x1', 'Out', null, '{}'::jsonb) as id`)).id,
+    );
+    await rejects(() => addExpense(OUTSIDER, { trip: otherTrip, split: { kind: 'equal', user_ids: [OUTSIDER, MEMBER] } }), /not on this trip/);
+    await rejects(() => addExpense(OUTSIDER, { trip: tripId }), /row-level security|not on this trip/);
+  });
+
+  it('refuses shares that do not add up, are fractional or negative, and malformed splits', async () => {
+    for (const shares of [{ [PLANNER]: 7000, [MEMBER]: 2999 }, { [PLANNER]: 7000.5, [MEMBER]: 2999.5 }, { [PLANNER]: 11000, [MEMBER]: -1000 }]) {
+      await rejects(() => addExpense(MEMBER, { split: { kind: 'shares', shares } }), /whole cents/);
+    }
+    for (const split of [{}, { kind: 'equal', user_ids: [] }, { kind: 'shares', shares: {} }, { kind: 'other' }, { kind: 'equal', user_ids: 'x' }]) {
+      await rejects(() => addExpense(MEMBER, { split }), /split is not valid/);
+    }
+  });
+
+  it('refuses zero, negative and absurd amounts and a blank or overlong description', async () => {
+    await rejects(() => addExpense(MEMBER, { amount: 0 }));
+    await rejects(() => addExpense(MEMBER, { amount: -500 }));
+    await rejects(() => addExpense(MEMBER, { amount: 10_000_001 }));
+    await addExpense(MEMBER, { amount: 10_000_000, split: { kind: 'equal', user_ids: [MEMBER] } });
+    await rejects(() => addExpense(MEMBER, { description: '' }));
+    await rejects(() => addExpense(MEMBER, { description: 'x'.repeat(201) }));
+  });
+
+  it('records settlements for the parties and the planner, once per key', async () => {
+    await settle(MEMBER, MEMBER, PLANNER, KEY_A);
+    await rejects(() => settle(MEMBER, MEMBER, PLANNER, KEY_A), /duplicate key|unique/);
+    await settle(PLANNER, MEMBER, PLANNER, KEY_B);
+    const n = await asService(db, () => one<{ n: number }>('select count(*)::int as n from public.settlements where client_key = $1', [KEY_A]));
+    expect(n.n).toBe(1);
+  });
+
+  it('refuses a settlement with someone from outside the trip, with oneself, a stranger recording it, or a bad amount', async () => {
+    await rejects(() => settle(MEMBER, MEMBER, OUTSIDER), /both people must be on this trip/);
+    await rejects(() => settle(PLANNER, OUTSIDER, MEMBER), /both people must be on this trip/);
+    await rejects(() => settle(MEMBER, MEMBER, MEMBER), /violates/);
+    await rejects(() => settle(OUTSIDER, MEMBER, PLANNER), /row-level security/);
+    await rejects(() => settle(MEMBER, MEMBER, PLANNER, null, 0));
+    await rejects(() => settle(MEMBER, MEMBER, PLANNER, null, 10_000_001));
+  });
+
+  it('keeps the ledger from anyone outside the trip', async () => {
+    const seen = await asUser(db, OUTSIDER, () => db.query('select id from public.expenses where trip_id = $1', [tripId]));
+    expect(seen.rows).toHaveLength(0);
+    const settled = await asUser(db, OUTSIDER, () => db.query('select id from public.settlements where trip_id = $1', [tripId]));
+    expect(settled.rows).toHaveLength(0);
+  });
+});

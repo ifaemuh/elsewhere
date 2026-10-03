@@ -533,13 +533,17 @@ create table public.expenses (
   id uuid primary key default gen_random_uuid(),
   trip_id uuid not null references public.trips(id) on delete cascade,
   payer_user_id uuid not null references public.profiles(id),
-  amount_cents int not null check (amount_cents > 0),
+  -- Integer cents, at most $100,000.00 a line.
+  amount_cents int not null check (amount_cents > 0 and amount_cents <= 10000000),
   currency text not null default 'USD' check (currency ~ '^[A-Z]{3}$'),
-  description text not null,
+  description text not null check (char_length(description) between 1 and 200),
   split jsonb not null,
   incident_id uuid references public.incidents(id) on delete set null,
   created_by uuid not null references public.profiles(id),
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  -- The form's one-time key: a double-submitted "add expense" lands on the row it already made.
+  client_key uuid,
+  unique (trip_id, client_key)
 );
 
 create table public.settlements (
@@ -547,11 +551,63 @@ create table public.settlements (
   trip_id uuid not null references public.trips(id) on delete cascade,
   from_user_id uuid not null references public.profiles(id),
   to_user_id uuid not null references public.profiles(id),
-  amount_cents int not null check (amount_cents > 0),
+  amount_cents int not null check (amount_cents > 0 and amount_cents <= 10000000),
   currency text not null default 'USD' check (currency ~ '^[A-Z]{3}$'),
   settled_by uuid not null references public.profiles(id),
-  settled_at timestamptz not null default now()
+  settled_at timestamptz not null default now(),
+  client_key uuid,
+  unique (trip_id, client_key),
+  check (from_user_id <> to_user_id)
 );
+
+-- A payer, a split, or a settlement party must belong to the trip the row is on. RLS only proves the caller
+-- is a member, so without this a crafted insert could put another trip's users on this ledger.
+create or replace function public.check_ledger_members() returns trigger
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare
+  v_ids text[];
+  v_id text;
+  v_total bigint;
+begin
+  if tg_table_name = 'expenses' then
+    if not exists (select 1 from public.trip_members where trip_id = new.trip_id and user_id = new.payer_user_id) then
+      raise exception 'payer is not on this trip' using errcode = '23514';
+    end if;
+    if new.split ->> 'kind' = 'equal' and jsonb_typeof(new.split -> 'user_ids') = 'array' and jsonb_array_length(new.split -> 'user_ids') > 0 then
+      select array_agg(value) into v_ids from jsonb_array_elements_text(new.split -> 'user_ids');
+      if (select count(distinct x) from unnest(v_ids) x) <> cardinality(v_ids) then
+        raise exception 'split lists someone twice' using errcode = '23514';
+      end if;
+    elsif new.split ->> 'kind' = 'shares' and jsonb_typeof(new.split -> 'shares') = 'object' and new.split -> 'shares' <> '{}'::jsonb then
+      select array_agg(key) into v_ids from jsonb_object_keys(new.split -> 'shares') key;
+      select sum(case when jsonb_typeof(value) = 'number' and value::text ~ '^[0-9]+$' then value::text::bigint else -1 end)
+        into v_total from jsonb_each(new.split -> 'shares');
+      if v_total is distinct from new.amount_cents then
+        raise exception 'shares must be whole cents that add up to the amount' using errcode = '23514';
+      end if;
+    else
+      raise exception 'split is not valid' using errcode = '23514';
+    end if;
+    foreach v_id in array v_ids loop
+      if v_id !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+         or not exists (select 1 from public.trip_members where trip_id = new.trip_id and user_id = v_id::uuid) then
+        raise exception 'split includes someone who is not on this trip' using errcode = '23514';
+      end if;
+    end loop;
+  else
+    if not exists (select 1 from public.trip_members where trip_id = new.trip_id and user_id = new.from_user_id)
+       or not exists (select 1 from public.trip_members where trip_id = new.trip_id and user_id = new.to_user_id) then
+      raise exception 'both people must be on this trip' using errcode = '23514';
+    end if;
+  end if;
+  return new;
+end;
+$$;
+revoke execute on function public.check_ledger_members() from public, anon, authenticated;
+create trigger expenses_members_check before insert or update on public.expenses
+  for each row execute function public.check_ledger_members();
+create trigger settlements_members_check before insert or update on public.settlements
+  for each row execute function public.check_ledger_members();
 
 -- 8. Notifications, consents, passes, webhooks ------------------------------------
 create table public.notifications (
