@@ -614,10 +614,6 @@ describe('expenses and settlements (Task 14)', () => {
         [fields.trip ?? tripId, fields.payer ?? as, fields.amount ?? 10000, fields.description ?? 'Airport hotel', JSON.stringify(fields.split ?? { kind: 'equal', user_ids: [PLANNER, MEMBER] }), as, fields.key === undefined ? null : fields.key],
       ),
     );
-  const settle = (as: string, from: string, to: string, key: string | null = null, amount = 5000) =>
-    asUser(db, as, () =>
-      db.query('insert into public.settlements (trip_id, from_user_id, to_user_id, amount_cents, settled_by, client_key) values ($1, $2, $3, $4, $5, $6)', [tripId, from, to, amount, as, key]),
-    );
   const KEY_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
   const KEY_B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 
@@ -671,21 +667,80 @@ describe('expenses and settlements (Task 14)', () => {
     await rejects(() => addExpense(MEMBER, { description: 'x'.repeat(201) }));
   });
 
-  it('records settlements for the parties and the planner, once per key', async () => {
-    await settle(MEMBER, MEMBER, PLANNER, KEY_A);
-    await rejects(() => settle(MEMBER, MEMBER, PLANNER, KEY_A), /duplicate key|unique/);
-    await settle(PLANNER, MEMBER, PLANNER, KEY_B);
-    const n = await asService(db, () => one<{ n: number }>('select count(*)::int as n from public.settlements where client_key = $1', [KEY_A]));
-    expect(n.n).toBe(1);
-  });
+  describe('record_settlement', () => {
+    const KEY_C = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+    const KEY_D = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+    let ledger: string;
+    // Pat paid 90.00 for Pat, Sam and Jo: Sam and Jo each owe Pat 30.00.
+    const record = (as: string, from: string, to: string, amount: number, key: string) =>
+      asUser(db, as, () => one<{ r: string }>('select public.record_settlement($1, $2, $3, $4, $5) as r', [ledger, from, to, amount, key]));
+    const count = () =>
+      asService(db, () => one<{ n: number; total: number }>('select count(*)::int as n, coalesce(sum(amount_cents), 0)::int as total from public.settlements where trip_id = $1', [ledger]));
 
-  it('refuses a settlement with someone from outside the trip, with oneself, a stranger recording it, or a bad amount', async () => {
-    await rejects(() => settle(MEMBER, MEMBER, OUTSIDER), /both people must be on this trip/);
-    await rejects(() => settle(PLANNER, OUTSIDER, MEMBER), /both people must be on this trip/);
-    await rejects(() => settle(MEMBER, MEMBER, MEMBER), /violates/);
-    await rejects(() => settle(OUTSIDER, MEMBER, PLANNER), /row-level security/);
-    await rejects(() => settle(MEMBER, MEMBER, PLANNER, null, 0));
-    await rejects(() => settle(MEMBER, MEMBER, PLANNER, null, 10_000_001));
+    beforeAll(async () => {
+      ledger = await asUser(db, PLANNER, async () =>
+        (await one<{ id: string }>(`select public.create_trip('Ledger', 'PT', '2026-11-03', '2026-11-10', 'trip-ledger-l1l1', 'Pat', null, '{}'::jsonb) as id`)).id,
+      );
+      const token = 'ledger-invite-token-0123456789';
+      await asUser(db, PLANNER, () => db.query("select public.set_join_token($1, $2, now() + interval '7 days')", [ledger, token]));
+      await asUser(db, MEMBER, () => db.query("select public.join_trip($1, 'Sam')", [token]));
+      await asUser(db, JOINER, () => db.query("select public.join_trip($1, 'Jo')", [token]));
+      await addExpense(PLANNER, { trip: ledger, amount: 9000, split: { kind: 'equal', user_ids: [PLANNER, MEMBER, JOINER] } });
+    });
+
+    it('refuses a stranger, a member who is neither party nor planner, and anon-style callers', async () => {
+      await rejects(() => record(OUTSIDER, MEMBER, PLANNER, 1000, KEY_A), /not on this trip/);
+      await rejects(() => record(JOINER, MEMBER, PLANNER, 1000, KEY_A), /only the two people involved/);
+      expect((await count()).n).toBe(0);
+    });
+
+    it('refuses a party who is not on the trip, the same person on both sides, and a bad amount', async () => {
+      await rejects(() => record(PLANNER, OUTSIDER, PLANNER, 1000, KEY_A), /both people must be on this trip/);
+      await rejects(() => record(PLANNER, MEMBER, MEMBER, 1000, KEY_A), /invalid settlement/);
+      for (const amount of [0, -5, 10_000_001]) await rejects(() => record(MEMBER, MEMBER, PLANNER, amount, KEY_A), /invalid settlement/);
+      expect((await count()).n).toBe(0);
+    });
+
+    it('refuses a direct insert: the function is the only write path', async () => {
+      await rejects(
+        () => asUser(db, MEMBER, () => db.query('insert into public.settlements (trip_id, from_user_id, to_user_id, amount_cents, settled_by) values ($1, $2, $3, 1000, $2)', [ledger, MEMBER, PLANNER])),
+        /row-level security/,
+      );
+      await rejects(
+        () => asUser(db, PLANNER, () => db.query('insert into public.settlements (trip_id, from_user_id, to_user_id, amount_cents, settled_by) values ($1, $2, $3, 1000, $4)', [ledger, MEMBER, PLANNER, PLANNER])),
+        /row-level security/,
+      );
+    });
+
+    it('refuses more than is owed, and the wrong direction', async () => {
+      await rejects(() => record(MEMBER, MEMBER, PLANNER, 3001, KEY_A), /more than is owed/);
+      await rejects(() => record(PLANNER, PLANNER, MEMBER, 100, KEY_A), /more than is owed/);
+      expect((await count()).n).toBe(0);
+    });
+
+    it('the same key twice gives one row', async () => {
+      expect((await record(MEMBER, MEMBER, PLANNER, 1000, KEY_A)).r).toBe('recorded');
+      expect((await record(MEMBER, MEMBER, PLANNER, 1000, KEY_A)).r).toBe('duplicate');
+      expect((await count()).n).toBe(1);
+    });
+
+    it('two different-key settlements cannot overpay: the second is rejected once the first has used the balance', async () => {
+      // 2000 still owed. (PGlite is one connection, so the two calls run in sequence; the advisory lock makes real
+      // concurrent calls take the same path.)
+      await record(PLANNER, MEMBER, PLANNER, 1500, KEY_B);
+      await rejects(() => record(MEMBER, MEMBER, PLANNER, 1500, KEY_C), /more than is owed/);
+      expect(await count()).toEqual({ n: 2, total: 2500 });
+      await record(PLANNER, MEMBER, PLANNER, 500, KEY_D);
+      expect(await count()).toEqual({ n: 3, total: 3000 });
+      await rejects(() => record(MEMBER, MEMBER, PLANNER, 1, 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'), /more than is owed/);
+    });
+
+    it('handles exact-share expenses and an unfair remainder', async () => {
+      await addExpense(JOINER, { trip: ledger, amount: 1000, split: { kind: 'shares', shares: { [PLANNER]: 700, [JOINER]: 300 } } });
+      // Jo owed Pat 3000; Jo then paid 1000 of which Pat's 700 share offsets it, so Jo owes Pat 2300.
+      await rejects(() => record(JOINER, JOINER, PLANNER, 2301, 'ffffffff-ffff-4fff-8fff-ffffffffffff'), /more than is owed/);
+      await record(JOINER, JOINER, PLANNER, 2300, 'ffffffff-ffff-4fff-8fff-ffffffffffff');
+    });
   });
 
   it('keeps the ledger from anyone outside the trip', async () => {

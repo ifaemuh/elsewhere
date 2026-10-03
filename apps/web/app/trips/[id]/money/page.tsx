@@ -1,13 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { Suspense } from 'react';
 import { notFound } from 'next/navigation';
-import { Button } from '@/components/ui/button';
 import { requireUser } from '@/lib/auth/user';
 import { cashAppLink, isCashtag, isVenmoUsername, venmoLink } from '@/lib/expenses/pay-links';
 import { balances, minimalTransfers, type Split } from '@/lib/expenses/settle';
 import { createClient } from '@/lib/supabase/server';
-import { markSettled } from './actions';
 import { ExpenseForm } from './expense-form';
+import { MarkPaidButton } from './mark-paid-button';
 
 type Params = Promise<{ id: string }>;
 const usd = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
@@ -68,11 +67,7 @@ async function MoneyContent({ params }: { params: Params }) {
                       </a>
                     ) : null}
                     {t.from === user.id || t.to === user.id || isPlanner === true ? (
-                      <form action={markSettled.bind(null, id, t.from, t.to, t.amountCents, randomUUID())}>
-                        <Button type="submit" size="sm" variant="outline">
-                          Mark paid
-                        </Button>
-                      </form>
+                      <MarkPaidButton tripId={id} from={t.from} to={t.to} amountCents={t.amountCents} settleKey={randomUUID()} />
                     ) : null}
                   </span>
                 </li>
@@ -94,7 +89,7 @@ async function MoneyContent({ params }: { params: Params }) {
           ))}
         </ul>
       </section>
-      <ExpenseForm tripId={id} formKey={formKey} members={members} />
+      <ExpenseForm tripId={id} formKey={formKey} members={members.map((m) => ({ user_id: m.user_id, display_name: m.display_name }))} />
     </>
   );
 }

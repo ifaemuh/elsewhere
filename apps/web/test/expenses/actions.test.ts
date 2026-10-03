@@ -16,9 +16,14 @@ const state = {
   expenses: [] as unknown[],
   settlements: [] as unknown[],
   insertError: null as Err,
+  settleError: null as Err,
+  settleResult: 'recorded',
 };
 const log: { table: string; row: Record<string, unknown> }[] = [];
-const rpc = vi.fn(async (name: string) => ({ data: name === 'is_trip_member' ? state.isMember : name === 'is_trip_planner' ? state.isPlanner : null, error: null }));
+const rpc = vi.fn(async (name: string, _args?: unknown) => {
+  if (name === 'record_settlement') return { data: state.settleError ? null : state.settleResult, error: state.settleError };
+  return { data: name === 'is_trip_member' ? state.isMember : name === 'is_trip_planner' ? state.isPlanner : null, error: null };
+});
 
 function table(name: string) {
   let inserted = false;
@@ -64,7 +69,7 @@ beforeEach(() => {
   log.length = 0;
   rpc.mockClear();
   revalidatePath.mockClear();
-  Object.assign(state, { userId: PAT, isMember: true, isPlanner: false, members: [PAT, SAM, JO], expenses: [PAT_PAID], settlements: [], insertError: null });
+  Object.assign(state, { userId: PAT, isMember: true, isPlanner: false, members: [PAT, SAM, JO], expenses: [PAT_PAID], settlements: [], insertError: null, settleError: null, settleResult: 'recorded' });
 });
 
 describe('addExpense', () => {
@@ -140,79 +145,52 @@ describe('addExpense', () => {
 });
 
 describe('markSettled', () => {
-  const settle = (from = SAM, to = PAT, cents = 10000, key = KEY) => markSettled(TRIP, from, to, cents, key);
+  const settle = (from = SAM, to = PAT, cents = 10000, key = KEY) => markSettled(TRIP, from, to, cents, key, { error: null });
+  const STALE = "Already settled, or the amounts changed. We've refreshed the totals.";
 
-  it('lets the payer record a payment, with settled_by the caller and the key', async () => {
+  it('calls record_settlement with exactly the arguments, and writes nothing directly', async () => {
     state.userId = SAM;
-    await settle();
-    expect(wrote('settlements')).toEqual([
-      { table: 'settlements', row: { trip_id: TRIP, from_user_id: SAM, to_user_id: PAT, amount_cents: 10000, settled_by: SAM, client_key: KEY } },
-    ]);
-  });
-
-  it('lets the payee and the planner record it too', async () => {
-    state.userId = PAT;
-    await settle();
-    state.userId = JO;
-    state.isPlanner = true;
-    await settle(SAM, PAT, 5000, '88888888-8888-4888-8888-888888888888');
-    expect(wrote('settlements')).toHaveLength(2);
-    expect(wrote('settlements')[1].row.settled_by).toBe(JO);
-  });
-
-  it('refuses a member who is neither party nor the planner', async () => {
-    state.userId = JO;
-    await expect(settle()).rejects.toThrow(/two people involved/);
-    expect(log).toHaveLength(0);
-  });
-
-  it('refuses a non-member', async () => {
-    state.isMember = false;
-    await expect(settle()).rejects.toThrow(/people on this trip/);
-    expect(log).toHaveLength(0);
-  });
-
-  it('refuses a party who is not on the trip, even from the planner or a party', async () => {
-    state.isPlanner = true;
-    await expect(settle(STRANGER, PAT)).rejects.toThrow(/Both people/);
-    await expect(settle(SAM, STRANGER)).rejects.toThrow(/Both people/);
-    state.userId = STRANGER;
-    state.isPlanner = false;
-    await expect(settle(STRANGER, PAT)).rejects.toThrow(/Both people/);
-    expect(log).toHaveLength(0);
-  });
-
-  it.each([0, -100, 1.5, NaN, Infinity, 10_000_001])('refuses the amount %s', async (cents) => {
-    await expect(settle(SAM, PAT, cents)).rejects.toThrow();
-    expect(log).toHaveLength(0);
-  });
-
-  it('refuses the same person on both sides and a bad key', async () => {
-    await expect(settle(PAT, PAT)).rejects.toThrow(/two different/);
-    await expect(settle(SAM, PAT, 100, 'nope')).rejects.toThrow(/Reload/);
-    expect(log).toHaveLength(0);
-  });
-
-  it('records nothing for more than is owed, for a debt that is gone, or for the wrong direction', async () => {
-    state.userId = SAM;
-    await settle(SAM, PAT, 10001);
-    await settle(PAT, SAM, 100);
-    await settle(SAM, JO, 100);
-    state.settlements = [{ from_user_id: SAM, to_user_id: PAT, amount_cents: 10000 }];
-    await settle(SAM, PAT, 10000);
+    expect(await settle()).toEqual({ error: null });
+    expect(rpc).toHaveBeenCalledWith('record_settlement', { p_trip_id: TRIP, p_from: SAM, p_to: PAT, p_amount_cents: 10000, p_client_key: KEY });
     expect(log).toHaveLength(0);
     expect(revalidatePath).toHaveBeenCalled();
   });
 
-  it('treats a double click (unique violation on the key) as one payment', async () => {
-    state.userId = SAM;
-    state.insertError = { code: '23505', message: 'duplicate key' };
-    await expect(settle()).resolves.toBeUndefined();
+  it('refuses a non-member before calling the function', async () => {
+    state.isMember = false;
+    expect((await settle()).error).toMatch(/people on this trip/);
+    expect(rpc).not.toHaveBeenCalledWith('record_settlement', expect.anything());
+  });
+
+  it.each([0, -100, 1.5, NaN, Infinity, 10_000_001])('refuses the amount %s without calling the function', async (cents) => {
+    expect((await settle(SAM, PAT, cents)).error).toBeTruthy();
+    expect(rpc).not.toHaveBeenCalledWith('record_settlement', expect.anything());
+  });
+
+  it('refuses the same person on both sides and a bad key', async () => {
+    expect((await settle(PAT, PAT)).error).toMatch(/two different/);
+    expect((await settle(SAM, PAT, 100, 'nope')).error).toMatch(/Reload/);
+    expect(rpc).not.toHaveBeenCalledWith('record_settlement', expect.anything());
+  });
+
+  it('tells the user, and refreshes, when the debt is gone or the amount changed', async () => {
+    state.settleError = { code: '22023', message: 'more than is owed' };
+    expect(await settle()).toEqual({ error: STALE });
+    expect(revalidatePath).toHaveBeenCalled();
+  });
+
+  it('maps a refusal from the function to a clear message', async () => {
+    state.settleError = { code: '42501', message: 'only the two people involved, or the planner, can mark this paid' };
+    expect((await settle()).error).toMatch(/two people involved, or the planner/);
+  });
+
+  it('treats a double click as one payment, with no error', async () => {
+    state.settleResult = 'duplicate';
+    expect(await settle()).toEqual({ error: null });
   });
 
   it('reports other database failures', async () => {
-    state.userId = SAM;
-    state.insertError = { code: '42501', message: 'rls' };
-    await expect(settle()).rejects.toThrow(/could not mark/);
+    state.settleError = { code: 'XX000', message: 'boom' };
+    expect((await settle()).error).toMatch(/could not mark/);
   });
 });

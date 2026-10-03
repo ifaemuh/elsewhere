@@ -609,6 +609,68 @@ create trigger expenses_members_check before insert or update on public.expenses
 create trigger settlements_members_check before insert or update on public.settlements
   for each row execute function public.check_ledger_members();
 
+-- Marking a transfer paid is the only way to write a settlement. One advisory lock per trip serialises the
+-- balance check and the insert, so two different-key clicks cannot both pass the check and overpay.
+-- "Owed" is capped at min(what p_from owes the group in total, what the group owes p_to in total): every transfer the
+-- page's greedy minimal-transfers result shows is within that cap. Recomputing the exact greedy pairing in SQL was not
+-- practical, so the cap is the DB-level bound; the page still only offers its own transfers.
+create or replace function public.record_settlement(p_trip_id uuid, p_from uuid, p_to uuid, p_amount_cents int, p_client_key uuid)
+returns text
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare
+  v_from_net bigint;
+  v_to_net bigint;
+begin
+  if auth.uid() is null or not public.is_trip_member(p_trip_id) then
+    raise exception 'not on this trip' using errcode = '42501';
+  end if;
+  if p_client_key is null or p_from is null or p_to is null or p_from = p_to
+     or p_amount_cents is null or p_amount_cents <= 0 or p_amount_cents > 10000000 then
+    raise exception 'invalid settlement' using errcode = '22023';
+  end if;
+  perform pg_advisory_xact_lock(hashtext(p_trip_id::text));
+  if not (auth.uid() = p_from or auth.uid() = p_to or public.is_trip_planner(p_trip_id)) then
+    raise exception 'only the two people involved, or the planner, can mark this paid' using errcode = '42501';
+  end if;
+  if not exists (select 1 from public.trip_members where trip_id = p_trip_id and user_id = p_from)
+     or not exists (select 1 from public.trip_members where trip_id = p_trip_id and user_id = p_to) then
+    raise exception 'both people must be on this trip' using errcode = '42501';
+  end if;
+  -- A repeat of the same submit: already recorded.
+  if exists (select 1 from public.settlements where trip_id = p_trip_id and client_key = p_client_key) then
+    return 'duplicate';
+  end if;
+
+  with lines as (
+    select e.payer_user_id as uid, e.amount_cents::bigint as cents from public.expenses e where e.trip_id = p_trip_id
+    union all
+    select x.value::uuid, -(e.amount_cents / jsonb_array_length(e.split -> 'user_ids') + case when x.ord <= e.amount_cents % jsonb_array_length(e.split -> 'user_ids') then 1 else 0 end)::bigint
+      from public.expenses e, jsonb_array_elements_text(e.split -> 'user_ids') with ordinality as x(value, ord)
+      where e.trip_id = p_trip_id and e.split ->> 'kind' = 'equal'
+    union all
+    select s.key::uuid, -s.value::bigint
+      from public.expenses e, jsonb_each_text(e.split -> 'shares') s
+      where e.trip_id = p_trip_id and e.split ->> 'kind' = 'shares'
+    union all
+    select st.from_user_id, st.amount_cents::bigint from public.settlements st where st.trip_id = p_trip_id
+    union all
+    select st.to_user_id, -st.amount_cents::bigint from public.settlements st where st.trip_id = p_trip_id
+  )
+  select coalesce(sum(cents) filter (where uid = p_from), 0), coalesce(sum(cents) filter (where uid = p_to), 0)
+    into v_from_net, v_to_net from lines;
+  if p_amount_cents > least(-v_from_net, v_to_net) then
+    raise exception 'more than is owed' using errcode = '22023';
+  end if;
+
+  insert into public.settlements (trip_id, from_user_id, to_user_id, amount_cents, settled_by, client_key)
+    values (p_trip_id, p_from, p_to, p_amount_cents, auth.uid(), p_client_key)
+    on conflict (trip_id, client_key) do nothing;
+  return 'recorded';
+end;
+$$;
+revoke execute on function public.record_settlement(uuid, uuid, uuid, int, uuid) from public, anon;
+grant execute on function public.record_settlement(uuid, uuid, uuid, int, uuid) to authenticated;
+
 -- 8. Notifications, consents, passes, webhooks ------------------------------------
 create table public.notifications (
   id uuid primary key default gen_random_uuid(),
@@ -971,10 +1033,7 @@ create policy "Creator or planner deletes expenses" on public.expenses for delet
   using (created_by = auth.uid() or public.is_trip_planner(trip_id));
 
 create policy "Members read settlements" on public.settlements for select using (public.is_trip_member(trip_id));
-create policy "Parties or planner record settlements" on public.settlements for insert with check (
-  public.is_trip_member(trip_id) and settled_by = auth.uid()
-  and (from_user_id = auth.uid() or to_user_id = auth.uid() or public.is_trip_planner(trip_id))
-);
+-- No insert policy on settlements: members record payments through record_settlement().
 
 create policy "Users read their notifications" on public.notifications for select using (user_id = auth.uid());
 

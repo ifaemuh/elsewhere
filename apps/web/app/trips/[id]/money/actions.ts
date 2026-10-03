@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { requireUser } from '@/lib/auth/user';
-import { balances, MAX_CENTS, parseDollars, type Split } from '@/lib/expenses/settle';
+import { MAX_CENTS, parseDollars, type Split } from '@/lib/expenses/settle';
 import { createClient } from '@/lib/supabase/server';
 
 export interface ExpenseState {
@@ -69,38 +69,39 @@ export async function addExpense(tripId: string, _prev: ExpenseState, form: Form
   return { error: null };
 }
 
+export interface SettleState {
+  error: string | null;
+}
+
+const STALE = "Already settled, or the amounts changed. We've refreshed the totals.";
+
 /**
- * Either person involved, or the planner, marks a transfer paid. The two people must be on the trip and the amount
- * must not exceed what the ledger still has the payer owing the payee. A stale or repeated click (the debt is gone,
- * or the same `key`) records nothing and just refreshes.
+ * Either person involved, or the planner, marks a transfer paid. The record_settlement function is the only write
+ * path: under a per-trip lock it checks who is asking, that both people are on the trip, and that the amount is
+ * not more than is still owed, then records it once per `key`. Anything that records nothing says so.
  */
-export async function markSettled(tripId: string, fromUserId: string, toUserId: string, amountCents: number, key: string): Promise<void> {
-  const user = await requireUser(`/trips/${tripId}/money`);
+export async function markSettled(tripId: string, fromUserId: string, toUserId: string, amountCents: number, key: string, _prev: SettleState): Promise<SettleState> {
+  await requireUser(`/trips/${tripId}/money`);
   const supabase = await createClient();
   const { data: isMember } = await supabase.rpc('is_trip_member', { p_trip_id: tripId });
-  if (isMember !== true) throw new Error('Only people on this trip can mark a payment.');
-  if (typeof key !== 'string' || !UUID.test(key)) throw new Error('Reload the page and try again.');
-  if (!Number.isSafeInteger(amountCents) || amountCents <= 0 || amountCents > MAX_CENTS) throw new Error('That is not an amount that can be marked paid.');
-  if (fromUserId === toUserId) throw new Error('A payment needs two different people.');
+  if (isMember !== true) return { error: 'Only people on this trip can mark a payment.' };
+  if (typeof key !== 'string' || !UUID.test(key)) return { error: 'Reload the page and try again.' };
+  if (!Number.isSafeInteger(amountCents) || amountCents <= 0 || amountCents > MAX_CENTS) return { error: 'That is not an amount that can be marked paid.' };
+  if (fromUserId === toUserId) return { error: 'A payment needs two different people.' };
 
-  const { data: rows } = await supabase.from('trip_members').select('user_id').eq('trip_id', tripId);
-  const memberIds = new Set((rows ?? []).map((r) => r.user_id as string));
-  if (!memberIds.has(fromUserId) || !memberIds.has(toUserId)) throw new Error('Both people must be on this trip.');
-  const { data: isPlanner } = await supabase.rpc('is_trip_planner', { p_trip_id: tripId });
-  if (user.id !== fromUserId && user.id !== toUserId && isPlanner !== true) throw new Error('Only the two people involved, or the planner, can mark this paid.');
-
-  const { data: expenses } = await supabase.from('expenses').select('payer_user_id, amount_cents, split').eq('trip_id', tripId);
-  const { data: settlements } = await supabase.from('settlements').select('from_user_id, to_user_id, amount_cents').eq('trip_id', tripId);
-  const net = balances((expenses ?? []).map((e) => ({ ...e, split: e.split as Split })), settlements ?? []);
-  const stillOwed = Math.min(-(net[fromUserId] ?? 0), net[toUserId] ?? 0);
-  if (stillOwed <= 0 || amountCents > stillOwed) {
+  const { error } = await supabase.rpc('record_settlement', {
+    p_trip_id: tripId,
+    p_from: fromUserId,
+    p_to: toUserId,
+    p_amount_cents: amountCents,
+    p_client_key: key,
+  });
+  if (error) {
     revalidatePath(`/trips/${tripId}/money`);
-    return;
+    if (error.code === '22023') return { error: STALE };
+    if (error.code === '42501') return { error: 'Only the two people involved, or the planner, can mark this paid.' };
+    return { error: 'We could not mark that paid.' };
   }
-
-  const { error } = await supabase
-    .from('settlements')
-    .insert({ trip_id: tripId, from_user_id: fromUserId, to_user_id: toUserId, amount_cents: amountCents, settled_by: user.id, client_key: key });
-  if (error && error.code !== UNIQUE_VIOLATION) throw new Error('We could not mark that paid.');
   revalidatePath(`/trips/${tripId}/money`);
+  return { error: null };
 }
