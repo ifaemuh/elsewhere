@@ -30,6 +30,8 @@ export interface AeroAirport {
 
 export interface AeroScheduled {
   ident_iata: string | null;
+  /** AeroAPI's operating ident for a codeshare, when it reports one. */
+  actual_ident_iata?: string | null;
   origin_iata: string | null;
   destination_iata: string | null;
   scheduled_out: string;
@@ -73,7 +75,7 @@ function parseScheduled(v: unknown): AeroScheduled | null {
   const out = o && str(o.scheduled_out);
   const inn = o && str(o.scheduled_in);
   if (!o || !out || !inn) return null;
-  return { ident_iata: str(o.ident_iata), origin_iata: str(o.origin_iata), destination_iata: str(o.destination_iata), scheduled_out: out, scheduled_in: inn };
+  return { ident_iata: str(o.ident_iata), actual_ident_iata: str(o.actual_ident_iata), origin_iata: str(o.origin_iata), destination_iata: str(o.destination_iata), scheduled_out: out, scheduled_in: inn };
 }
 
 function parseFlight(v: unknown): AeroFlight | null {

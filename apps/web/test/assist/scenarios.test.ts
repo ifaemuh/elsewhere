@@ -16,11 +16,11 @@ function nonstop(flight: SituationInput['segment']): ItinerarySegment[] {
 /** An event as monitoring raises it, before any AeroAPI times or rebooking are attached. */
 const event = (type: SituationInput['event']['type'], delayMinutes: number | null): SituationInput['event'] => ({ type, delayMinutes, detectedAt: at, observed: [], offers: [] });
 
-const tokyo = { carrierIata: 'UA', originIata: 'SFO', destinationIata: 'HND', originCountry: 'US', destinationCountry: 'JP', distanceKm: 8280, scheduledOut: '2026-11-21T18:00:00Z', scheduledIn: '2026-11-22T05:00:00Z' };
-const paris = { carrierIata: 'DL', originIata: 'JFK', destinationIata: 'CDG', originCountry: 'US', destinationCountry: 'FR', distanceKm: 5840, scheduledOut: '2026-11-10T23:00:00Z', scheduledIn: '2026-11-11T06:30:00Z' };
-const santorini = { carrierIata: 'A3', originIata: 'ATH', destinationIata: 'JTR', originCountry: 'GR', destinationCountry: 'GR', distanceKm: 230, scheduledOut: '2026-11-05T09:00:00Z', scheduledIn: '2026-11-05T09:50:00Z' };
-const lisbon = { carrierIata: 'TP', originIata: 'EWR', destinationIata: 'LIS', originCountry: 'US', destinationCountry: 'PT', distanceKm: 5430, scheduledOut: '2026-11-03T23:15:00Z', scheduledIn: '2026-11-04T06:35:00Z' };
-const bali = { carrierIata: 'SQ', originIata: 'SIN', destinationIata: 'SFO', originCountry: 'SG', destinationCountry: 'US', distanceKm: 13590, scheduledOut: '2026-11-12T01:00:00Z', scheduledIn: '2026-11-12T16:00:00Z' };
+const tokyo = { carrierIata: 'UA', operatorIata: 'UA', originIata: 'SFO', destinationIata: 'HND', originCountry: 'US', destinationCountry: 'JP', distanceKm: 8280, scheduledOut: '2026-11-21T18:00:00Z', scheduledIn: '2026-11-22T05:00:00Z' };
+const paris = { carrierIata: 'DL', operatorIata: 'DL', originIata: 'JFK', destinationIata: 'CDG', originCountry: 'US', destinationCountry: 'FR', distanceKm: 5840, scheduledOut: '2026-11-10T23:00:00Z', scheduledIn: '2026-11-11T06:30:00Z' };
+const santorini = { carrierIata: 'A3', operatorIata: 'A3', originIata: 'ATH', destinationIata: 'JTR', originCountry: 'GR', destinationCountry: 'GR', distanceKm: 230, scheduledOut: '2026-11-05T09:00:00Z', scheduledIn: '2026-11-05T09:50:00Z' };
+const lisbon = { carrierIata: 'TP', operatorIata: 'TP', originIata: 'EWR', destinationIata: 'LIS', originCountry: 'US', destinationCountry: 'PT', distanceKm: 5430, scheduledOut: '2026-11-03T23:15:00Z', scheduledIn: '2026-11-04T06:35:00Z' };
+const bali = { carrierIata: 'SQ', operatorIata: 'SQ', originIata: 'SIN', destinationIata: 'SFO', originCountry: 'SG', destinationCountry: 'US', distanceKm: 13590, scheduledOut: '2026-11-12T01:00:00Z', scheduledIn: '2026-11-12T16:00:00Z' };
 
 const scenarios: { name: string; input: SituationInput; applies: string[]; mayApply: string[] }[] = [
   {
@@ -81,7 +81,7 @@ const scenarios: { name: string; input: SituationInput; applies: string[]; mayAp
         bookedVia: null,
         bookedAt: null,
         segments: [
-          { carrierIata: 'SQ', originIata: 'DPS', destinationIata: 'SIN', originCountry: 'ID', destinationCountry: 'SG', scheduledOut: '2026-11-11T13:00:00Z', scheduledIn: '2026-11-11T15:40:00Z' },
+          { carrierIata: 'SQ', operatorIata: 'SQ', originIata: 'DPS', destinationIata: 'SIN', originCountry: 'ID', destinationCountry: 'SG', scheduledOut: '2026-11-11T13:00:00Z', scheduledIn: '2026-11-11T15:40:00Z' },
           ...nonstop(bali),
         ],
       },

@@ -34,8 +34,24 @@ describe('resolveSegment', () => {
       scheduledIn: '2026-11-04T06:35:00Z',
       originCountry: 'US',
       destinationCountry: 'PT',
-      distanceKm: 5430,
+      distanceKm: 5433,
+      operatorIata: 'TP',
     });
+  });
+
+  it('takes the operating airline from the actual ident of a codeshare, else from the scheduled ident', async () => {
+    const times = { origin_iata: 'EWR', destination_iata: 'LIS', scheduled_out: '2026-11-03T23:15:00Z', scheduled_in: '2026-11-04T06:35:00Z' };
+    expect(await resolveSegment(segment, api([{ ident_iata: 'KL6101', actual_ident_iata: 'DL8606', ...times }]))).toMatchObject({ operatorIata: 'DL' });
+    expect(await resolveSegment(segment, api([{ ident_iata: '9K1234', ...times }]))).toMatchObject({ operatorIata: '9K' });
+    expect(await resolveSegment(segment, api([{ ident_iata: 'TP204', actual_ident_iata: 'junk', ...times }]))).toMatchObject({ operatorIata: 'TP' });
+    expect(await resolveSegment(segment, api([{ ident_iata: null, ...times }]))).toMatchObject({ operatorIata: null });
+  });
+
+  it('keeps the distance in whole kilometres, never rounded to 10', async () => {
+    const times = { ident_iata: 'TP204', origin_iata: 'EWR', destination_iata: 'LIS', scheduled_out: '2026-11-03T23:15:00Z', scheduled_in: '2026-11-04T06:35:00Z' };
+    const result = await resolveSegment(segment, api([times]));
+    expect(result).toMatchObject({ distanceKm: 5433 });
+    expect(Number.isInteger((result as { distanceKm: number }).distanceKm)).toBe(true);
   });
 
   it('reports a flight that is not in the schedule', async () => {

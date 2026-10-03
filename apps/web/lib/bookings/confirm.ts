@@ -106,6 +106,7 @@ async function resolveConfirmedSegments(tripId: string, bookingIds: string[]): P
         origin_country: resolution.originCountry,
         destination_country: resolution.destinationCountry,
         distance_km: resolution.distanceKm,
+        operator_iata: resolution.operatorIata,
       })
       .eq('id', segment.id)
       .is('scheduled_out', null);

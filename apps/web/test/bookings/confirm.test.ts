@@ -111,7 +111,8 @@ describe('onBookingsConfirmed', () => {
       scheduled_in: '2026-11-04T06:35:00Z',
       origin_country: 'US',
       destination_country: 'PT',
-      distance_km: 5430,
+      distance_km: 5433,
+      operator_iata: 'TP',
     });
     expect(state.updates[0].filters).toEqual([['eq', ['id', 's1']], ['is', ['scheduled_out', null]]]);
     expect(runDocumentChecks).toHaveBeenCalledWith('t1');

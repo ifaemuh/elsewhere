@@ -291,6 +291,8 @@ create table public.booking_segments (
   trip_id uuid not null,
   position int not null check (position >= 1),
   carrier_iata text not null check (carrier_iata ~ '^[A-Z0-9]{2}$'),
+  -- The airline that operates the flight, from AeroAPI. The confirmation shows the marketing carrier, which can differ on a codeshare.
+  operator_iata text check (operator_iata is null or operator_iata ~ '^[A-Z0-9]{2}$'),
   flight_number text not null check (flight_number ~ '^[0-9]{1,4}$'),
   origin_iata text not null check (origin_iata ~ '^[A-Z]{3}$'),
   destination_iata text not null check (destination_iata ~ '^[A-Z]{3}$'),

@@ -21,6 +21,7 @@ describe('httpAeroApi', () => {
     const api = httpAeroApi('k3y', fetchImpl);
     const scheduled = await api.schedules('2026-11-02', '2026-11-05', 'TP', '204');
     expect(scheduled).toHaveLength(1);
+    expect(scheduled[0].actual_ident_iata).toBeNull();
     expect(new Headers(calls[0].init?.headers).get('x-apikey')).toBe('k3y');
     expect(calls[0].url).toContain('airline=TP');
     expect(calls[0].url).toContain('flight_number=204');

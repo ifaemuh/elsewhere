@@ -17,20 +17,19 @@ describe('buildSituation', () => {
           detectedAt: '2026-11-01T12:00:00Z',
           observed: [],
           // The rebooking the airline sent: the same flight a day later.
-          offers: [[{ carrierIata: 'TP', originIata: 'EWR', destinationIata: 'LIS', originCountry: 'US', destinationCountry: 'PT', scheduledOut: '2026-11-04T23:15:00Z', scheduledIn: '2026-11-05T06:35:00Z' }]],
+          offers: [[{ carrierIata: 'TP', operatorIata: 'TP', originIata: 'EWR', destinationIata: 'LIS', originCountry: 'US', destinationCountry: 'PT', scheduledOut: '2026-11-04T23:15:00Z', scheduledIn: '2026-11-05T06:35:00Z' }]],
         },
-        segment: { carrierIata: 'TP', originIata: 'EWR', destinationIata: 'LIS', originCountry: 'US', destinationCountry: 'PT', distanceKm: 5430, scheduledOut: '2026-11-03T23:15:00Z', scheduledIn: '2026-11-04T06:35:00Z' },
+        segment: { carrierIata: 'TP', operatorIata: 'TP', originIata: 'EWR', destinationIata: 'LIS', originCountry: 'US', destinationCountry: 'PT', distanceKm: 5433, scheduledOut: '2026-11-03T23:15:00Z', scheduledIn: '2026-11-04T06:35:00Z' },
         booking: {
           bookedVia: 'Expedia',
           bookedAt: '2026-10-01',
-          segments: [{ carrierIata: 'TP', originIata: 'EWR', destinationIata: 'LIS', originCountry: 'US', destinationCountry: 'PT', scheduledOut: '2026-11-03T23:15:00Z', scheduledIn: '2026-11-04T06:35:00Z' }],
+          segments: [{ carrierIata: 'TP', operatorIata: 'TP', originIata: 'EWR', destinationIata: 'LIS', originCountry: 'US', destinationCountry: 'PT', scheduledOut: '2026-11-03T23:15:00Z', scheduledIn: '2026-11-04T06:35:00Z' }],
         },
         airports: AIRPORTS,
         answers: { 'passenger.accepted_alternative': false },
       }),
     ).toEqual({
       'event.type': 'cancellation',
-      'event.notice_days': 2,
       'event.at_us_airport': true,
       'event.reroute_departs_early_minutes': 0,
       'event.reroute_arrival_delay_minutes': 1440,
@@ -44,8 +43,8 @@ describe('buildSituation', () => {
       'flight.arrives_eu': true,
       'flight.touches_us': true,
       'flight.is_domestic_us': false,
-      'flight.leg_distance_km': 5430,
-      'flight.distance_km': 5430,
+      'flight.leg_distance_km': 5433,
+      'flight.distance_km': 5433,
       'trip.booked_via': 'ota',
       'trip.touches_us': true,
       'trip.itinerary_domestic_us': false,
@@ -59,7 +58,7 @@ describe('buildSituation', () => {
   });
 
   it('leaves unknown facts out instead of guessing', () => {
-    const unresolved = { carrierIata: 'UA', originCountry: null, destinationCountry: null, scheduledOut: null, scheduledIn: null };
+    const unresolved = { carrierIata: 'UA', operatorIata: 'UA', originCountry: null, destinationCountry: null, scheduledOut: null, scheduledIn: null };
     const feeder = { ...unresolved, originIata: 'ORD', destinationIata: 'EWR' };
     const situation = buildSituation({
       event: { type: 'delay', delayMinutes: 200, detectedAt: '2026-11-03T20:00:00Z', observed: [], offers: [] },
@@ -74,7 +73,6 @@ describe('buildSituation', () => {
       'flight.carrier_iata': 'UA',
       'flight.carrier_is_us': true,
       'flight.carrier_is_eu': false,
-      'flight.single_ticket': true,
       'trip.booked_via': 'direct',
       'trip.booked_with_us_carrier': true,
     });
@@ -84,6 +82,7 @@ describe('buildSituation', () => {
 const COUNTRY: Record<string, string> = { ORD: 'US', EWR: 'US', SJU: 'PR', LIS: 'PT', CDG: 'FR', PTP: 'GP', KEF: 'IS', ZRH: 'CH', FAE: 'FO', GOH: 'GL' };
 const leg = (carrierIata: string, originIata: string, destinationIata: string, scheduledOut: string | null, scheduledIn: string | null): ItinerarySegment => ({
   carrierIata,
+  operatorIata: carrierIata,
   originIata,
   destinationIata,
   originCountry: COUNTRY[originIata] ?? null,
@@ -119,6 +118,7 @@ const situation = (
   });
 /** What AeroAPI shows for a flight: its schedule, the airline's estimate, and when it actually left. */
 const seen = (flight: ItinerarySegment, change: Partial<ObservedFlight> = {}): ObservedFlight => ({
+  observedAt: '2026-11-01T10:00:00Z',
   diverted: false,
   scheduledOut: flight.scheduledOut,
   estimatedOut: flight.scheduledOut,
@@ -194,9 +194,9 @@ describe('EU261 facts', () => {
   it('measures the disrupted flight and its whole journey separately', () => {
     const outbound = situation(roundTrip[1], roundTrip, { distanceKm: 5430, airports: AIRPORTS });
     expect(outbound['flight.leg_distance_km']).toBe(5430);
-    // ORD to LIS, the journey's first departure to its final destination.
-    expect(outbound['flight.distance_km']).toBe(6440);
-    expect(situation(roundTrip[3], roundTrip, { airports: AIRPORTS })['flight.distance_km']).toBe(6440);
+    // ORD to LIS in whole km, the journey's first departure to its final destination.
+    expect(outbound['flight.distance_km']).toBe(6435);
+    expect(situation(roundTrip[3], roundTrip, { airports: AIRPORTS })['flight.distance_km']).toBe(6435);
     expect(situation(roundTrip[1], roundTrip, { airports: { EWR: AIRPORTS.EWR, LIS: AIRPORTS.LIS } })).not.toHaveProperty('flight.distance_km');
     expect(situation(roundTrip[1], roundTrip)).not.toHaveProperty('flight.leg_distance_km');
   });

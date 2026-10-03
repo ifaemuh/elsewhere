@@ -393,6 +393,23 @@ describe('booking seats (Task 8)', () => {
   });
 });
 
+describe('operating carrier (Task 10 fix round 1)', () => {
+  it('accepts a null or two-character operator_iata and rejects anything else', async () => {
+    const booking = await asService(db, () =>
+      one<{ id: string }>("insert into public.bookings (trip_id, kind, provider, extraction_confidence, dedupe_key) values ($1, 'flight', 'TAP', 0.95, 'flight|OPER1') returning id", [tripId]),
+    );
+    const insert = (position: number, operator: string | null) =>
+      db.query(
+        "insert into public.booking_segments (booking_id, trip_id, position, carrier_iata, operator_iata, flight_number, origin_iata, destination_iata, departure_local) values ($1, $2, $3, 'KL', $4, '6101', 'EWR', 'LIS', '2026-11-03T18:15')",
+        [booking.id, tripId, position, operator],
+      );
+    await asService(db, () => insert(1, null));
+    await asService(db, () => insert(2, 'DL'));
+    await rejects(() => asService(db, () => insert(3, 'dl')), /operator_iata|check/);
+    await rejects(() => asService(db, () => insert(4, 'DLX')), /operator_iata|check/);
+  });
+});
+
 describe('incident detection (Task 9)', () => {
   it('records an incident as detected once, however many writers report it', async () => {
     const booking = await asService(db, () =>

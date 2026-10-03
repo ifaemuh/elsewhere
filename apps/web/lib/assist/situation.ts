@@ -1,11 +1,16 @@
-import type { FactName, Primitive, Situation } from '@elsewhere/rules/core';
+import type { Primitive, Situation } from '@elsewhere/rules/core';
 import { haversineKm } from '@/lib/flights/geo';
 import { EU_MEMBER_STATES, ICELAND_NORWAY_SWITZERLAND, UK, US_JURISDICTION } from '@/lib/flights/regions';
-import { EU_CARRIERS, US_CARRIERS } from './carriers';
+import { isEuCarrier, isUsCarrier } from './carriers';
+import { chooseOffer, DAY, HOUR, journeyOf, MINUTE, offerTimes, positionOf, sameFlight, time, type OfferTimes } from './journey';
+import { ASK_ORDER } from './questions';
 
 /** One flight on the booking. The itinerary and journey facts are computed over all of them. */
 export interface ItinerarySegment {
+  /** The marketing carrier the confirmation prints. */
   carrierIata: string;
+  /** The airline that operates the flight (Task 4 saves it from AeroAPI), or null while unknown. Every carrier fact comes from it. */
+  operatorIata: string | null;
   originIata: string;
   destinationIata: string;
   originCountry: string | null;
@@ -16,6 +21,13 @@ export interface ItinerarySegment {
 
 /** What AeroAPI reported about the disrupted flight: the fields of Task 9's `FlightSnapshot` read here. */
 export interface ObservedFlight {
+  /**
+   * When this snapshot was taken. Task 9's `FlightSnapshot` lacks it, so Task 12 supplies it from the
+   * `incident_events` or `last_status` timestamps. The notice period is known only from it.
+   */
+  observedAt: string;
+  /** Task 9's `cancelled`: a cancelled snapshot does not count as still showing the original schedule. */
+  cancelled?: boolean;
   diverted: boolean;
   scheduledOut: string | null;
   estimatedOut: string | null;
@@ -49,20 +61,23 @@ export interface SituationInput {
   answers: Record<string, Primitive>;
 }
 
-const MINUTE = 60_000;
-const HOUR = 60 * MINUTE;
-const DAY = 24 * HOUR;
-/** A longer gap between two flights is a stopover, not a connection: it ends the journey, as between outbound and return. */
-const STOPOVER = 24 * HOUR;
-
 const isUs = (country: string | null): boolean | null => (country ? US_JURISDICTION.has(country) : null);
 /** Three-valued: true if any is true, false if every one is false, otherwise unknown. */
 const anyTrue = (values: (boolean | null)[]): boolean | null => (values.some((v) => v === true) ? true : values.every((v) => v === false) ? false : null);
 /** Three-valued: false if any is false, true if every one is true, otherwise unknown. */
 const allTrue = (values: (boolean | null)[]): boolean | null => (values.some((v) => v === false) ? false : values.every((v) => v === true) ? true : null);
-const time = (iso: string | null): number | null => (iso ? Date.parse(iso) : null);
-const sameFlight = (a: ItinerarySegment, b: ItinerarySegment): boolean =>
-  a.carrierIata === b.carrierIata && a.originIata === b.originIata && a.destinationIata === b.destinationIata && time(a.scheduledOut) === time(b.scheduledOut);
+
+/**
+ * The distance bands of Regulation 261/2004: Art. 6(1) (delay) and Art. 7(1) (compensation) split flights at
+ * 1,500 km and 3,500 km.
+ */
+export const EU261_DISTANCE_THRESHOLDS_KM = [1500, 3500] as const;
+/** The gap between the spherical haversine and the ellipsoidal great-circle measure the rule means. */
+const DISTANCE_MARGIN = 0.005;
+/** The distance in whole km, or null when it is within the margin of a threshold, where the band is uncertain. */
+function certainDistance(km: number): number | null {
+  return EU261_DISTANCE_THRESHOLDS_KM.some((t) => Math.abs(km - t) <= t * DISTANCE_MARGIN) ? null : Math.round(km);
+}
 
 /**
  * The latest moment a printed booking date or local time can mean: the end of that day or minute, in the
@@ -73,38 +88,6 @@ function latestBookingMoment(bookedAt: string): number {
   const dateOnly = bookedAt.length === 10;
   const start = Date.parse(dateOnly ? `${bookedAt}T00:00:00Z` : `${bookedAt}:00Z`);
   return start + (dateOnly ? DAY : MINUTE) + 12 * HOUR;
-}
-
-/**
- * The disrupted flight's journey: the flights on the booking that take the passenger, in its direction, to the
- * final destination. A flight joins the one before it when it leaves from the airport that one reached, within
- * 24 hours, so outbound and return are separate journeys. Null when a connection's times are unknown, or the
- * flight is not on the booking.
- */
-function journeyOf(segments: ItinerarySegment[], flight: ItinerarySegment): ItinerarySegment[] | null {
-  const at = segments.findIndex((s) => sameFlight(s, flight));
-  if (at < 0) return null;
-  const connects = (a: ItinerarySegment, b: ItinerarySegment): boolean | null => {
-    if (a.destinationIata !== b.originIata) return false;
-    const landed = time(a.scheduledIn);
-    const leaves = time(b.scheduledOut);
-    return landed === null || leaves === null ? null : leaves - landed <= STOPOVER;
-  };
-  let first = at;
-  while (first > 0) {
-    const joined = connects(segments[first - 1], segments[first]);
-    if (joined === null) return null;
-    if (!joined) break;
-    first -= 1;
-  }
-  let last = at;
-  while (last < segments.length - 1) {
-    const joined = connects(segments[last], segments[last + 1]);
-    if (joined === null) return null;
-    if (!joined) break;
-    last += 1;
-  }
-  return segments.slice(first, last + 1);
 }
 
 /**
@@ -122,65 +105,48 @@ function usForeignNonstopMinutes(journey: ItinerarySegment[]): number | null {
 /**
  * How long after its scheduled departure the disrupted flight left, or AeroAPI expected it to leave: the
  * longest of every estimate and the actual time kept, so an announced delay that later shrank still counts.
+ * Unknown for a diverted flight, and for one AeroAPI re-timed by an hour or more, where a delay against the
+ * booked time is ambiguous.
  */
-function departureDelayMinutes(scheduledOut: string | null, observed: ObservedFlight[]): number | null {
-  const scheduled = time(scheduledOut);
+function departureDelayMinutes(bookedOut: number | null, observed: ObservedFlight[]): number | null {
+  if (bookedOut === null || observed.some((o) => o.diverted)) return null;
+  const rescheduled = time(observed.at(-1)?.scheduledOut ?? null);
+  if (rescheduled !== null && Math.abs(rescheduled - bookedOut) >= HOUR) return null;
   const seen = observed.flatMap((o) => [time(o.estimatedOut), time(o.actualOut)]).filter((t): t is number => t !== null);
-  return scheduled === null || seen.length === 0 ? null : Math.max(0, Math.floor((Math.max(...seen) - scheduled) / MINUTE));
-}
-
-interface OfferTimes {
-  leaves: number;
-  arrives: number | null;
+  return seen.length === 0 ? null : Math.max(0, Math.floor((Math.max(...seen) - bookedOut) / MINUTE));
 }
 
 /**
- * When a re-routing leaves, and when it reaches the journey's final destination. A rebooking often repeats the
- * flights that did not change, so the re-routing starts at its first flight that is not on the booking. Its
- * arrival counts only if every flight from there connects (lands before the next one leaves) up to one that
- * reaches the final destination.
+ * Whole days of notice the airline gave, known only when we watched the change happen: the last snapshot still
+ * showing the original schedule and uncancelled, and the moment the incident was detected, bound when the
+ * airline can have told the passenger. Both bounds must give the same day count.
  */
-function offerTimes(offer: ItinerarySegment[], booked: ItinerarySegment[], finalDestination: string | null): OfferTimes | null {
-  const start = offer.findIndex((f) => !booked.some((b) => sameFlight(b, f)));
-  const leaves = start < 0 ? null : time(offer[start].scheduledOut);
-  if (leaves === null) return null;
-  for (let i = start; i < offer.length; i += 1) {
-    const landed = time(offer[i].scheduledIn);
-    if (landed === null) break;
-    if (offer[i].destinationIata === finalDestination) return { leaves, arrives: landed };
-    const next = time(offer[i + 1]?.scheduledOut ?? null);
-    if (next === null || next < landed) break;
-  }
-  return { leaves, arrives: null };
-}
-
-/**
- * The offer the contract says to report: of those leaving no more than 1 hour (notice under 7 days) or 2 hours
- * (notice under 14 days) early, the one that arrives soonest; if none does, any of them. Its arrival is unknown
- * while any offer in the running hides its own, since that one might arrive sooner.
- */
-function chooseOffer(offers: OfferTimes[], bookedOut: number, noticeDays: number): OfferTimes | null {
-  const limit = noticeDays < 7 ? HOUR : noticeDays < 14 ? 2 * HOUR : Infinity;
-  const inLimit = offers.filter((o) => bookedOut - o.leaves <= limit);
-  const running = inLimit.length > 0 ? inLimit : offers;
-  const soonest = [...running].sort((a, b) => (a.arrives ?? Infinity) - (b.arrives ?? Infinity))[0];
-  if (!soonest) return null;
-  return running.some((o) => o.arrives === null) ? { leaves: soonest.leaves, arrives: null } : soonest;
+function noticeDaysOf(bookedOut: number | null, detectedAt: string, observed: ObservedFlight[]): number | null {
+  if (bookedOut === null) return null;
+  const stillOriginal = observed.filter((o) => !o.cancelled && !o.diverted && time(o.scheduledOut) === bookedOut).map((o) => Date.parse(o.observedAt));
+  if (stillOriginal.length === 0) return null;
+  const days = (toldAt: number) => Math.max(0, Math.floor((bookedOut - toldAt) / DAY));
+  const early = days(Math.max(...stillOriginal));
+  return early === days(Date.parse(detectedAt)) ? early : null;
 }
 
 /** A fact is set only when we know it, so matchRules reports "may apply, needs X" rather than a wrong answer. */
 export function buildSituation(input: SituationInput): Situation {
   const { type, observed } = input.event;
+  const operator = input.segment.operatorIata;
   const s: Situation = {
     'event.type': type,
-    'flight.carrier_iata': input.segment.carrierIata,
-    'flight.carrier_is_us': US_CARRIERS.has(input.segment.carrierIata),
-    'flight.carrier_is_eu': EU_CARRIERS.has(input.segment.carrierIata),
     'trip.booked_via': input.booking.bookedVia ? 'ota' : 'direct',
   };
+  // The carrier facts are about the operating airline, not the marketing code on the confirmation.
+  if (operator) s['flight.carrier_iata'] = operator;
+  const carrierIsUs = isUsCarrier(operator);
+  const carrierIsEu = isEuCarrier(operator);
+  if (carrierIsUs !== null) s['flight.carrier_is_us'] = carrierIsUs;
+  if (carrierIsEu !== null) s['flight.carrier_is_eu'] = carrierIsEu;
   if (input.event.delayMinutes !== null) s['event.delay_minutes'] = input.event.delayMinutes;
   const bookedOut = time(input.segment.scheduledOut);
-  const noticeDays = bookedOut === null ? null : Math.max(0, Math.floor((bookedOut - Date.parse(input.event.detectedAt)) / DAY));
+  const noticeDays = noticeDaysOf(bookedOut, input.event.detectedAt, observed);
   if (noticeDays !== null) s['event.notice_days'] = noticeDays;
 
   const { originCountry: origin, destinationCountry: destination } = input.segment;
@@ -198,10 +164,11 @@ export function buildSituation(input: SituationInput): Situation {
     s['flight.touches_us'] = US_JURISDICTION.has(origin) || US_JURISDICTION.has(destination);
     s['flight.is_domestic_us'] = US_JURISDICTION.has(origin) && US_JURISDICTION.has(destination);
   }
-  if (input.segment.distanceKm !== null) s['flight.leg_distance_km'] = input.segment.distanceKm;
+  const legDistance = input.segment.distanceKm === null ? null : certainDistance(input.segment.distanceKm);
+  if (legDistance !== null) s['flight.leg_distance_km'] = legDistance;
 
   if (type === 'delay') {
-    const departureDelay = departureDelayMinutes(input.segment.scheduledOut, observed);
+    const departureDelay = departureDelayMinutes(bookedOut, observed);
     if (departureDelay !== null) s['event.departure_delay_minutes'] = departureDelay;
   }
   // A schedule change is the same flight at a new time: AeroAPI's latest scheduled departure.
@@ -211,17 +178,18 @@ export function buildSituation(input: SituationInput): Situation {
     s['event.departure_moved_earlier_minutes'] = Math.max(0, Math.floor((bookedOut - newOut) / MINUTE));
   }
 
+  // Booking-level and journey facts need the disrupted flight to be found on the booking.
   const segments = input.booking.segments;
-  if (segments.length > 1) s['flight.single_ticket'] = true;
-  if (segments.length > 0) {
+  const journey = positionOf(segments, input.segment) === null ? null : journeyOf(segments, input.segment);
+  if (positionOf(segments, input.segment) !== null) {
     const touches = anyTrue(segments.map((seg) => anyTrue([isUs(seg.originCountry), isUs(seg.destinationCountry)])));
     if (touches !== null) s['trip.touches_us'] = touches;
     const domestic = allTrue(segments.map((seg) => allTrue([isUs(seg.originCountry), isUs(seg.destinationCountry)])));
     if (domestic !== null) s['trip.itinerary_domestic_us'] = domestic;
     // The airline the booking was made with: known when every flight on it is a U.S. airline's, or none is.
-    const usCarrier = segments.map((seg) => US_CARRIERS.has(seg.carrierIata));
-    if (usCarrier.every(Boolean)) s['trip.booked_with_us_carrier'] = true;
-    else if (usCarrier.every((v) => !v)) s['trip.booked_with_us_carrier'] = false;
+    const usCarrier = segments.map((seg) => isUsCarrier(seg.operatorIata));
+    if (usCarrier.every((v) => v === true)) s['trip.booked_with_us_carrier'] = true;
+    else if (usCarrier.every((v) => v === false)) s['trip.booked_with_us_carrier'] = false;
     if (input.booking.bookedAt && segments.every((seg) => seg.scheduledOut)) {
       const firstDeparture = Math.min(...segments.map((seg) => Date.parse(seg.scheduledOut!)));
       s['trip.hours_booked_before_departure'] = Math.max(0, Math.floor((firstDeparture - latestBookingMoment(input.booking.bookedAt)) / HOUR));
@@ -229,22 +197,23 @@ export function buildSituation(input: SituationInput): Situation {
   }
 
   // The journey: this flight and those it connects with, in its direction, on this booking.
-  const journey = journeyOf(segments, input.segment);
   if (journey) {
+    if (journey.length > 1) s['flight.single_ticket'] = true;
     const start = journey[0];
     const end = journey[journey.length - 1];
     if (start.originCountry) s['trip.journey_departs_eu'] = EU_MEMBER_STATES.has(start.originCountry);
     if (end.destinationCountry) s['trip.journey_arrives_eu'] = EU_MEMBER_STATES.has(end.destinationCountry);
     const from = input.airports[start.originIata];
     const to = input.airports[end.destinationIata];
-    // To the nearest 10 km, as Task 4 rounds a single flight's distance.
-    if (from && to) s['flight.distance_km'] = Math.round(haversineKm(from, to) / 10) * 10;
+    const journeyDistance = from && to ? certainDistance(haversineKm(from, to)) : null;
+    if (journeyDistance !== null) s['flight.distance_km'] = journeyDistance;
     const nonstop = usForeignNonstopMinutes(journey);
     if (nonstop !== null) s['trip.us_foreign_nonstop_minutes'] = nonstop;
   }
 
-  // The re-routing offered after a cancellation or a schedule change: set only when an offer is known.
-  if ((type === 'cancellation' || type === 'schedule_change') && bookedOut !== null && noticeDays !== null) {
+  // The re-routing offered after a cancellation or a schedule change: set only when an offer is known and
+  // every time it needs is known.
+  if ((type === 'cancellation' || type === 'schedule_change') && bookedOut !== null) {
     const offers = [...input.event.offers];
     if (type === 'schedule_change' && latest?.scheduledOut) {
       // The changed flight itself counts as an offer, with the rest of the journey as booked.
@@ -252,19 +221,23 @@ export function buildSituation(input: SituationInput): Situation {
       offers.push(journey ? journey.map((f) => (sameFlight(f, input.segment) ? changed : f)) : [changed]);
     }
     const end = journey?.[journey.length - 1] ?? null;
-    const timed = offers.map((o) => offerTimes(o, segments, end?.destinationIata ?? null)).filter((o): o is OfferTimes => o !== null);
-    const offer = chooseOffer(timed, bookedOut, noticeDays);
-    if (offer) {
-      s['event.reroute_departs_early_minutes'] = Math.max(0, Math.floor((bookedOut - offer.leaves) / MINUTE));
-      const plannedArrival = time(end?.scheduledIn ?? null);
-      if (offer.arrives !== null && plannedArrival !== null) {
-        s['event.reroute_arrival_delay_minutes'] = Math.max(0, Math.floor((offer.arrives - plannedArrival) / MINUTE));
+    const timed = offers.map((o) => offerTimes(o, segments, input.segment.originIata, end?.destinationIata ?? null));
+    if (timed.length > 0 && !timed.includes('unknown')) {
+      const offer = chooseOffer(timed as OfferTimes[], bookedOut, noticeDays);
+      if (offer) {
+        s['event.reroute_departs_early_minutes'] = Math.max(0, Math.floor((bookedOut - offer.leaves) / MINUTE));
+        const plannedArrival = time(end?.scheduledIn ?? null);
+        if (offer.arrives !== null && plannedArrival !== null) {
+          s['event.reroute_arrival_delay_minutes'] = Math.max(0, Math.floor((offer.arrives - plannedArrival) / MINUTE));
+        }
       }
     }
   }
 
-  // passenger.volunteered, passenger.accepted_alternative, and event.cause come only from the planner's answers,
-  // and so do the re-routing facts while no offer is known.
-  for (const [fact, value] of Object.entries(input.answers)) s[fact as FactName] = value;
+  // The planner's answers fill only the facts a traveler can answer, and only while nothing derived is known.
+  for (const fact of ASK_ORDER) {
+    const answer = input.answers[fact];
+    if (answer !== undefined && !(fact in s)) s[fact] = answer;
+  }
   return s;
 }

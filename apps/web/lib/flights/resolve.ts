@@ -18,6 +18,8 @@ export type Resolution =
       originCountry: string | null;
       destinationCountry: string | null;
       distanceKm: number | null;
+      /** The operating airline's IATA code, from the matched schedule; null when AeroAPI's ident does not parse. */
+      operatorIata: string | null;
     }
   | { kind: 'not_found'; reason: 'invalid_departure' | 'unknown_origin_timezone' | 'no_matching_flight' };
 
@@ -48,6 +50,11 @@ function minutesBetweenLocal(a: string, b: string): number {
   return Math.abs(new Date(`${a}:00Z`).getTime() - new Date(`${b}:00Z`).getTime()) / 60000;
 }
 
+/** The airline prefix of an ident such as "TP204" or "9K1234", or null when it is not that shape. */
+function airlineOf(ident: string | null | undefined): string | null {
+  return ident?.match(/^([A-Z0-9]{2})\d{1,4}[A-Z]?$/)?.[1] ?? null;
+}
+
 /** Turns "TP 204, Nov 3 18:15 local" into scheduled UTC times, countries, and distance. */
 export async function resolveSegment(segment: SegmentToResolve, api: AeroApi): Promise<Resolution> {
   if (!LOCAL_DATETIME.test(segment.departureLocal) || Number.isNaN(Date.parse(`${segment.departureLocal}:00Z`))) {
@@ -74,7 +81,7 @@ export async function resolveSegment(segment: SegmentToResolve, api: AeroApi): P
 
   const distance =
     origin?.latitude != null && origin.longitude != null && destination?.latitude != null && destination.longitude != null
-      ? Math.round(haversineKm({ latitude: origin.latitude, longitude: origin.longitude }, { latitude: destination.latitude, longitude: destination.longitude }) / 10) * 10
+      ? Math.round(haversineKm({ latitude: origin.latitude, longitude: origin.longitude }, { latitude: destination.latitude, longitude: destination.longitude }))
       : null;
   return {
     kind: 'resolved',
@@ -83,5 +90,7 @@ export async function resolveSegment(segment: SegmentToResolve, api: AeroApi): P
     originCountry: origin?.country_code ?? null,
     destinationCountry: destination?.country_code ?? null,
     distanceKm: distance,
+    // actual_ident_iata is AeroAPI's operating ident on a codeshare; otherwise the scheduled ident's airline.
+    operatorIata: airlineOf(match.actual_ident_iata) ?? airlineOf(match.ident_iata),
   };
 }

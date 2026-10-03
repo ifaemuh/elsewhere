@@ -213,6 +213,7 @@ export async function correctFlight(tripId: string, segmentId: string, _prev: Fo
       origin_country: null,
       destination_country: null,
       distance_km: null,
+      operator_iata: null,
       fa_flight_id: null,
       last_status: null,
     })

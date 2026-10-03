@@ -1,5 +1,17 @@
 import { FACTS, isFactName, type MatchResult, type Primitive } from '@elsewhere/rules/core';
 
+/** Thrown for an answer to a fact we never ask about, or a value the question does not offer. */
+export class PlannerAnswerError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'PlannerAnswerError';
+  }
+}
+
+/** The option that records a mixed group: it leaves the fact unset, so rules that turn on it stay "may apply". */
+const MIXED = 'mixed';
+const MIXED_OPTION = { value: MIXED, label: 'Some of us did, some didn’t' };
+
 export interface PlannerQuestion {
   fact: string;
   prompt: string;
@@ -12,15 +24,16 @@ export interface PlannerAnswer {
 }
 
 /**
- * For a number fact, each option's value is the smallest number in its band, so an answer never makes a rule
- * apply that the real time might not.
+ * For a number fact, each option's value is the smallest number in its band, and the bands line up with the
+ * rules' thresholds, so an answer never makes a rule apply that the real time might not.
  */
 const ASKABLE: Record<string, Omit<PlannerQuestion, 'fact'>> = {
   'passenger.accepted_alternative': {
-    prompt: 'Did anyone accept the airline’s new flight or a travel credit?',
+    prompt: 'Did anyone accept the airline’s new flight, the changed flight, or a travel credit?',
     options: [
       { value: 'false', label: 'No, not yet' },
       { value: 'true', label: 'Yes, we accepted it' },
+      MIXED_OPTION,
     ],
   },
   'event.reroute_arrival_delay_minutes': {
@@ -28,8 +41,8 @@ const ASKABLE: Record<string, Omit<PlannerQuestion, 'fact'>> = {
     options: [
       { value: '0', label: 'At or before the original time' },
       { value: '1', label: 'Less than 2 hours later' },
-      { value: '120', label: '2 to 3 hours later' },
-      { value: '180', label: '3 to 4 hours later' },
+      { value: '120', label: '2 hours or more but under 3 hours later' },
+      { value: '180', label: '3 hours or more but under 4 hours later' },
       { value: '240', label: '4 hours or more later' },
       { value: '1440', label: 'The airline hasn’t offered a new flight' },
     ],
@@ -48,6 +61,7 @@ const ASKABLE: Record<string, Omit<PlannerQuestion, 'fact'>> = {
     options: [
       { value: 'false', label: 'No, the airline took our seats' },
       { value: 'true', label: 'Yes, we volunteered' },
+      MIXED_OPTION,
     ],
   },
   'event.cause': {
@@ -78,7 +92,15 @@ export function nextQuestion(results: MatchResult[], alreadyAsked: string[]): Pl
   return fact ? { fact, ...ASKABLE[fact] } : null;
 }
 
-export function answerValue(answer: PlannerAnswer): Primitive {
+/**
+ * The value of a planner's answer: a boolean for a yes/no fact, a number for a number fact. Undefined for "mixed",
+ * which leaves the fact unset. Throws PlannerAnswerError for a fact we don't ask about or a value off the list.
+ */
+export function answerValue(answer: PlannerAnswer): Primitive | undefined {
+  const question = ASKABLE[answer.fact];
+  if (!(ASK_ORDER as readonly string[]).includes(answer.fact) || !question) throw new PlannerAnswerError(`${answer.fact} is not a question we ask`);
+  if (!question.options.some((o) => o.value === answer.value)) throw new PlannerAnswerError(`${JSON.stringify(answer.value)} is not an option for ${answer.fact}`);
+  if (answer.value === MIXED) return undefined;
   if (answer.value === 'true') return true;
   if (answer.value === 'false') return false;
   if (isFactName(answer.fact) && FACTS[answer.fact].type === 'number') return Number(answer.value);
