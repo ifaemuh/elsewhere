@@ -1,5 +1,6 @@
 import 'server-only';
 import type { Primitive } from '@elsewhere/rules/core';
+import { adminEmails } from '@/lib/admin/emails';
 import { appUrl } from '@/lib/env';
 import { aeroApi } from '@/lib/flights/aeroapi';
 import { incidentAlert, incidentNotice, questionNotice, reviewHoldNotice } from '@/lib/notify/templates';
@@ -237,7 +238,7 @@ export async function unnotifiedIncidentIds(segmentId: string): Promise<string[]
 
 export async function requestReview(incidentId: string): Promise<void> {
   const admin = createAdminClient();
-  const emails = (process.env.ADMIN_EMAILS ?? '').split(',').map((e) => e.trim().toLowerCase()).filter(Boolean);
+  const emails = adminEmails();
   if (emails.length === 0) return;
   const { data: admins, error } = await admin.from('profiles').select('id').in('email', emails);
   if (error) throw new Error(error.message);
