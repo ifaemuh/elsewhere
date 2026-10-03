@@ -2,7 +2,7 @@ import type { Primitive, Situation } from '@elsewhere/rules/core';
 import { haversineKm } from '@/lib/flights/geo';
 import { EU_MEMBER_STATES, ICELAND_NORWAY_SWITZERLAND, UK, US_JURISDICTION } from '@/lib/flights/regions';
 import { isEuCarrier, isUsCarrier } from './carriers';
-import { chooseOffer, DAY, HOUR, journeyOf, MINUTE, offerTimes, positionOf, sameFlight, time, type OfferTimes } from './journey';
+import { chooseOffer, DAY, departsEarlyMinutes, HOUR, journeyOf, MINUTE, offerTimes, positionOf, sameFlight, time } from './journey';
 import { ASK_ORDER, storedAnswerFits } from './questions';
 
 /** One flight on the booking. The itinerary and journey facts are computed over all of them. */
@@ -222,26 +222,21 @@ export function buildSituation(input: SituationInput): Situation {
     if (nonstop !== null) s['trip.us_foreign_nonstop_minutes'] = nonstop;
   }
 
-  // The re-routing offered after a cancellation or a schedule change: set only when an offer is known and
-  // every time it needs is known.
-  if ((type === 'cancellation' || type === 'schedule_change') && bookedOut !== null) {
+  // The re-routing offered after a cancellation or a schedule change: set only when an offer is known and the
+  // itinerary it gives the passenger makes the value certain. Without the journey, nothing is.
+  if ((type === 'cancellation' || type === 'schedule_change') && bookedOut !== null && journey) {
     const offers = [...input.event.offers];
     if (type === 'schedule_change' && latest?.scheduledOut) {
       // The changed flight itself counts as an offer, with the rest of the journey as booked.
       const changed = { ...input.segment, scheduledOut: latest.scheduledOut, scheduledIn: latest.scheduledIn };
-      offers.push(journey ? journey.map((f) => (sameFlight(f, input.segment) ? changed : f)) : [changed]);
+      offers.push(journey.map((f) => (sameFlight(f, input.segment) ? changed : f)));
     }
-    const end = journey?.[journey.length - 1] ?? null;
-    const timed = offers.map((o) => offerTimes(o, segments, input.segment, journey, end?.destinationIata ?? null));
-    if (timed.length > 0 && !timed.includes('unknown')) {
-      const offer = chooseOffer(timed as OfferTimes[], bookedOut, noticeDays);
-      if (offer) {
-        s['event.reroute_departs_early_minutes'] = Math.max(0, Math.floor((bookedOut - offer.leaves) / MINUTE));
-        const plannedArrival = time(end?.scheduledIn ?? null);
-        if (offer.arrives !== null && plannedArrival !== null) {
-          s['event.reroute_arrival_delay_minutes'] = Math.max(0, Math.floor((offer.arrives - plannedArrival) / MINUTE));
-        }
-      }
+    const timed = offers.map((o) => offerTimes(o, journey, segments, input.segment, type === 'cancellation'));
+    const offer = chooseOffer(timed, bookedOut, noticeDays);
+    if (offer?.leaves != null) s['event.reroute_departs_early_minutes'] = departsEarlyMinutes(bookedOut, offer.leaves);
+    const plannedArrival = time(journey[journey.length - 1].scheduledIn);
+    if (offer?.arrives != null && plannedArrival !== null) {
+      s['event.reroute_arrival_delay_minutes'] = Math.max(0, Math.floor((offer.arrives - plannedArrival) / MINUTE));
     }
   }
 

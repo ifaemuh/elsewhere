@@ -61,76 +61,92 @@ export function journeyOf(segments: ItinerarySegment[], flight: ItinerarySegment
 }
 
 export interface OfferTimes {
-  /** When the offer's flight from the disrupted flight's origin airport leaves. */
-  leaves: number;
-  /** When the offer reaches the journey's final destination; null when its connections do not hold up to it. */
+  /** When the re-routing's new flight from the disrupted flight's origin airport leaves; null while not certain. */
+  leaves: number | null;
+  /** When the re-routing reaches the journey's final destination; null while not certain. */
   arrives: number | null;
 }
 
-/**
- * When a re-routing leaves the origin airport, and when it reaches the journey's final destination. Returns
- * 'unknown' while a time it needs is missing, or the offer has no flight from the origin or nothing new on it.
- * A rebooking often repeats the flights that did not change, so the arrival is read from its first flight that is
- * not on the booking: every flight from there must land at least MIN_CONNECTION_MINUTES before the next one
- * leaves from the same airport, up to one that reaches the final destination. Otherwise the arrival is null.
- *
- * The booked feeder (the journey flight into the disrupted flight's origin) is checked against the first new
- * flight too, whether or not the offer repeats it: a new flight that leaves before the feeder lands is
- * contradictory (unknown), and a gap under the minimum leaves the arrival unset. The disrupted flight itself,
- * when an offer lists it, is not a feeder.
- */
-export function offerTimes(
-  offer: ItinerarySegment[],
-  booked: ItinerarySegment[],
-  disrupted: ItinerarySegment,
-  journey: ItinerarySegment[] | null,
-  finalDestination: string | null,
-): OfferTimes | 'unknown' {
-  const origin = disrupted.originIata;
-  const leaves = time(offer.find((f) => f.originIata === origin)?.scheduledOut ?? null);
-  const start = offer.findIndex((f) => !booked.some((b) => sameFlight(b, f)));
-  if (leaves === null || start < 0) return 'unknown';
+const UNKNOWN: OfferTimes = { leaves: null, arrives: null };
 
-  const at = journey?.findIndex((f) => sameFlight(f, disrupted)) ?? -1;
-  const feeder = at > 0 ? journey![at - 1] : null;
-  const first = offer[start];
-  const prev = start > 0 ? offer[start - 1] : null;
-  const feederInto = feeder && ((prev && sameFlight(prev, feeder)) || first.originIata === origin) ? feeder : null;
-  if (feederInto) {
-    const landed = time(feederInto.scheduledIn);
-    const out = time(first.scheduledOut);
-    if (landed === null || out === null) return 'unknown';
-    if (out < landed) return 'unknown';
-    if (first.originIata !== feederInto.destinationIata || out - landed < MIN_CONNECTION_MINUTES * MINUTE) return { leaves, arrives: null };
+/** `event.reroute_departs_early_minutes` for a re-routing leaving at `leaves`: 0 if at or after the booked departure. */
+export const departsEarlyMinutes = (bookedOut: number, leaves: number): number => Math.max(0, Math.floor((bookedOut - leaves) / MINUTE));
+
+/**
+ * What a re-routing offer means for the passenger: the itinerary they would actually fly, and from it when the
+ * re-routing leaves the disrupted flight's origin and when it reaches the journey's final destination.
+ *
+ * 1. A cancelled flight won't operate, so a listed copy of it is dropped from the offer.
+ * 2. The offer's new flights are those not on the booking. A rebooking often repeats booked flights, of this
+ *    journey or of another (a re-issued ticket lists the return too); without a new flight, nothing is known.
+ * 3. The offer takes over at the journey airport its first new flight leaves from. The itinerary is the journey's
+ *    flights before that airport, then the offer's flights from its first new one on. If the offer stops short of
+ *    the final destination, the booked flights onward from where it stops complete it; the disrupted flight never
+ *    does. A takeover airport that isn't on the journey makes the offer unknown.
+ * 4. The itinerary must hold end to end: each flight leaves the airport the one before reached, with both times
+ *    known, at least MIN_CONNECTION_MINUTES after it lands, and the last reaches the final destination, at a known
+ *    time. Otherwise its arrival is null. A flight that leaves before the one before it lands, or flying the
+ *    disrupted flight as booked, is contradictory, and makes the departure unknown too; so does a connection whose
+ *    times are unknown, since it could hide a contradiction.
+ * 5. The departure is that of the itinerary's one new flight from the disrupted flight's origin airport. A listed
+ *    copy of the disrupted flight never counts; with no such flight, or several, the departure is unknown.
+ */
+export function offerTimes(offer: ItinerarySegment[], journey: ItinerarySegment[], booked: ItinerarySegment[], disrupted: ItinerarySegment, cancelled: boolean): OfferTimes {
+  const at = journey.findIndex((f) => sameFlight(f, disrupted));
+  const flights = cancelled ? offer.filter((f) => !sameFlight(f, disrupted)) : offer;
+  const isNew = (f: ItinerarySegment) => !booked.some((b) => sameFlight(b, f));
+  const first = flights.findIndex(isNew);
+  if (first < 0) return UNKNOWN;
+  const takeover = journey.findIndex((f) => f.originIata === flights[first].originIata);
+  if (takeover < 0) return UNKNOWN;
+  const flown = [...journey.slice(0, takeover), ...flights.slice(first)];
+  const finalDestination = journey[journey.length - 1].destinationIata;
+  const stop = flown[flown.length - 1].destinationIata;
+  if (stop !== finalDestination) {
+    const onward = journey.findIndex((f) => f.originIata === stop);
+    if (onward > at) flown.push(...journey.slice(onward));
   }
-  for (let i = start; i < offer.length; i += 1) {
-    const landed = time(offer[i].scheduledIn);
-    if (landed === null) return 'unknown';
-    if (offer[i].destinationIata === finalDestination) return { leaves, arrives: landed };
-    const next = offer[i + 1];
-    if (!next) break;
-    const nextOut = time(next.scheduledOut);
-    if (nextOut === null) return 'unknown';
-    // A new flight that leaves before the flight into its airport lands is contradictory data: unknown.
-    // (A booked flight left behind by a late new one is a known missed connection: the arrival is unset.)
-    if (nextOut < landed && !booked.some((b) => sameFlight(b, next))) return 'unknown';
-    if (next.originIata !== offer[i].destinationIata || nextOut - landed < MIN_CONNECTION_MINUTES * MINUTE) break;
+  if (flown.some((f) => sameFlight(f, disrupted))) return UNKNOWN;
+
+  let holds = flown[flown.length - 1].destinationIata === finalDestination && flown.filter(isNew).every((f) => time(f.scheduledOut) !== null && time(f.scheduledIn) !== null);
+  let ordered = true;
+  for (let i = 1; i < flown.length; i += 1) {
+    const landed = time(flown[i - 1].scheduledIn);
+    const leaves = time(flown[i].scheduledOut);
+    if (landed === null || leaves === null) {
+      ordered = false;
+      holds = false;
+    } else if (leaves < landed) {
+      return UNKNOWN;
+    } else if (flown[i].originIata !== flown[i - 1].destinationIata || leaves - landed < MIN_CONNECTION_MINUTES * MINUTE) {
+      holds = false;
+    }
   }
-  return { leaves, arrives: null };
+  const departing = flown.filter((f) => isNew(f) && f.originIata === disrupted.originIata);
+  return {
+    leaves: ordered && departing.length === 1 ? time(departing[0].scheduledOut) : null,
+    arrives: holds ? time(flown[flown.length - 1].scheduledIn) : null,
+  };
 }
 
 /**
  * The offer the contract says to report: of those leaving no more than 1 hour (notice under 7 days, or unknown) or
- * 2 hours (notice under 14 days) early, the one that arrives soonest; if none does, any of them. Its arrival is
- * unknown while any offer in the running hides its own, since that one might arrive sooner: then nothing is
- * reported, unless every offer in the running leaves at the same time, so the departure is certain.
+ * 2 hours (notice under 14 days) early, the one that arrives soonest; if none does, any of them. A lone offer is
+ * reported as it is. With several, which one is meant turns on when each leaves, so an unknown departure leaves
+ * nothing reported. An unknown arrival among those in the running does too, since that one might arrive sooner,
+ * unless every one in the running gives the same early departure: then that is reported, without an arrival.
+ * Arrivals that tie report the smaller early departure, the one less favourable to a claim, so the result never
+ * depends on the order the offers came in.
  */
 export function chooseOffer(offers: OfferTimes[], bookedOut: number, noticeDays: number | null): OfferTimes | null {
+  if (offers.length <= 1) return offers[0] ?? null;
+  if (offers.some((o) => o.leaves === null)) return null;
+  const early = (o: OfferTimes) => departsEarlyMinutes(bookedOut, o.leaves!);
   const limit = noticeDays === null || noticeDays < 7 ? HOUR : noticeDays < 14 ? 2 * HOUR : Infinity;
-  const inLimit = offers.filter((o) => bookedOut - o.leaves <= limit);
+  const inLimit = offers.filter((o) => bookedOut - o.leaves! <= limit);
   const running = inLimit.length > 0 ? inLimit : offers;
-  const soonest = [...running].sort((a, b) => (a.arrives ?? Infinity) - (b.arrives ?? Infinity))[0];
-  if (!soonest) return null;
-  if (!running.some((o) => o.arrives === null)) return soonest;
-  return running.every((o) => o.leaves === soonest.leaves) ? { leaves: soonest.leaves, arrives: null } : null;
+  if (running.some((o) => o.arrives === null)) {
+    return running.every((o) => early(o) === early(running[0])) ? { leaves: running[0].leaves, arrives: null } : null;
+  }
+  return running.reduce((best, o) => (o.arrives! < best.arrives! || (o.arrives === best.arrives && early(o) < early(best)) ? o : best));
 }

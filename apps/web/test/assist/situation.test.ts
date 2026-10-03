@@ -253,9 +253,9 @@ describe('EU261 facts', () => {
       'event.reroute_departs_early_minutes': 0,
       'event.reroute_arrival_delay_minutes': 0,
     });
-    // One that lands after the connection leaves makes the arrival unknown.
+    // One that lands after the connection leaves gives an itinerary that contradicts itself, so neither is known.
     const missed = change(roundTrip[0], '2026-11-03T22:30:00Z', '2026-11-04T01:00:00Z');
-    expect(missed['event.reroute_departs_early_minutes']).toBe(0);
+    expect(missed).not.toHaveProperty('event.reroute_departs_early_minutes');
     expect(missed).not.toHaveProperty('event.reroute_arrival_delay_minutes');
   });
 
