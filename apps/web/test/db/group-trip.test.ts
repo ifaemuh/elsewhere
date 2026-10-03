@@ -844,3 +844,71 @@ describe('leaving a trip with an open balance (Task 15)', () => {
     expect(still.n).toBe(1);
   });
 });
+
+describe('admin and retention (Task 16)', () => {
+  it('accepts the comp pass /admin writes, and rejects a variant or status it does not know', async () => {
+    await asService(db, () =>
+      db.query("insert into public.passes (trip_id, price_variant, amount_cents, status, created_by, paid_at) values ($1, 'comp', 0, 'comp', $2, now())", [tripId, PLANNER]),
+    );
+    const seen = await asUser(db, MEMBER, () => db.query('select status from public.passes where trip_id = $1', [tripId]));
+    expect(seen.rows).toEqual([{ status: 'comp' }]);
+    await rejects(() => asService(db, () => db.query("insert into public.passes (trip_id, price_variant, amount_cents) values ($1, 'free', 0)", [tripId])), /check|violates/);
+    await asService(db, () => db.query('delete from public.passes where trip_id = $1', [tripId]));
+  });
+
+  it('selects only received, never-claimed mail older than an hour for the sweep', async () => {
+    await asService(db, () =>
+      db.query(
+        `insert into public.inbound_messages (trip_id, source, status, claimed_by, received_at) values
+           ($1, 'email', 'received', null, now() - interval '2 hours'),
+           ($1, 'email', 'received', null, now() - interval '5 minutes'),
+           ($1, 'email', 'received', 'run-1', now() - interval '2 hours'),
+           ($1, 'email', 'quarantined', null, now() - interval '2 hours'),
+           ($1, 'email', 'processing', null, now() - interval '2 hours')`,
+        [tripId],
+      ),
+    );
+    const stuck = await asService(db, () =>
+      db.query("select status, claimed_by from public.inbound_messages where trip_id = $1 and status = 'received' and claimed_by is null and received_at < now() - interval '1 hour'", [tripId]),
+    );
+    expect(stuck.rows).toHaveLength(1);
+    await asService(db, () => db.query('delete from public.inbound_messages where trip_id = $1', [tripId]));
+  });
+
+  it('deleting a trip’s bookings takes its segments and incidents with it, and leaves the trip', async () => {
+    const t = await asUser(db, PLANNER, async () =>
+      (await one<{ id: string }>(`select public.create_trip('Old trip', 'PT', '2025-01-03', '2025-01-10', 'trip-old-c2c2c2', 'Pat', null, '{}'::jsonb) as id`)).id,
+    );
+    const counts = await asService(db, async () => {
+      const booking = await one<{ id: string }>(
+        `insert into public.bookings (trip_id, kind, provider, extraction_confidence, dedupe_key) values ($1, 'flight', 'TAP', 0.9, 'old-trip') returning id`,
+        [t],
+      );
+      const segment = await one<{ id: string }>(
+        `insert into public.booking_segments (booking_id, trip_id, position, carrier_iata, flight_number, origin_iata, destination_iata, departure_local)
+         values ($1, $2, 1, 'TP', '204', 'EWR', 'LIS', '2025-01-03T18:15') returning id`,
+        [booking.id, t],
+      );
+      await db.query(`insert into public.incidents (trip_id, segment_id, event_type, dedupe_key) values ($1, $2, 'delay', 'old-trip:delay')`, [t, segment.id]);
+      await db.query('delete from public.bookings where trip_id = $1', [t]);
+      return one<{ segments: number; incidents: number; trips: number }>(
+        `select (select count(*) from public.booking_segments where trip_id = $1)::int as segments,
+                (select count(*) from public.incidents where trip_id = $1)::int as incidents,
+                (select count(*) from public.trips where id = $1)::int as trips`,
+        [t],
+      );
+    });
+    expect(counts).toEqual({ segments: 0, incidents: 0, trips: 1 });
+  });
+
+  it('keeps a document the member chose to keep when retention deletes by user', async () => {
+    const KEEPER = '00000000-0000-4000-8000-0000000000c6';
+    await createAuthUser(db, { id: KEEPER, email: 'keeper@example.test' });
+    await asUser(db, KEEPER, () =>
+      db.query("insert into public.member_documents (user_id, kind, issuing_country, expires_on, keep_on_profile) values ($1, 'passport', 'US', '2030-01-01', true), ($1, 'real_id', null, null, false)", [KEEPER]),
+    );
+    await asService(db, () => db.query('delete from public.member_documents where user_id = any($1) and keep_on_profile = false', [[KEEPER]]));
+    const left = await asService(db, () => db.query<{ kind: string }>('select kind from public.member_documents where user_id = $1', [KEEPER]));
+    expect(left.rows).toEqual([{ kind: 'passport' }]);
+  });
+});
