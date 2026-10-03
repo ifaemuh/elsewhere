@@ -15,6 +15,9 @@ export async function incidentWorkflow(incidentId: string) {
     // that was already recorded) finds the group already told, and sends nothing.
     if (await notifiedStep(incidentId)) return { incidentId, status: 'duplicate' as const, playbookId: null };
 
+    // Before anything is known to apply: tell the people on the booking what happened, and that a plan follows.
+    await alertStep(incidentId);
+
     const { question } = await assessStep(incidentId);
     if (question) {
       // The hook exists before the planner is asked, so an answer that arrives right after the text still gets through.
@@ -57,6 +60,11 @@ async function withPorts<T>(run: (ports: WorkflowPorts) => Promise<T>): Promise<
 async function notifiedStep(incidentId: string) {
   'use step';
   return withPorts((ports) => ports.isNotified(incidentId));
+}
+
+async function alertStep(incidentId: string) {
+  'use step';
+  await withPorts((ports) => ports.alertAffected(incidentId));
 }
 
 async function assessStep(incidentId: string) {

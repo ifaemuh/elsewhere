@@ -1,6 +1,6 @@
 import { getRun, resumeHook, start } from 'workflow/api';
 import { waitForHook, waitForSleep } from '@workflow/vitest';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { memoryState, resetMemoryPorts } from '@/lib/workflows/memory-ports';
 import { incidentAnswerToken, incidentReleaseToken } from '@/lib/workflows/tokens';
 import { incidentWorkflow } from '@/workflows/incident';
@@ -8,6 +8,43 @@ import { incidentWorkflow } from '@/workflows/incident';
 beforeEach(() => resetMemoryPorts());
 
 describe('incidentWorkflow', () => {
+  it('runs the whole flow in order: heads-up, question, answer, playbook, plan ready', async () => {
+    const state = memoryState();
+    state.questions.set('inc-8', { fact: 'event.cause', prompt: 'Why?', options: [] });
+    const run = await start(incidentWorkflow, ['inc-8']);
+    await waitForHook(run, { token: incidentAnswerToken('inc-8') });
+    // The heads-up is out, and the question is asked after it; nothing else has happened yet.
+    // (The answer hook exists before the question goes out, so wait for the ask step itself.)
+    await vi.waitFor(() => expect(state.calls).toEqual(['alert:inc-8', 'ask:inc-8']));
+    expect(state.alerted).toEqual(['inc-8']);
+    expect(state.notified).toEqual([]);
+    await resumeHook(incidentAnswerToken('inc-8'), { fact: 'event.cause', value: 'unknown' });
+    expect(await run.returnValue).toEqual({ incidentId: 'inc-8', status: 'notified', playbookId: 'pb-inc-8' });
+    expect(state.answers.get('inc-8')).toEqual({ fact: 'event.cause', value: 'unknown' });
+    expect(state.notified).toEqual(['inc-8']);
+    expect(state.alerted).toEqual(['inc-8']);
+  });
+
+  it('sends the heads-up at once on a hand-run trip, while the playbook waits for review', async () => {
+    const state = memoryState();
+    state.reviewed.add('inc-9');
+    const run = await start(incidentWorkflow, ['inc-9']);
+    await waitForHook(run, { token: incidentReleaseToken('inc-9') });
+    expect(state.alerted).toEqual(['inc-9']);
+    expect(state.notified).toEqual([]);
+    expect(state.released).toEqual([]);
+    await resumeHook(incidentReleaseToken('inc-9'), { releasedBy: 'founder' });
+    await run.returnValue;
+    expect(state.notified).toEqual(['inc-9']);
+  });
+
+  it('sends no second heads-up when a finished incident is started again', async () => {
+    const state = memoryState();
+    await (await start(incidentWorkflow, ['inc-10'])).returnValue;
+    await (await start(incidentWorkflow, ['inc-10'])).returnValue;
+    expect(state.calls.filter((c) => c === 'alert:inc-10')).toHaveLength(1);
+  });
+
   it('asks the planner, waits for the answer, drafts the playbook, and notifies', async () => {
     const state = memoryState();
     state.questions.set('inc-1', { fact: 'passenger.accepted_alternative', prompt: 'Did anyone accept?', options: [] });

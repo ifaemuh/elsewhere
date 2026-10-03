@@ -19,11 +19,29 @@ function sms(body: string, url: string): string {
   return `${prefix}${chars.length > room ? `${chars.slice(0, room - 3).join('')}...` : text} ${url}`;
 }
 
-export function incidentNotice({ tripName, headline, url }: { tripName: string; headline: string; url: string }): Rendered {
+/** The planner's version of an incident notice when nobody is assigned to the booking. */
+function nobodyOnBooking(bookingsUrl: string): string {
+  return `Nobody is on this booking yet. Add who's flying: ${bookingsUrl}`;
+}
+
+/** The plan-ready notice, sent once the playbook is drafted (and released, on a hand-run trip). */
+export function incidentNotice({ tripName, headline, url, bookingsUrl }: { tripName: string; headline: string; url: string; bookingsUrl?: string }): Rendered {
+  return {
+    subject: `${tripName}: your plan is ready`,
+    text: `${headline}\n\nYour plan is ready. We drafted what you’re owed and what to send, with the rules cited:\n${url}${bookingsUrl ? `\n\n${nobodyOnBooking(bookingsUrl)}` : ''}\n\nElsewhere drafts; you decide and send. Not legal advice.`,
+    sms: sms(`Your plan is ready. ${headline}${bookingsUrl ? ' Nobody is on this booking yet.' : ''}`, bookingsUrl ?? url),
+  };
+}
+
+/**
+ * The early heads-up, sent when an incident is detected and before anything is known to apply: the fact, and that a
+ * plan follows. It claims no entitlement. With `bookingsUrl`, it goes to the planner because nobody is on the booking.
+ */
+export function incidentAlert({ tripName, headline, url, bookingsUrl }: { tripName: string; headline: string; url: string; bookingsUrl?: string }): Rendered {
   return {
     subject: `${tripName}: ${headline}`,
-    text: `${headline}\n\nWe drafted what you’re owed and what to send, with the rules cited:\n${url}\n\nElsewhere drafts; you decide and send. Not legal advice.`,
-    sms: sms(headline, url),
+    text: `${headline} We're checking which passenger protections apply and will send your plan here: ${url}${bookingsUrl ? `\n\n${nobodyOnBooking(bookingsUrl)}` : ''}`,
+    sms: sms(`${headline} We're checking which protections apply.${bookingsUrl ? ' Nobody is on this booking yet.' : ''}`, bookingsUrl ?? url),
   };
 }
 

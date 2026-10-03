@@ -422,7 +422,7 @@ create table public.incidents (
 create table public.incident_events (
   id uuid primary key default gen_random_uuid(),
   incident_id uuid not null references public.incidents(id) on delete cascade,
-  kind text not null check (kind in ('detected', 'question_asked', 'answered', 'playbook_generated', 'playbook_edited', 'notified', 'resolved')),
+  kind text not null check (kind in ('detected', 'alerted', 'question_asked', 'answered', 'playbook_generated', 'playbook_edited', 'notified', 'resolved')),
   actor_user_id uuid references public.profiles(id),
   detail jsonb not null default '{}',
   created_at timestamptz not null default now()

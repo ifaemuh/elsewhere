@@ -18,6 +18,7 @@ interface MemoryState {
   reviewRequested: string[];
   released: string[];
   notified: string[];
+  alerted: string[];
   segmentIncidents: Map<string, string[]>;
   /** Make unnotifiedIncidentIds throw, to show a failed start does not end monitoring. */
   unnotifiedFails: boolean;
@@ -29,7 +30,7 @@ const KEY = '__elsewhereWorkflowMemory';
 
 export function memoryState(): MemoryState {
   const g = globalThis as unknown as Record<string, MemoryState | undefined>;
-  g[KEY] ??= { segments: new Map(), alertFails: false, monitorStates: new Map(), pollResults: [], ended: [], troubled: [], preTrip: [], calls: [], questions: new Map(), answers: new Map(), reviewed: new Set(), reviewRequested: [], released: [], notified: [], segmentIncidents: new Map(), unnotifiedFails: false, answerOnAsk: new Map() };
+  g[KEY] ??= { segments: new Map(), alertFails: false, monitorStates: new Map(), pollResults: [], ended: [], troubled: [], preTrip: [], calls: [], questions: new Map(), answers: new Map(), reviewed: new Set(), reviewRequested: [], released: [], notified: [], alerted: [], segmentIncidents: new Map(), unnotifiedFails: false, answerOnAsk: new Map() };
   return g[KEY]!;
 }
 
@@ -78,6 +79,10 @@ export function memoryPorts(): WorkflowPorts {
     },
     async isNotified(incidentId) {
       return state.notified.includes(incidentId);
+    },
+    async alertAffected(incidentId) {
+      state.calls.push(`alert:${incidentId}`);
+      if (!state.alerted.includes(incidentId)) state.alerted.push(incidentId);
     },
     async askPlanner(incidentId) {
       state.calls.push(`ask:${incidentId}`);

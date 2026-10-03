@@ -28,6 +28,8 @@ export interface WorkflowPorts {
   assessIncident(incidentId: string): Promise<{ question: PlannerQuestion | null }>;
   /** True once the group has been notified of the incident. */
   isNotified(incidentId: string): Promise<boolean>;
+  /** The early heads-up to the affected people (or the planner, when nobody is on the booking). */
+  alertAffected(incidentId: string): Promise<void>;
   askPlanner(incidentId: string, question: PlannerQuestion): Promise<void>;
   recordAnswer(incidentId: string, answer: PlannerAnswer | null): Promise<void>;
   generatePlaybook(incidentId: string): Promise<{ playbookId: string; held: boolean }>;

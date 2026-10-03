@@ -56,7 +56,7 @@ vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: () => ({ from }) }))
 vi.mock('@/lib/assist/playbook', () => ({ generatePlaybook }));
 vi.mock('@/lib/rules/library', () => ({ getLibrary: () => ({ rules: [] }) }));
 
-import { askPlanner, notifyAffected, recordAnswer, releaseHeldPlaybooks, savePlaybook, unnotifiedIncidentIds } from '@/lib/assist/incidents';
+import { alertAffected, askPlanner, notifyAffected, recordAnswer, releaseHeldPlaybooks, savePlaybook, unnotifiedIncidentIds } from '@/lib/assist/incidents';
 
 const question = { fact: 'passenger.accepted_alternative', prompt: 'Did anyone accept?', options: [] };
 const writes = (table: string, op: Op['op']) => ops.filter((o) => o.table === table && o.op === op).map((o) => o.payload);
@@ -210,7 +210,7 @@ describe('notifyAffected', () => {
     await notifyAffected('inc');
     expect(queueNotifications).toHaveBeenCalledWith(expect.objectContaining({ userIds: ['u1', 'u2'], tripId: 't1', template: 'incident', urgent: true, relatedEntityId: 'inc' }));
     expect(JSON.stringify(queueNotifications.mock.calls[0][0])).toContain('TP 204 from EWR on Nov 3 was cancelled.');
-    expect(writes('incident_events', 'insert')).toEqual([{ incident_id: 'inc', kind: 'notified', detail: { users: 2 } }]);
+    expect(writes('incident_events', 'insert')).toEqual([{ incident_id: 'inc', kind: 'notified', detail: { users: 2, planner_only: false } }]);
   });
 
   it('sends the alert only once when the event insert fails and the step is retried', async () => {
@@ -223,7 +223,7 @@ describe('notifyAffected', () => {
     await expect(notifyAffected('inc')).rejects.toThrow('incident_events insert failed');
     await notifyAffected('inc');
     expect(queueNotifications).toHaveBeenCalledTimes(1);
-    expect(writes('incident_events', 'insert')).toEqual([{ incident_id: 'inc', kind: 'notified', detail: { users: 2 } }]);
+    expect(writes('incident_events', 'insert')).toEqual([{ incident_id: 'inc', kind: 'notified', detail: { users: 2, planner_only: false } }]);
   });
 
   it('queues the alert exactly once when delivery throws after the rows were queued', async () => {
@@ -254,6 +254,85 @@ describe('notifyAffected', () => {
     await notifyAffected('inc');
     expect(queueNotifications).not.toHaveBeenCalled();
     expect(ops).toEqual([]);
+  });
+});
+
+describe('alertAffected (the early heads-up)', () => {
+  const incident = (over: Record<string, unknown> = {}) => ({
+    trip_id: 't1',
+    event_type: 'cancellation',
+    delay_minutes: null,
+    affected_user_ids: ['u1', 'u2'],
+    booking_segments: { carrier_iata: 'TP', flight_number: '204', origin_iata: 'LIS', departure_local: '2026-11-03T18:15' },
+    trips: { name: 'Lisbon 2026' },
+    ...over,
+  });
+  const sent = () => queueNotifications.mock.calls.map((c) => c[0] as { userIds: string[]; template: string; rendered: { subject: string; text: string; sms: string }; urgent: boolean });
+
+  it('tells the people on the booking what happened, without claiming anything is owed', async () => {
+    selects.incident_events = { data: [], error: null };
+    selects.incidents = { data: incident(), error: null };
+    await alertAffected('inc');
+    const [notice] = sent();
+    expect(notice).toMatchObject({ userIds: ['u1', 'u2'], template: 'incident_alert', urgent: true });
+    expect(notice.rendered.text).toContain('TP 204 from LIS on Nov 3 was cancelled.');
+    expect(notice.rendered.text).toContain('https://elsewhere.test/trips/t1/incidents/inc');
+    expect(writes('incident_events', 'insert')).toEqual([{ incident_id: 'inc', kind: 'alerted', detail: { users: 2, planner_only: false } }]);
+  });
+
+  it('uses factual words for a delay, a diversion and a schedule change', async () => {
+    selects.incident_events = { data: [], error: null };
+    for (const over of [{ event_type: 'delay', delay_minutes: 200 }, { event_type: 'delay', delay_minutes: null }, { event_type: 'schedule_change' }]) {
+      queueNotifications.mockClear();
+      selects.incidents = { data: incident(over), error: null };
+      await alertAffected('inc');
+      const { rendered } = sent()[0];
+      expect(`${rendered.subject} ${rendered.text} ${rendered.sms}`).not.toMatch(/owed|will get|compensation|refund|entitled/i);
+    }
+  });
+
+  it('sends once when the event insert fails and the step is retried, and not at all for a second run', async () => {
+    const queued: { id: string }[] = [];
+    selects.notifications = { data: queued, error: null };
+    queueNotifications.mockImplementation(async () => void queued.push({ id: 'n1' }));
+    selects.incident_events = { data: [], error: null };
+    selects.incidents = { data: incident(), error: null };
+    failInsert.add('incident_events');
+    await expect(alertAffected('inc')).rejects.toThrow('incident_events insert failed');
+    await alertAffected('inc');
+    expect(queueNotifications).toHaveBeenCalledTimes(1);
+    // A second run finds the alerted event.
+    selects.incident_events = { data: [{ detail: {} }], error: null };
+    await alertAffected('inc');
+    expect(queueNotifications).toHaveBeenCalledTimes(1);
+  });
+
+  it('goes to the planner, with the link to add who is flying, when nobody is on the booking', async () => {
+    selects.incident_events = { data: [], error: null };
+    selects.incidents = { data: incident({ affected_user_ids: [] }), error: null };
+    selects.trip_members = { data: { user_id: 'planner-1' }, error: null };
+    await alertAffected('inc');
+    const [notice] = sent();
+    expect(notice.userIds).toEqual(['planner-1']);
+    expect(notice.rendered.text).toContain("Nobody is on this booking yet. Add who's flying: https://elsewhere.test/trips/t1/bookings");
+    expect(writes('incident_events', 'insert')[0]).toMatchObject({ kind: 'alerted', detail: { users: 1, planner_only: true } });
+  });
+
+  it('sends the plan-ready notice to the planner too, and never records notified without a recipient', async () => {
+    selects.incident_events = { data: [], error: null };
+    selects.incidents = { data: incident({ affected_user_ids: [] }), error: null };
+    selects.trip_members = { data: { user_id: 'planner-1' }, error: null };
+    await notifyAffected('inc');
+    const [notice] = sent();
+    expect(notice).toMatchObject({ userIds: ['planner-1'], template: 'incident' });
+    expect(notice.rendered.text).toContain("Nobody is on this booking yet. Add who's flying: https://elsewhere.test/trips/t1/bookings");
+
+    queueNotifications.mockClear();
+    ops.length = 0;
+    selects.trip_members = { data: null, error: null };
+    await expect(notifyAffected('inc')).rejects.toThrow(/nobody to notify/);
+    expect(queueNotifications).not.toHaveBeenCalled();
+    expect(writes('incident_events', 'insert')).toEqual([]);
   });
 });
 

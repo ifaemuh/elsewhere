@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { briefingNotice, documentNotice, incidentNotice, questionNotice, reviewHoldNotice, voteNotice } from '@/lib/notify/templates';
+import { briefingNotice, documentNotice, incidentAlert, incidentNotice, questionNotice, reviewHoldNotice, voteNotice } from '@/lib/notify/templates';
 
 describe('templates', () => {
   it('keeps SMS short and always includes the link', () => {
@@ -26,9 +26,54 @@ describe('templates', () => {
   });
 });
 
+describe('incidentAlert (the early heads-up)', () => {
+  const url = 'https://x.test/trips/1/incidents/2';
+  const bookingsUrl = 'https://x.test/trips/1/bookings';
+  const headlines = [
+    'TP 204 from LIS on Nov 3 was cancelled.',
+    'A3 349 from ATH on Nov 5 is running 3 h 20 min late.',
+    'A3 349 from ATH on Nov 5 was diverted.',
+    'TP 204 from EWR on Nov 3 was moved to a new time.',
+  ];
+  const FORBIDDEN = /owed|will get|compensation|refund|entitled/i;
+
+  it('states the fact, promises a plan, and links to the incident', () => {
+    const notice = incidentAlert({ tripName: 'Lisbon 2026', headline: headlines[0], url });
+    expect(notice.subject).toBe('Lisbon 2026: TP 204 from LIS on Nov 3 was cancelled.');
+    expect(notice.text).toContain("We're checking which passenger protections apply and will send your plan here:");
+    expect(notice.text).toContain(url);
+    expect(notice.sms).toContain(url);
+    expect(notice.sms.length).toBeLessThanOrEqual(320);
+  });
+
+  it('claims no entitlement, for any kind of event, to the group or to the planner', () => {
+    for (const headline of headlines) {
+      for (const notice of [incidentAlert({ tripName: 'Lisbon 2026', headline, url }), incidentAlert({ tripName: 'Lisbon 2026', headline, url, bookingsUrl })]) {
+        expect(`${notice.subject}\n${notice.text}\n${notice.sms}`).not.toMatch(FORBIDDEN);
+      }
+    }
+  });
+
+  it('tells the planner nobody is on the booking, with the bookings link', () => {
+    const notice = incidentAlert({ tripName: 'Lisbon 2026', headline: headlines[0], url, bookingsUrl });
+    expect(notice.text).toContain(`Nobody is on this booking yet. Add who's flying: ${bookingsUrl}`);
+    expect(notice.sms).toContain(bookingsUrl);
+    expect(incidentAlert({ tripName: 'T', headline: 'H', url }).text).not.toContain('Nobody is on this booking');
+  });
+
+  it('says the plan is ready in the later notice, and adds the planner line only when asked', () => {
+    const ready = incidentNotice({ tripName: 'Lisbon 2026', headline: headlines[0], url });
+    expect(ready.subject).toContain('your plan is ready');
+    expect(ready.text).toContain('We drafted');
+    expect(ready.text).not.toContain('Nobody is on this booking');
+    expect(incidentNotice({ tripName: 'T', headline: 'H', url, bookingsUrl }).text).toContain(`Nobody is on this booking yet. Add who's flying: ${bookingsUrl}`);
+  });
+});
+
 describe('templates, SMS safety and copy rules', () => {
   const all = () => [
     incidentNotice({ tripName: 'T', headline: 'H', url: 'https://x.test/a' }),
+    incidentAlert({ tripName: 'T', headline: 'H', url: 'https://x.test/a' }),
     questionNotice({ tripName: 'T', prompt: 'P', url: 'https://x.test/a' }),
     voteNotice({ tripName: 'T', title: 'V', url: 'https://x.test/a' }),
     documentNotice({ tripName: 'T', url: 'https://x.test/a' }),

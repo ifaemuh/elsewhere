@@ -487,6 +487,11 @@ describe('hand-run trips and held playbooks (Task 12)', () => {
     expect(read.rows[0]).toEqual({ s: { cancelled: false }, at: '2026-11-01T08:00' });
   });
 
+  it('accepts the alerted event kind and rejects an unknown one', async () => {
+    await asService(db, () => db.query("insert into public.incident_events (incident_id, kind) values ($1, 'alerted')", [incidentId]));
+    await rejects(() => asService(db, () => db.query("insert into public.incident_events (incident_id, kind) values ($1, 'shouted')", [incidentId])), /check|violates/);
+  });
+
   it('hides a held playbook from the planner and the affected members until it is released', async () => {
     await asService(db, () =>
       db.query(

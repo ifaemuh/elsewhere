@@ -2,7 +2,7 @@ import 'server-only';
 import type { Primitive } from '@elsewhere/rules/core';
 import { appUrl } from '@/lib/env';
 import { aeroApi } from '@/lib/flights/aeroapi';
-import { incidentNotice, questionNotice, reviewHoldNotice } from '@/lib/notify/templates';
+import { incidentAlert, incidentNotice, questionNotice, reviewHoldNotice } from '@/lib/notify/templates';
 import { queueNotifications } from '@/lib/notify/queue';
 import { getLibrary } from '@/lib/rules/library';
 import { createAdminClient } from '@/lib/supabase/admin';
@@ -246,9 +246,11 @@ export async function requestReview(incidentId: string): Promise<void> {
   });
 }
 
-/** Alerts the people on the booking, once: a restarted run finds the `notified` event and sends nothing. */
-export async function notifyAffected(incidentId: string): Promise<void> {
-  if (await isNotified(incidentId)) return;
+/**
+ * Who an incident notice goes to, and its words. The people on the booking; when nobody is, the trip's planner, with a
+ * link to add who is flying. The planner is never left without a notice: no recipient at all is an error.
+ */
+async function noticeFor(incidentId: string) {
   const admin = createAdminClient();
   const { data: incident, error } = await admin
     .from('incidents')
@@ -259,27 +261,66 @@ export async function notifyAffected(incidentId: string): Promise<void> {
   if (!incident) throw new Error(`incident ${incidentId} not found`);
   const segment = first(incident.booking_segments as Record<string, string> | Record<string, string>[])!;
   const trip = first(incident.trips as { name: string } | { name: string }[])!;
-  // A retry after the messages were queued but before the event was written must not send them again.
-  if (!(await alreadyQueued(incidentId, 'incident'))) {
+  let userIds: string[] = incident.affected_user_ids;
+  let bookingsUrl: string | undefined;
+  if (userIds.length === 0) {
+    const { data: planner, error: plannerError } = await admin.from('trip_members').select('user_id').eq('trip_id', incident.trip_id).eq('role', 'planner').maybeSingle();
+    if (plannerError) throw new Error(`planner of incident ${incidentId} could not be read: ${plannerError.message}`);
+    if (!planner) throw new Error(`incident ${incidentId} has nobody to notify: no one on the booking and no planner`);
+    userIds = [planner.user_id];
+    bookingsUrl = `${appUrl()}/trips/${incident.trip_id}/bookings`;
+  }
+  return {
+    tripId: incident.trip_id as string,
+    tripName: trip.name,
+    userIds,
+    bookingsUrl,
+    url: `${appUrl()}/trips/${incident.trip_id}/incidents/${incidentId}`,
+    headline: summarizeEvent({
+      carrierIata: segment.carrier_iata,
+      flightNumber: segment.flight_number,
+      originIata: segment.origin_iata,
+      departureLocal: segment.departure_local,
+      eventType: incident.event_type,
+      delayMinutes: incident.delay_minutes,
+    }),
+  };
+}
+
+/**
+ * The early heads-up: the fact, and that a plan follows. Sent as soon as the incident run starts, whatever the trip, before
+ * any question or playbook. Once only: a retried step or a second run finds the queued notification or the event.
+ */
+export async function alertAffected(incidentId: string): Promise<void> {
+  if (await hasEvent(incidentId, 'alerted')) return;
+  const notice = await noticeFor(incidentId);
+  if (!(await alreadyQueued(incidentId, 'incident_alert'))) {
     await queueNotifications({
-      userIds: incident.affected_user_ids,
-      tripId: incident.trip_id,
-      template: 'incident',
-      rendered: incidentNotice({
-        tripName: trip.name,
-        headline: summarizeEvent({
-          carrierIata: segment.carrier_iata,
-          flightNumber: segment.flight_number,
-          originIata: segment.origin_iata,
-          departureLocal: segment.departure_local,
-          eventType: incident.event_type,
-          delayMinutes: incident.delay_minutes,
-        }),
-        url: `${appUrl()}/trips/${incident.trip_id}/incidents/${incidentId}`,
-      }),
+      userIds: notice.userIds,
+      tripId: notice.tripId,
+      template: 'incident_alert',
+      rendered: incidentAlert({ tripName: notice.tripName, headline: notice.headline, url: notice.url, bookingsUrl: notice.bookingsUrl }),
       urgent: true,
       relatedEntityId: incidentId,
     });
   }
-  check(await admin.from('incident_events').insert({ incident_id: incidentId, kind: 'notified', detail: { users: incident.affected_user_ids.length } }));
+  check(await createAdminClient().from('incident_events').insert({ incident_id: incidentId, kind: 'alerted', detail: { users: notice.userIds.length, planner_only: notice.bookingsUrl !== undefined } }));
+}
+
+/** The "your plan is ready" notice, once: a restarted run finds the `notified` event and sends nothing. */
+export async function notifyAffected(incidentId: string): Promise<void> {
+  if (await isNotified(incidentId)) return;
+  const notice = await noticeFor(incidentId);
+  // A retry after the messages were queued but before the event was written must not send them again.
+  if (!(await alreadyQueued(incidentId, 'incident'))) {
+    await queueNotifications({
+      userIds: notice.userIds,
+      tripId: notice.tripId,
+      template: 'incident',
+      rendered: incidentNotice({ tripName: notice.tripName, headline: notice.headline, url: notice.url, bookingsUrl: notice.bookingsUrl }),
+      urgent: true,
+      relatedEntityId: incidentId,
+    });
+  }
+  check(await createAdminClient().from('incident_events').insert({ incident_id: incidentId, kind: 'notified', detail: { users: notice.userIds.length, planner_only: notice.bookingsUrl !== undefined } }));
 }
