@@ -11,6 +11,7 @@ const base = {
   myVoteIds: [],
   nextSegment: null,
   myNetCents: 0,
+  quarantinedMessageIds: ['msg-9'],
 };
 
 describe('buildFeed', () => {
@@ -47,8 +48,14 @@ describe('buildFeed', () => {
     expect(isAllClear(cards)).toBe(true);
   });
 
-  it('keeps the planner’s feed to their own action items', () => {
+  it('shows the planner every open action item RLS gives them, and a member only their own', () => {
     const others = { id: 'a3', title: 'Check your travel documents', detail: 'x', source_kind: 'document_check', related_entity_id: 'm2', assigned_user_ids: ['sam'] };
-    expect(buildFeed({ ...base, actionItems: [others] })).toEqual([]);
+    expect(buildFeed({ ...base, actionItems: [others] }).map((c) => c.id)).toEqual(['a3']);
+    expect(buildFeed({ ...base, isPlanner: false, meId: 'pat', actionItems: [others] })).toEqual([]);
+  });
+
+  it('hides a quarantine approval once its message is no longer quarantined', () => {
+    const item = { id: 'a2', title: 'Approve a forwarded email', detail: 'x', source_kind: 'inbound_quarantine', related_entity_id: 'msg-9', assigned_user_ids: ['pat'] };
+    expect(buildFeed({ ...base, quarantinedMessageIds: [], actionItems: [item] })).toEqual([]);
   });
 });

@@ -819,4 +819,28 @@ describe('leaving a trip with an open balance (Task 15)', () => {
     await asService(db, () => db.query('delete from public.trips where id = $1', [trip]));
     expect((await onTrip(JOINER)).n).toBe(0);
   });
+
+  // A constraint on any future account-deletion flow: deleting a user cascades their trip_members rows, and the
+  // trigger refuses while they owe or are owed. Settle (or remove the ledger) first. This pins today's behaviour.
+  it('refuses to cascade a profile or auth user away while they hold a share-only balance', async () => {
+    const SHARER = '00000000-0000-4000-8000-0000000000c5';
+    await createAuthUser(db, { id: SHARER, email: 'sharer@example.test', displayName: 'Shar' });
+    const t = await asUser(db, PLANNER, async () =>
+      (await one<{ id: string }>(`select public.create_trip('Cascade', 'PT', '2026-11-03', '2026-11-10', 'trip-cascade-c5c5', 'Pat', null, '{}'::jsonb) as id`)).id,
+    );
+    await asUser(db, PLANNER, () => db.query("select public.set_join_token($1, $2, now() + interval '7 days')", [t, 'cascade-invite-token-0123456789']));
+    await asUser(db, SHARER, () => db.query("select public.join_trip($1, 'Shar')", ['cascade-invite-token-0123456789']));
+    await asUser(db, PLANNER, () =>
+      db.query("insert into public.expenses (trip_id, payer_user_id, amount_cents, description, split, created_by) values ($1, $2, 4000, 'Dinner', $3::jsonb, $2)", [
+        t,
+        PLANNER,
+        JSON.stringify({ kind: 'shares', shares: { [PLANNER]: 1000, [SHARER]: 3000 } }),
+      ]),
+    );
+    await rejects(() => asService(db, () => db.query('delete from public.profiles where id = $1', [SHARER])), /settle up before leaving/);
+    // The shim gives service_role no grant on auth.users, so delete as the harness owner.
+    await rejects(() => db.query('delete from auth.users where id = $1', [SHARER]), /settle up before leaving/);
+    const still = await asService(db, () => one<{ n: number }>('select count(*)::int as n from public.trip_members where trip_id = $1 and user_id = $2', [t, SHARER]));
+    expect(still.n).toBe(1);
+  });
 });

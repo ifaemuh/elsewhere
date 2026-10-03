@@ -12,14 +12,25 @@ export async function approveQuarantined(messageId: string, tripId: string | nul
   if (tripId) update = update.eq('trip_id', tripId);
   const { data: message, error } = await update.select('id, trip_id').maybeSingle();
   if (error) throw new Error(error.message);
-  if (!message) return false;
+  const flipped = message !== null;
+  let found = message;
+  if (!found) {
+    // Not quarantined (any more): if it is this trip's message, its approval item may be stuck open from an earlier
+    // failed close, so close it again. Closing is idempotent and the caller still starts nothing.
+    let lookup = admin.from('inbound_messages').select('id, trip_id').eq('id', messageId);
+    if (tripId) lookup = lookup.eq('trip_id', tripId);
+    const { data, error: lookupError } = await lookup.maybeSingle();
+    if (lookupError) throw new Error(lookupError.message);
+    found = data;
+  }
+  if (!found) return false;
   const { error: itemError } = await admin
     .from('action_items')
     .update({ status: 'done' })
-    .eq('trip_id', message.trip_id)
+    .eq('trip_id', found.trip_id)
     .eq('source_kind', 'inbound_quarantine')
     .eq('related_entity_id', messageId);
-  // The message is already approved; a stale card is better than leaving it approved with intake never started.
+  // A failed close must not undo the approval or skip intake; the feed also hides items whose message is no longer quarantined.
   if (itemError) console.error('could not close the approval item', messageId, itemError.message);
-  return true;
+  return flipped;
 }

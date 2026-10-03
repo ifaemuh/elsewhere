@@ -60,7 +60,7 @@ async function TripContent({ params, searchParams }: { params: Params; searchPar
   const { data: isPlanner } = await supabase.rpc('is_trip_planner', { p_trip_id: trip.id });
 
   // Every read goes through the user's client, so RLS decides what this person may see.
-  const [{ data: actionItems }, { data: incidents }, { data: votes }, { data: myResponses }, { data: segments }, { data: expenses }, { data: settlements }] = await Promise.all([
+  const [{ data: actionItems }, { data: incidents }, { data: votes }, { data: myResponses }, { data: segments }, { data: expenses }, { data: settlements }, { data: quarantined }] = await Promise.all([
     supabase.from('action_items').select('id, title, detail, source_kind, related_entity_id, assigned_user_ids').eq('trip_id', id).eq('status', 'open'),
     supabase.from('incidents').select('id, status, event_type, delay_minutes').eq('trip_id', id).neq('status', 'resolved').order('detected_at', { ascending: false }),
     supabase.from('votes').select('id, title, status, required_user_ids').eq('trip_id', id).eq('status', 'open'),
@@ -68,6 +68,8 @@ async function TripContent({ params, searchParams }: { params: Params; searchPar
     supabase.from('booking_segments').select('carrier_iata, flight_number, origin_iata, destination_iata, departure_local').eq('trip_id', id).gt('scheduled_out', new Date().toISOString()).order('scheduled_out').limit(1),
     supabase.from('expenses').select('payer_user_id, amount_cents, split').eq('trip_id', id),
     supabase.from('settlements').select('from_user_id, to_user_id, amount_cents').eq('trip_id', id),
+    // Planner-only under RLS; empty for everyone else.
+    supabase.from('inbound_messages').select('id').eq('trip_id', id).eq('status', 'quarantined'),
   ]);
   const cards = buildFeed({
     tripId: id,
@@ -77,6 +79,7 @@ async function TripContent({ params, searchParams }: { params: Params; searchPar
     incidents: (incidents ?? []).map((i) => ({ id: i.id, status: i.status, summary: summaryFor(i) })),
     votes: votes ?? [],
     myVoteIds: (myResponses ?? []).map((r) => r.vote_id),
+    quarantinedMessageIds: (quarantined ?? []).map((m) => m.id),
     nextSegment: segments?.[0] ?? null,
     myNetCents: balances((expenses ?? []).map((e) => ({ ...e, split: e.split as Split })), settlements ?? [])[user.id] ?? 0,
   });

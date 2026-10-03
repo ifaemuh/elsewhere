@@ -16,6 +16,8 @@ export interface FeedInput {
   myVoteIds: string[];
   nextSegment: { carrier_iata: string; flight_number: string; origin_iata: string; destination_iata: string; departure_local: string } | null;
   myNetCents: number;
+  /** Ids of this trip's inbound messages still waiting for approval; a quarantine item for any other message is stale. */
+  quarantinedMessageIds: string[];
 }
 
 const usd = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
@@ -43,12 +45,11 @@ export function buildFeed(input: FeedInput): FeedCard[] {
 
   const actions: FeedCard[] = input.actionItems.flatMap((item): FeedCard[] => {
     if (item.source_kind === 'inbound_quarantine') {
-      return input.isPlanner && item.related_entity_id
+      return input.isPlanner && item.related_entity_id && input.quarantinedMessageIds.includes(item.related_entity_id)
         ? [{ kind: 'quarantine', id: item.id, title: item.title, detail: item.detail, messageId: item.related_entity_id }]
         : [];
     }
-    // "My" action items: RLS also shows the planner other people's, which are not theirs to do.
-    if (!item.assigned_user_ids.includes(input.meId)) return [];
+    if (!input.isPlanner && !item.assigned_user_ids.includes(input.meId)) return [];
     if (item.source_kind === 'incident') return [];
     return [{ kind: 'action', id: item.id, title: item.title, detail: item.detail, href: ACTION_LINKS[item.source_kind]?.(t) ?? null }];
   });
