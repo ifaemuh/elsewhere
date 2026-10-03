@@ -17,7 +17,13 @@ function from(table: string) {
   const q: Record<string, unknown> = {};
   const result = (): Result => selects[table] ?? { data: null, error: null };
   // A query awaited as a list reads `table[]`, so one table can serve a single row and a list.
-  const list = (): Result => selects[`${table}[]`] ?? result();
+  const list = (): Result => {
+    const found = selects[`${table}[]`] ?? result();
+    // Honour `gt` filters on rows that carry the column, as the database would.
+    const gts = filters.filter((f) => f[0] === 'gt');
+    if (!Array.isArray(found.data) || gts.length === 0) return found;
+    return { ...found, data: found.data.filter((row: Record<string, unknown>) => gts.every(([, column, value]) => row[column as string] === undefined || String(row[column as string]) > String(value))) };
+  };
   const write = (op: Op['op']) => (payload: Record<string, unknown>) => {
     ops.push({ table, op, payload, filters });
     return Object.assign(Object.create(q) as object, { then: (resolve: (v: Result) => void) => resolve({ data: null, error: null }) });
@@ -50,23 +56,31 @@ function from(table: string) {
 
 const queueNotifications = vi.hoisted(() => vi.fn(async (_input: unknown) => undefined));
 const generatePlaybook = vi.hoisted(() => vi.fn());
-vi.mock('@/lib/notify/queue', () => ({ queueNotifications }));
+const flushDue = vi.hoisted(() => vi.fn(async () => 0));
+vi.mock('@/lib/notify/queue', () => ({ queueNotifications, flushDue }));
 vi.mock('@/lib/flights/aeroapi', () => ({ aeroApi: async () => ({ airport: async () => null }) }));
 vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: () => ({ from }) }));
 vi.mock('@/lib/assist/playbook', () => ({ generatePlaybook }));
 vi.mock('@/lib/rules/library', () => ({ getLibrary: () => ({ rules: [] }) }));
 
-import { alertAffected, askPlanner, notifyAffected, recordAnswer, releaseHeldPlaybooks, savePlaybook, unnotifiedIncidentIds } from '@/lib/assist/incidents';
+import { alertAffected, askPlanner, notifyAffected, recordAnswer, releaseHeldPlaybooks, requestReview, savePlaybook, unnotifiedIncidentIds } from '@/lib/assist/incidents';
 
 const question = { fact: 'passenger.accepted_alternative', prompt: 'Did anyone accept?', options: [] };
+const members = [
+  { user_id: 'u1', role: 'member' },
+  { user_id: 'u2', role: 'member' },
+  { user_id: 'planner-1', role: 'planner' },
+];
 const writes = (table: string, op: Op['op']) => ops.filter((o) => o.table === table && o.op === op).map((o) => o.payload);
 
 beforeEach(() => {
   process.env.NEXT_PUBLIC_APP_URL = 'https://elsewhere.test';
   for (const key of Object.keys(selects)) delete selects[key];
+  selects['trip_members[]'] = { data: members, error: null };
   ops.length = 0;
   failInsert.clear();
   queueNotifications.mockReset().mockResolvedValue(undefined);
+  flushDue.mockClear();
   generatePlaybook.mockReset();
 });
 
@@ -121,7 +135,31 @@ describe('askPlanner', () => {
     await expect(askPlanner('inc', question)).rejects.toThrow('incident_events insert failed');
     await askPlanner('inc', question);
     expect(queueNotifications).toHaveBeenCalledTimes(1);
+    expect(flushDue).toHaveBeenCalledTimes(1);
     expect(writes('incident_events', 'insert')).toHaveLength(1);
+  });
+
+  it('asks a different question after an earlier one was texted, even though its row exists', async () => {
+    const other = { fact: 'event.cause', prompt: 'Did the airline say why?', options: [] };
+    // Fact A was texted at 10:00 and its event written; the run failed; the restarted run asks fact B.
+    selects.notifications = { data: [{ id: 'nA', created_at: '2026-11-01T10:00:00Z' }], error: null };
+    selects.incident_events = { data: [{ created_at: '2026-11-01T10:00:01Z', detail: { fact: question.fact } }], error: null };
+    selects.incidents = { data: { trip_id: 't1', trips: { name: 'Lisbon 2026' } }, error: null };
+    selects.trip_members = { data: { user_id: 'planner-1' }, error: null };
+    await askPlanner('inc', other);
+    expect(queueNotifications).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(queueNotifications.mock.calls[0][0])).toContain('Did the airline say why?');
+    expect(writes('incident_events', 'insert')).toEqual([{ incident_id: 'inc', kind: 'question_asked', detail: { fact: 'event.cause' } }]);
+  });
+
+  it('counts any queued question text when no question was ever recorded', async () => {
+    selects.notifications = { data: [{ id: 'n1', created_at: '2026-11-01T10:00:00Z' }], error: null };
+    selects.incident_events = { data: [], error: null };
+    selects.incidents = { data: { trip_id: 't1', trips: { name: 'Lisbon 2026' } }, error: null };
+    selects.trip_members = { data: { user_id: 'planner-1' }, error: null };
+    await askPlanner('inc', question);
+    expect(queueNotifications).not.toHaveBeenCalled();
+    expect(flushDue).toHaveBeenCalledTimes(1);
   });
 
   it('does not ask, or text the planner, again on a retry', async () => {
@@ -221,8 +259,11 @@ describe('notifyAffected', () => {
     selects.incidents = { data: incident, error: null };
     failInsert.add('incident_events');
     await expect(notifyAffected('inc')).rejects.toThrow('incident_events insert failed');
+    expect(flushDue).not.toHaveBeenCalled();
     await notifyAffected('inc');
     expect(queueNotifications).toHaveBeenCalledTimes(1);
+    // The retry sends what the crashed attempt left queued, instead of leaving it for the cron.
+    expect(flushDue).toHaveBeenCalledTimes(1);
     expect(writes('incident_events', 'insert')).toEqual([{ incident_id: 'inc', kind: 'notified', detail: { users: 2, planner_only: false } }]);
   });
 
@@ -301,6 +342,7 @@ describe('alertAffected (the early heads-up)', () => {
     await expect(alertAffected('inc')).rejects.toThrow('incident_events insert failed');
     await alertAffected('inc');
     expect(queueNotifications).toHaveBeenCalledTimes(1);
+    expect(flushDue).toHaveBeenCalledTimes(1);
     // A second run finds the alerted event.
     selects.incident_events = { data: [{ detail: {} }], error: null };
     await alertAffected('inc');
@@ -310,7 +352,7 @@ describe('alertAffected (the early heads-up)', () => {
   it('goes to the planner, with the link to add who is flying, when nobody is on the booking', async () => {
     selects.incident_events = { data: [], error: null };
     selects.incidents = { data: incident({ affected_user_ids: [] }), error: null };
-    selects.trip_members = { data: { user_id: 'planner-1' }, error: null };
+    selects['trip_members[]'] = { data: [{ user_id: 'planner-1', role: 'planner' }], error: null };
     await alertAffected('inc');
     const [notice] = sent();
     expect(notice.userIds).toEqual(['planner-1']);
@@ -321,7 +363,7 @@ describe('alertAffected (the early heads-up)', () => {
   it('sends the plan-ready notice to the planner too, and never records notified without a recipient', async () => {
     selects.incident_events = { data: [], error: null };
     selects.incidents = { data: incident({ affected_user_ids: [] }), error: null };
-    selects.trip_members = { data: { user_id: 'planner-1' }, error: null };
+    selects['trip_members[]'] = { data: [{ user_id: 'planner-1', role: 'planner' }], error: null };
     await notifyAffected('inc');
     const [notice] = sent();
     expect(notice).toMatchObject({ userIds: ['planner-1'], template: 'incident' });
@@ -329,10 +371,63 @@ describe('alertAffected (the early heads-up)', () => {
 
     queueNotifications.mockClear();
     ops.length = 0;
-    selects.trip_members = { data: null, error: null };
+    selects['trip_members[]'] = { data: [], error: null };
     await expect(notifyAffected('inc')).rejects.toThrow(/nobody to notify/);
     expect(queueNotifications).not.toHaveBeenCalled();
     expect(writes('incident_events', 'insert')).toEqual([]);
+  });
+});
+
+describe('people who left the trip', () => {
+  const incident = {
+    trip_id: 't1',
+    event_type: 'cancellation',
+    delay_minutes: null,
+    affected_user_ids: ['u1', 'gone'],
+    booking_segments: { carrier_iata: 'TP', flight_number: '204', origin_iata: 'LIS', departure_local: '2026-11-03T18:15' },
+    trips: { name: 'Lisbon 2026' },
+  };
+  beforeEach(() => {
+    selects.incident_events = { data: [], error: null };
+    selects.incidents = { data: incident, error: null };
+  });
+
+  it('tells only the assigned people who are still members, in both notices', async () => {
+    await alertAffected('inc');
+    await notifyAffected('inc');
+    expect(queueNotifications.mock.calls.map((c) => (c[0] as { userIds: string[] }).userIds)).toEqual([['u1'], ['u1']]);
+  });
+
+  it('falls back to the planner when everyone assigned has left', async () => {
+    selects.incidents = { data: { ...incident, affected_user_ids: ['gone', 'gone-too'] }, error: null };
+    await alertAffected('inc');
+    await notifyAffected('inc');
+    for (const call of queueNotifications.mock.calls) {
+      const input = call[0] as { userIds: string[]; rendered: { text: string } };
+      expect(input.userIds).toEqual(['planner-1']);
+      expect(input.rendered.text).toContain('Nobody is on this booking yet');
+    }
+    expect(queueNotifications).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('requestReview', () => {
+  beforeEach(() => {
+    process.env.ADMIN_EMAILS = 'founder@example.test';
+    selects.profiles = { data: [{ id: 'admin-1' }], error: null };
+    selects.incidents = { data: { trips: { name: 'Lisbon 2026' } }, error: null };
+  });
+
+  it('emails the admins once, across a retry and a second run', async () => {
+    const queued: { id: string }[] = [];
+    selects.notifications = { data: queued, error: null };
+    queueNotifications.mockImplementation(async () => void queued.push({ id: 'n1' }));
+    await requestReview('inc');
+    await requestReview('inc');
+    await requestReview('inc');
+    expect(queueNotifications).toHaveBeenCalledTimes(1);
+    expect(queueNotifications).toHaveBeenCalledWith(expect.objectContaining({ template: 'review_hold', userIds: ['admin-1'] }));
+    expect(flushDue).toHaveBeenCalledTimes(2);
   });
 });
 

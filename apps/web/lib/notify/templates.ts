@@ -24,12 +24,13 @@ function nobodyOnBooking(bookingsUrl: string): string {
   return `Nobody is on this booking yet. Add who's flying: ${bookingsUrl}`;
 }
 
-/** The plan-ready notice, sent once the playbook is drafted (and released, on a hand-run trip). */
+/** The plan-ready notice, sent once the playbook is drafted (and released, on a hand-run trip). It states no amount or entitlement. */
 export function incidentNotice({ tripName, headline, url, bookingsUrl }: { tripName: string; headline: string; url: string; bookingsUrl?: string }): Rendered {
   return {
     subject: `${tripName}: your plan is ready`,
-    text: `${headline}\n\nYour plan is ready. We drafted what you’re owed and what to send, with the rules cited:\n${url}${bookingsUrl ? `\n\n${nobodyOnBooking(bookingsUrl)}` : ''}\n\nElsewhere drafts; you decide and send. Not legal advice.`,
-    sms: sms(`Your plan is ready. ${headline}${bookingsUrl ? ' Nobody is on this booking yet.' : ''}`, bookingsUrl ?? url),
+    text: `${headline}\n\nYour plan is ready: ${url}\n\nWe drafted it from the rules we cite; you decide and send. Not legal advice.${bookingsUrl ? `\n\n${nobodyOnBooking(bookingsUrl)}` : ''}`,
+    // The planner's version links the plan and the bookings page, both.
+    sms: bookingsUrl ? sms(`Your plan is ready: ${url} ${headline} Nobody is on this booking yet. Add who's flying:`, bookingsUrl) : sms(`Your plan is ready. ${headline}`, url),
   };
 }
 
@@ -41,7 +42,9 @@ export function incidentAlert({ tripName, headline, url, bookingsUrl }: { tripNa
   return {
     subject: `${tripName}: ${headline}`,
     text: `${headline} We're checking which passenger protections apply and will send your plan here: ${url}${bookingsUrl ? `\n\n${nobodyOnBooking(bookingsUrl)}` : ''}`,
-    sms: sms(`${headline} We're checking which protections apply.${bookingsUrl ? ' Nobody is on this booking yet.' : ''}`, bookingsUrl ?? url),
+    sms: bookingsUrl
+      ? sms(`${headline} Your plan will be here: ${url} Nobody is on this booking yet. Add who's flying:`, bookingsUrl)
+      : sms(`${headline} We're checking which protections apply.`, url),
   };
 }
 

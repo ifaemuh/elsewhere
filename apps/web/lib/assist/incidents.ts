@@ -3,7 +3,7 @@ import type { Primitive } from '@elsewhere/rules/core';
 import { appUrl } from '@/lib/env';
 import { aeroApi } from '@/lib/flights/aeroapi';
 import { incidentAlert, incidentNotice, questionNotice, reviewHoldNotice } from '@/lib/notify/templates';
-import { queueNotifications } from '@/lib/notify/queue';
+import { flushDue, queueNotifications } from '@/lib/notify/queue';
 import { getLibrary } from '@/lib/rules/library';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { assess, summarizeEvent, type Assessment, type LegRow } from './assess';
@@ -106,13 +106,18 @@ async function hasEvent(incidentId: string, kind: string, fact?: string): Promis
 }
 
 /**
- * True when a notification for this incident and template is already queued. The guard against sending twice
- * when a step is retried after it queued the messages but before it wrote its event.
+ * True when a notification for this incident and template is already queued (created after `after`, when given). The
+ * guard against sending twice when a step is retried after it queued the messages but before it wrote its event. When
+ * it holds, the rows may be left unsent by the crashed attempt, so they are sent now.
  */
-async function alreadyQueued(incidentId: string, template: string): Promise<boolean> {
-  const { data, error } = await createAdminClient().from('notifications').select('id').eq('related_entity_id', incidentId).eq('template', template).limit(1);
+async function alreadyQueued(incidentId: string, template: string, after?: string): Promise<boolean> {
+  let query = createAdminClient().from('notifications').select('id').eq('related_entity_id', incidentId).eq('template', template);
+  if (after) query = query.gt('created_at', after);
+  const { data, error } = await query.limit(1);
   if (error) throw new Error(`notifications for incident ${incidentId} could not be read: ${error.message}`);
-  return (data ?? []).length > 0;
+  if ((data ?? []).length === 0) return false;
+  await flushDue();
+  return true;
 }
 
 /** True once the group has been told: the guard that keeps a restarted run from notifying twice. */
@@ -131,8 +136,11 @@ export async function askPlanner(incidentId: string, question: PlannerQuestion):
   if (plannerError) throw new Error(plannerError.message);
   check(await admin.from('incidents').update({ status: 'needs_answer', pending_question: question }).eq('id', incidentId));
   const trip = first(incident.trips as { name: string } | { name: string }[])!;
-  // A retry after the text went out but before the event was written must not text the planner again.
-  if (!(await alreadyQueued(incidentId, 'incident_question'))) {
+  // A retry after the text went out but before the event was written must not text the planner again. A text for an
+  // earlier question (the event exists) does not count: the planner has not been asked this one.
+  const { data: askedBefore, error: askedError } = await admin.from('incident_events').select('created_at').eq('incident_id', incidentId).eq('kind', 'question_asked').order('created_at', { ascending: false }).limit(1);
+  if (askedError) throw new Error(`questions of incident ${incidentId} could not be read: ${askedError.message}`);
+  if (!(await alreadyQueued(incidentId, 'incident_question', askedBefore?.[0]?.created_at))) {
     await queueNotifications({
       userIds: planner ? [planner.user_id] : [],
       tripId: incident.trip_id,
@@ -236,6 +244,8 @@ export async function requestReview(incidentId: string): Promise<void> {
   const { data: incident, error: incidentError } = await admin.from('incidents').select('trips!inner(name)').eq('id', incidentId).single();
   if (incidentError) throw new Error(incidentError.message);
   const trip = first(incident.trips as { name: string } | { name: string }[]);
+  // The hold email goes out once, however often the step or the run repeats.
+  if (await alreadyQueued(incidentId, 'review_hold')) return;
   await queueNotifications({
     userIds: (admins ?? []).map((a) => a.id),
     tripId: null,
@@ -261,13 +271,16 @@ async function noticeFor(incidentId: string) {
   if (!incident) throw new Error(`incident ${incidentId} not found`);
   const segment = first(incident.booking_segments as Record<string, string> | Record<string, string>[])!;
   const trip = first(incident.trips as { name: string } | { name: string }[])!;
-  let userIds: string[] = incident.affected_user_ids;
+  // Only people still on the trip: someone who left after being assigned is not told. With nobody left, the planner is.
+  const { data: members, error: membersError } = await admin.from('trip_members').select('user_id, role').eq('trip_id', incident.trip_id);
+  if (membersError) throw new Error(`members of incident ${incidentId} could not be read: ${membersError.message}`);
+  const current = new Set((members ?? []).map((m) => m.user_id as string));
+  let userIds: string[] = (incident.affected_user_ids as string[]).filter((id) => current.has(id));
   let bookingsUrl: string | undefined;
   if (userIds.length === 0) {
-    const { data: planner, error: plannerError } = await admin.from('trip_members').select('user_id').eq('trip_id', incident.trip_id).eq('role', 'planner').maybeSingle();
-    if (plannerError) throw new Error(`planner of incident ${incidentId} could not be read: ${plannerError.message}`);
+    const planner = (members ?? []).find((m) => m.role === 'planner');
     if (!planner) throw new Error(`incident ${incidentId} has nobody to notify: no one on the booking and no planner`);
-    userIds = [planner.user_id];
+    userIds = [planner.user_id as string];
     bookingsUrl = `${appUrl()}/trips/${incident.trip_id}/bookings`;
   }
   return {

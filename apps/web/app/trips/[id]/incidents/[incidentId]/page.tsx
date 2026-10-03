@@ -2,6 +2,7 @@ import { Suspense } from 'react';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { Character } from '@/components/character';
+import { shownOwed } from '@/lib/assist/owed';
 import { PlaybookSchema } from '@/lib/assist/playbook-schema';
 import { requireUser } from '@/lib/auth/user';
 import { findRule } from '@/lib/rules/accessors';
@@ -54,6 +55,8 @@ async function IncidentContent({ params }: { params: Params }) {
   const playbook = parsed?.success ? parsed.data : null;
   const firstCited = playbook ? findRule(getLibrary(), (latest!.rules_cited as { rule_id: string }[])[0]?.rule_id ?? '') : null;
   const firstRule = firstCited?.status === 'verified' ? firstCited : null;
+  const library = getLibrary();
+  const owed = playbook ? shownOwed(playbook.owed, (id) => findRule(library, id)?.status === 'verified') : [];
   const question = incident.pending_question as { fact: string; prompt: string; options: { value: string; label: string }[] } | null;
 
   return (
@@ -77,11 +80,11 @@ async function IncidentContent({ params }: { params: Params }) {
 
       {playbook ? (
         <>
-          {playbook.owed.length > 0 ? (
+          {owed.length > 0 ? (
             <section className="mt-8">
               <h2 className="text-xl font-semibold">What you’re owed</h2>
               <ul className="mt-2 list-disc space-y-1 pl-6">
-                {playbook.owed.map((item) => (
+                {owed.map((item) => (
                   <li key={item.text}>
                     {item.text}
                     <Cites ids={item.rule_ids} />

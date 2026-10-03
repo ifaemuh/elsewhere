@@ -61,6 +61,22 @@ describe('incidentAlert (the early heads-up)', () => {
     expect(incidentAlert({ tripName: 'T', headline: 'H', url }).text).not.toContain('Nobody is on this booking');
   });
 
+  it('words the plan-ready notice neutrally, for the group and for the planner', () => {
+    for (const headline of headlines) {
+      for (const notice of [incidentNotice({ tripName: 'T', headline, url }), incidentNotice({ tripName: 'T', headline, url, bookingsUrl })]) {
+        expect(`${notice.subject}\n${notice.text}\n${notice.sms}`).not.toMatch(FORBIDDEN);
+      }
+    }
+  });
+
+  it('links both the plan and the bookings page in the planner’s SMS', () => {
+    for (const notice of [incidentNotice({ tripName: 'T', headline: headlines[0], url, bookingsUrl }), incidentAlert({ tripName: 'T', headline: headlines[0], url, bookingsUrl })]) {
+      expect(notice.sms).toContain(url);
+      expect(notice.sms).toContain(bookingsUrl);
+      expect(notice.sms.length).toBeLessThanOrEqual(320);
+    }
+  });
+
   it('says the plan is ready in the later notice, and adds the planner line only when asked', () => {
     const ready = incidentNotice({ tripName: 'Lisbon 2026', headline: headlines[0], url });
     expect(ready.subject).toContain('your plan is ready');
