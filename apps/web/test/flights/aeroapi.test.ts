@@ -28,6 +28,14 @@ describe('httpAeroApi', () => {
     expect(calls[0].url).not.toContain('k3y');
   });
 
+  it('keeps a present-but-empty actual ident distinct from an absent one', async () => {
+    const row = { origin_iata: 'EWR', destination_iata: 'LIS', scheduled_out: '2026-11-03T23:15:00Z', scheduled_in: '2026-11-04T06:35:00Z' };
+    const { fetchImpl } = fakeFetch({ '/schedules/': { status: 200, body: { scheduled: [{ ident_iata: 'TP204', actual_ident_iata: '', actual_ident: null, ...row }] } } });
+    const [scheduled] = await httpAeroApi('k', fetchImpl).schedules('a', 'b', 'TP', '204');
+    expect(scheduled.actual_ident_iata).toBe('');
+    expect(scheduled.actual_ident).toBeNull();
+  });
+
   it('returns null for an unknown airport', async () => {
     const { fetchImpl } = fakeFetch({});
     expect(await httpAeroApi('k', fetchImpl).airport('ZZZ')).toBeNull();

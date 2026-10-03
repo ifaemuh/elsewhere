@@ -232,7 +232,7 @@ export function buildSituation(input: SituationInput): Situation {
       offers.push(journey ? journey.map((f) => (sameFlight(f, input.segment) ? changed : f)) : [changed]);
     }
     const end = journey?.[journey.length - 1] ?? null;
-    const timed = offers.map((o) => offerTimes(o, segments, input.segment.originIata, end?.destinationIata ?? null));
+    const timed = offers.map((o) => offerTimes(o, segments, input.segment, journey, end?.destinationIata ?? null));
     if (timed.length > 0 && !timed.includes('unknown')) {
       const offer = chooseOffer(timed as OfferTimes[], bookedOut, noticeDays);
       if (offer) {

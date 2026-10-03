@@ -64,6 +64,8 @@ export class AeroApiError extends Error {
 }
 
 const str = (v: unknown): string | null => (typeof v === 'string' && v.length > 0 ? v : null);
+/** Like str(), but keeps a present empty string, so "reported but empty" differs from absent. */
+const rawStr = (v: unknown): string | null => (typeof v === 'string' ? v : null);
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 const obj = (v: unknown): Record<string, unknown> | null => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null);
 
@@ -77,7 +79,7 @@ function parseScheduled(v: unknown): AeroScheduled | null {
   const out = o && str(o.scheduled_out);
   const inn = o && str(o.scheduled_in);
   if (!o || !out || !inn) return null;
-  return { ident_iata: str(o.ident_iata), actual_ident_iata: str(o.actual_ident_iata), actual_ident: str(o.actual_ident), origin_iata: str(o.origin_iata), destination_iata: str(o.destination_iata), scheduled_out: out, scheduled_in: inn };
+  return { ident_iata: str(o.ident_iata), actual_ident_iata: rawStr(o.actual_ident_iata), actual_ident: rawStr(o.actual_ident), origin_iata: str(o.origin_iata), destination_iata: str(o.destination_iata), scheduled_out: out, scheduled_in: inn };
 }
 
 function parseFlight(v: unknown): AeroFlight | null {

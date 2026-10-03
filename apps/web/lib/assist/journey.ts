@@ -73,14 +73,37 @@ export interface OfferTimes {
  * A rebooking often repeats the flights that did not change, so the arrival is read from its first flight that is
  * not on the booking: every flight from there must land at least MIN_CONNECTION_MINUTES before the next one
  * leaves from the same airport, up to one that reaches the final destination. Otherwise the arrival is null.
+ *
+ * The booked feeder (the journey flight into the disrupted flight's origin) is checked against the first new
+ * flight too, whether or not the offer repeats it: a new flight that leaves before the feeder lands is
+ * contradictory (unknown), and a gap under the minimum leaves the arrival unset. The disrupted flight itself,
+ * when an offer lists it, is not a feeder.
  */
-export function offerTimes(offer: ItinerarySegment[], booked: ItinerarySegment[], origin: string, finalDestination: string | null): OfferTimes | 'unknown' {
-  const departing = offer.find((f) => f.originIata === origin);
-  const leaves = time(departing?.scheduledOut ?? null);
+export function offerTimes(
+  offer: ItinerarySegment[],
+  booked: ItinerarySegment[],
+  disrupted: ItinerarySegment,
+  journey: ItinerarySegment[] | null,
+  finalDestination: string | null,
+): OfferTimes | 'unknown' {
+  const origin = disrupted.originIata;
+  const leaves = time(offer.find((f) => f.originIata === origin)?.scheduledOut ?? null);
   const start = offer.findIndex((f) => !booked.some((b) => sameFlight(b, f)));
   if (leaves === null || start < 0) return 'unknown';
-  // Start at the last repeated flight, so the connection into the first new flight is checked too.
-  for (let i = Math.max(0, start - 1); i < offer.length; i += 1) {
+
+  const at = journey?.findIndex((f) => sameFlight(f, disrupted)) ?? -1;
+  const feeder = at > 0 ? journey![at - 1] : null;
+  const first = offer[start];
+  const prev = start > 0 ? offer[start - 1] : null;
+  const feederInto = feeder && ((prev && sameFlight(prev, feeder)) || first.originIata === origin) ? feeder : null;
+  if (feederInto) {
+    const landed = time(feederInto.scheduledIn);
+    const out = time(first.scheduledOut);
+    if (landed === null || out === null) return 'unknown';
+    if (out < landed) return 'unknown';
+    if (first.originIata !== feederInto.destinationIata || out - landed < MIN_CONNECTION_MINUTES * MINUTE) return { leaves, arrives: null };
+  }
+  for (let i = start; i < offer.length; i += 1) {
     const landed = time(offer[i].scheduledIn);
     if (landed === null) return 'unknown';
     if (offer[i].destinationIata === finalDestination) return { leaves, arrives: landed };
@@ -99,7 +122,8 @@ export function offerTimes(offer: ItinerarySegment[], booked: ItinerarySegment[]
 /**
  * The offer the contract says to report: of those leaving no more than 1 hour (notice under 7 days, or unknown) or
  * 2 hours (notice under 14 days) early, the one that arrives soonest; if none does, any of them. Its arrival is
- * unknown while any offer in the running hides its own, since that one might arrive sooner.
+ * unknown while any offer in the running hides its own, since that one might arrive sooner: then nothing is
+ * reported, unless every offer in the running leaves at the same time, so the departure is certain.
  */
 export function chooseOffer(offers: OfferTimes[], bookedOut: number, noticeDays: number | null): OfferTimes | null {
   const limit = noticeDays === null || noticeDays < 7 ? HOUR : noticeDays < 14 ? 2 * HOUR : Infinity;
@@ -107,5 +131,6 @@ export function chooseOffer(offers: OfferTimes[], bookedOut: number, noticeDays:
   const running = inLimit.length > 0 ? inLimit : offers;
   const soonest = [...running].sort((a, b) => (a.arrives ?? Infinity) - (b.arrives ?? Infinity))[0];
   if (!soonest) return null;
-  return running.some((o) => o.arrives === null) ? { leaves: soonest.leaves, arrives: null } : soonest;
+  if (!running.some((o) => o.arrives === null)) return soonest;
+  return running.every((o) => o.leaves === soonest.leaves) ? { leaves: soonest.leaves, arrives: null } : null;
 }

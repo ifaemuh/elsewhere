@@ -56,7 +56,7 @@ function airlineOf(ident: string | null | undefined): string | null {
 }
 
 function operatorOf(s: { ident_iata: string | null; actual_ident_iata?: string | null; actual_ident?: string | null }): string | null {
-  const actual = [s.actual_ident_iata, s.actual_ident].filter((v): v is string => typeof v === 'string' && v.length > 0);
+  const actual = [s.actual_ident_iata, s.actual_ident].filter((v): v is string => typeof v === 'string');
   if (actual.length > 0) return actual.map(airlineOf).find((a) => a !== null) ?? null;
   return airlineOf(s.ident_iata);
 }

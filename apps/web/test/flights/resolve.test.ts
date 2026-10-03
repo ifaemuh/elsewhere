@@ -53,6 +53,9 @@ describe('resolveSegment', () => {
       expect(await resolveSegment(segment, api([{ ...times, actual_ident_iata: bad }])), bad).toMatchObject({ operatorIata: null });
       expect(await resolveSegment(segment, api([{ ...times, actual_ident: bad }])), bad).toMatchObject({ operatorIata: null });
     }
+    for (const field of ['actual_ident_iata', 'actual_ident'] as const) {
+      expect(await resolveSegment(segment, api([{ ...times, [field]: '' }])), field).toMatchObject({ operatorIata: null });
+    }
     // A parsing IATA ident wins over an ICAO actual_ident; with neither field present the scheduled ident is used.
     expect(await resolveSegment(segment, api([{ ...times, actual_ident_iata: 'DL8606', actual_ident: 'DAL8606' }]))).toMatchObject({ operatorIata: 'DL' });
     expect(await resolveSegment(segment, api([times]))).toMatchObject({ operatorIata: 'KL' });
