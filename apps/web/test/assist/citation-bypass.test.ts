@@ -156,7 +156,7 @@ describe('forbidden phrases', () => {
     expect(problems({ ...empty, steps: [{ text, rule_ids: [] }] })).toContain('forbidden_phrase');
     expect(problems({ ...empty, caveats: [text] })).toContain('forbidden_phrase');
     // In a message "we" is the traveler; only Elsewhere itself may not claim to have acted.
-    if (/elsewhere|our team/i.test(text) || !/^We /.test(text)) expect(problems(message(text))).toContain('forbidden_phrase');
+    if (/elsewhere|our team|guarantee/i.test(text) || !/^We /.test(text)) expect(problems(message(text))).toContain('forbidden_phrase');
   });
 
   it('rejects "you are owed" outside messages but allows first-person drafts', () => {

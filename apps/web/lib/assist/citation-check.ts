@@ -64,10 +64,10 @@ function wordsToNumber(phrase: string): number {
 export function normalizeText(text: string): string {
   return text
     .normalize('NFKC')
-    .replace(/[​-‍⁠﻿­]/g, '')
+    .replace(/\p{Cf}/gu, '') // zero-width, bidi marks, soft hyphen, invisible operators (U+2061-2064)
     .replace(/[‐-―−]/g, '-')
     .replace(/[   - ]/g, ' ')
-    .replace(/[’‘]/g, "'")
+    .replace(/[’‘ʼ′`]/g, "'")
     .replace(/\s+/g, ' ');
 }
 
@@ -79,7 +79,7 @@ const CURRENCY_WORD = '(?:euros?|dollars?|pounds?|bucks?)';
 const CODES = 'EUR|USD|GBP|CAD|CHF|AUD|NZD';
 const NUM = '\\d+(?:[.,]\\d+)*';
 const SEP = '(?:\\s*-\\s*|\\s*/\\s*|,\\s+|\\s+(?:or|and|to)\\s+)';
-const STOP = `(?!\\d|[.,]\\d)(?!\\s*(?:%|percent\\b|per cent\\b|${UNIT}\\b))`;
+const STOP = `(?!\\d|[.,]\\d)(?!\\s*(?:%|percent\\b|per cent\\b|${UNIT}\\b|(?:${CODES}|${CURRENCY_WORD})\\b|[€£$]))`;
 const LIST = `${NUM}(?:${SEP}${NUM}${STOP})*`;
 
 function canonicalUnit(raw: string): Unit {
@@ -112,10 +112,10 @@ const MULTIPLIER = /\b(?:double|twice|triple|quadruple)\b|\b\d+\s*x\b|\b(?:\d+|t
 const MONEY_PRE = new RegExp(`(?<![A-Za-z])(C\\$|CA\\$|US\\$|A\\$|AU\\$|NZ\\$|${CODES}|[$€£])\\s?(${LIST})(\\s?k\\b)?`, 'gi');
 const MONEY_POST = new RegExp(`(?<![A-Za-z\\d.,])(${LIST})\\s?(${CODES}|${CURRENCY_WORD}|€|£|\\$)(?![A-Za-z])`, 'gi');
 const PERCENT = /(?<![A-Za-z\d.,])(\d+(?:[.,]\d+)?)\s?(?:%|percent\b|per cent\b)/gi;
-const RANGE = new RegExp(`(?<![A-Za-z\\d.,])(\\d+(?:\\.\\d+)?)\\s*-\\s*(\\d+(?:\\.\\d+)?)\\s*(${UNIT})\\b`, 'gi');
+const RANGE = new RegExp(`(?<![A-Za-z\\d.,])(?:between\\s+)?(\\d+(?:\\.\\d+)?)(?:\\s*[-/]\\s*|\\s+(?:to|or|and)\\s+)(\\d+(?:\\.\\d+)?)\\s*(${UNIT})\\b`, 'gi');
 const COMPOUND = /(?<![A-Za-z\d.,])(\d+)\s*(?:hours?|hrs?|h)\s*(?:and\s+)?(\d+)\s*(?:minutes?|mins?|m)\b/gi;
 const DECIMAL_COMMA = new RegExp(`(?<![A-Za-z\\d.,])\\d+,\\d{1,2}(?!\\d)\\s*-?\\s*${UNIT}\\b`, 'gi');
-const SINGLE = new RegExp(`(?<![A-Za-z\\d.,])(\\d+(?:,\\d{3})*(?:\\.\\d+)?)\\s*-?\\s*(${UNIT})\\b`, 'gi');
+const SINGLE = new RegExp(`(?<![A-Za-z\\d.,])(\\d+(?:,\\d{3})*(?:\\.\\d+)?)(?:\\+|[\\s-]?plus)?\\s*-?\\s*(${UNIT})\\b`, 'gi');
 
 /** A quantity we refuse to compare. `key` is set when it is a duration or phrase that a rule's own text can vouch for. */
 interface Flagged {
@@ -216,8 +216,14 @@ const FILING_VERBS = '(?:filed|filing|claimed|sued|submitted|lodged|booked|reque
 /** Messages are drafts in the traveler's voice, so "we" there is the traveler; only Elsewhere itself is barred as the subject. */
 const FILED_BY_US = new RegExp(`\\b(we|elsewhere|our (?:agents?|team|staff))\\b[^.;]{0,40}\\b${FILING_VERBS}\\b`, 'i');
 const FILED_BY_ELSEWHERE = new RegExp(`\\b(elsewhere|our (?:agents?|team|staff))\\b[^.;]{0,40}\\b${FILING_VERBS}\\b`, 'i');
-const ALWAYS: RegExp[] = [/on your behalf/i, /\bguarantee(d|s)?\b/i, /\byou(?:'ll| will) (get|receive|be (?:fully )?(?:paid|refunded|compensated))\b/i];
-const NOT_IN_MESSAGES: RegExp[] = [/\byou(?:'re| are) (?:all )?owed\b/i, /\b(?:has|have) been (?:filed|submitted|lodged|claimed)\b/i];
+const GETS = '(?:get|receive|be (?:fully )?(?:paid|refunded|compensated))';
+const ALWAYS: RegExp[] = [
+  /on your behalf/i,
+  /\bguarantee(d|s)?\b/i,
+  new RegExp(`\\byou(?:'ll| will)(?: (?:each|all|both))? ${GETS}\\b`, 'i'),
+  new RegExp(`\\b(?:everyone|everybody|each of you|all of you)(?: will|'ll) ${GETS}\\b`, 'i'),
+];
+const NOT_IN_MESSAGES: RegExp[] = [/\b(?:you(?:'re| are)(?: (?:all|each|both))?|(?:each of you|everyone|everybody) is|all of you are) owed\b/i, /\b(?:has|have) been (?:filed|submitted|lodged|claimed)\b/i];
 
 // ---- the check ------------------------------------------------------------------
 

@@ -161,3 +161,53 @@ describe('11. capped amounts', () => {
     expect(kinds(owed('Your card pays up to $500 per ticket.', card), [card])).toEqual([]);
   });
 });
+
+describe('round 3: group-voice promises', () => {
+  const promises = ['You will each get a refund.', "You'll both get a refund.", 'You will all receive the money.', 'Everyone will get a refund.', "Everybody'll be refunded in full.", 'Each of you will be paid.', 'All of you will be compensated.'];
+  it.each(promises)('rejects %s in every field', (t) => {
+    expect(kinds({ ...empty, summary: t })).toContain('forbidden_phrase');
+    expect(kinds({ ...empty, caveats: [t] })).toContain('forbidden_phrase');
+    expect(kinds(msg(t), [refund])).toContain('forbidden_phrase');
+  });
+  const owedPhrases = ['Each of you is owed a refund.', 'You are each owed up to €600.', 'Everyone is owed a refund.', "You're both owed a refund.", 'All of you are owed a refund.', 'Everybody is owed a refund.'];
+  it.each(owedPhrases)('rejects %s outside messages', (t) => {
+    expect(kinds({ ...empty, summary: t })).toContain('forbidden_phrase');
+    expect(kinds({ ...empty, steps: [{ text: t, rule_ids: [] }] })).toContain('forbidden_phrase');
+  });
+  it('a traveler may say they are owed in a message', () => {
+    expect(kinds(msg('We are each owed a reply.'), [refund])).toEqual([]);
+  });
+});
+
+describe('round 3: thresholds and duration ranges', () => {
+  it('N+ and N-plus read as N', () => {
+    expect(kinds(owed('Landed 2+ hours late.'))).toContain('number_not_in_rule');
+    expect(kinds(owed('Landed 3+ hours late.'))).toEqual([]);
+    expect(kinds(owed('Landed 2-plus hours late.'))).toContain('number_not_in_rule');
+    expect(kinds(owed('Landed 3 plus hours late.'))).toEqual([]);
+  });
+  it.each(['2 to 3 hours', '2 or 3 hours', 'between 2 and 3 hours', '2/3 hours', '2 and 3 hours'])('%s checks both ends', (t) => {
+    const issues = checkCitations(owed(`Wait ${t}.`), [eu], []);
+    expect(issues.map((i) => i.detail)).toEqual(['2 hour']);
+    expect(checkCitations(owed(`Wait ${t.replace('2', '9')}.`), [eu], []).map((i) => i.detail)).toEqual(['9 hour']);
+    expect(checkCitations(owed(`Wait ${t.replace('2', '1').replace('3', '4')}.`), [eu], []).map((i) => i.detail)).toEqual(['1 hour', '4 hour']);
+  });
+});
+
+describe('round 3: currency carry stops at an element with its own currency', () => {
+  it.each(['Up to €250, 400 dollars.', 'Up to €600, 600 pounds.', 'Up to €250 or 400 USD.'])('%s', (t) => {
+    expect(kinds(owed(t))).toContain('number_not_in_rule');
+  });
+  it('still carries a plain list', () => {
+    expect(kinds(owed('Up to €250, 400 or 600.'))).toEqual([]);
+  });
+});
+
+describe('round 3: invisible characters', () => {
+  it.each(['Up to €600‎0.', 'Up to €600⁡0.', 'Up to €600­0.'])('%j is read as €6000', (t) => {
+    expect(checkCitations(owed(t), [eu], []).map((i) => i.detail)).toContain('EUR 6000');
+  });
+  it.each(['Youʼre owed a refund.', 'You`re owed a refund.', 'You′re owed a refund.'])('%s', (t) => {
+    expect(kinds({ ...empty, summary: t })).toContain('forbidden_phrase');
+  });
+});
