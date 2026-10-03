@@ -42,7 +42,7 @@ describe('bypass table: every row is rejected or flagged against the EU rule', (
 
   const unparseable: [string, string][] = [
     ['two weeks', 'Paid within two weeks.'],
-    ['seven days', 'Paid within seven days.'],
+    ['seven weeks', 'Paid within seven weeks.'],
     ['six hundred euros', 'You may be owed six hundred euros.'],
     ['double', 'Double the fare.'],
     ['twice', 'Twice the amount.'],
@@ -87,7 +87,8 @@ describe('still passes', () => {
   });
 
   it('a duration the rule states, spelled out in the rule text', () => {
-    expect(problems(owed('Three hours or more late.'))).toContain('unparseable_quantity');
+    expect(problems(owed('Three hours or more late.'))).toEqual([]);
+    expect(problems(owed('Four hours or more late.'))).toContain('unparseable_quantity');
     expect(problems(owed('Landed 3 hours late.'), [eu], [])).toEqual([]);
   });
 
@@ -154,7 +155,8 @@ describe('forbidden phrases', () => {
     expect(problems({ ...empty, summary: text })).toContain('forbidden_phrase');
     expect(problems({ ...empty, steps: [{ text, rule_ids: [] }] })).toContain('forbidden_phrase');
     expect(problems({ ...empty, caveats: [text] })).toContain('forbidden_phrase');
-    expect(problems(message(text))).toContain('forbidden_phrase');
+    // In a message "we" is the traveler; only Elsewhere itself may not claim to have acted.
+    if (/elsewhere|our team/i.test(text) || !/^We /.test(text)) expect(problems(message(text))).toContain('forbidden_phrase');
   });
 
   it('rejects "you are owed" outside messages but allows first-person drafts', () => {
