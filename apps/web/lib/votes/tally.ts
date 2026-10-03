@@ -12,6 +12,8 @@ export function tally(
   const top = Math.max(0, ...counted.map((o) => o.votes));
   const leaders = counted.filter((o) => o.votes === top && top > 0);
   const responded = new Set(responses.map((r) => r.user_id));
+  // Someone who left the trip, or was never named, does not count toward "have voted".
+  const respondedCount = requiredUserIds.length > 0 ? requiredUserIds.filter((id) => responded.has(id)).length : responded.size;
   return {
     id: vote.id,
     tripId: vote.trip_id,
@@ -22,7 +24,7 @@ export function tally(
     deadline: vote.deadline,
     status: vote.status,
     leaderOptionId: leaders.length === 1 ? leaders[0].id : null,
-    respondedCount: responded.size,
+    respondedCount,
     complete: requiredUserIds.length > 0 && requiredUserIds.every((id) => responded.has(id)),
   };
 }

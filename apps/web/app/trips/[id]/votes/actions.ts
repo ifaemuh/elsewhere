@@ -77,7 +77,11 @@ export async function createVote(tripId: string, incidentId: string | null, _pre
   );
   if (optionsError) {
     // A vote with no options is no use; close it so the incident can start a fresh one.
-    await supabase.from('votes').update({ status: 'closed' }).eq('id', vote.id);
+    const { error: closeError } = await supabase.from('votes').update({ status: 'closed' }).eq('id', vote.id);
+    if (closeError) {
+      console.error('optionless vote could not be closed', vote.id, closeError);
+      return { error: 'We could not start the vote, and the empty one could not be closed. Ask the planner to close it before trying again.' };
+    }
     return { error: 'We could not start the vote.' };
   }
 

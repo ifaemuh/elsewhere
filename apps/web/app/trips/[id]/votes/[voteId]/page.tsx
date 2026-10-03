@@ -22,7 +22,7 @@ async function VoteContent({ params }: { params: Params }) {
   const { id, voteId } = await params;
   const user = await requireUser(`/trips/${id}/votes/${voteId}`);
   const supabase = await createClient();
-  const { data: vote } = await supabase.from('votes').select('id, trip_id, title, detail, deadline, status, required_user_ids, created_by').eq('id', voteId).eq('trip_id', id).maybeSingle();
+  const { data: vote } = await supabase.from('votes').select('id, trip_id, incident_id, title, detail, deadline, status, required_user_ids, created_by').eq('id', voteId).eq('trip_id', id).maybeSingle();
   if (!vote) notFound();
   const { data: options } = await supabase.from('vote_options').select('id, label, note, position').eq('vote_id', voteId);
   const { data: responses } = await supabase.from('vote_responses').select('user_id, option_id').eq('vote_id', voteId);
@@ -56,7 +56,11 @@ async function VoteContent({ params }: { params: Params }) {
       <p className="mt-4 text-sm text-[#4b5745]">
         {result.respondedCount} of {result.requiredParticipantIds.length} have voted{vote.status === 'closed' ? ' · closed' : ''}.
       </p>
-      {vote.status === 'open' && !canVote ? <p className="mt-1 text-sm text-[#4b5745]">This vote is for the travelers on the affected flight.</p> : null}
+      {vote.status === 'open' && !canVote ? (
+        <p className="mt-1 text-sm text-[#4b5745]">
+          {vote.incident_id ? 'This vote is for the travelers on the affected flight.' : 'This vote was sent to the members at the time it started.'}
+        </p>
+      ) : null}
       {vote.status === 'open' && (isPlanner === true || vote.created_by === user.id) ? (
         <form action={closeVote.bind(null, id, voteId)} className="mt-4">
           <Button type="submit" variant="outline" size="sm">

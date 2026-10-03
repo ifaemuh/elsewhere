@@ -508,7 +508,7 @@ create table public.vote_responses (
 -- (an incident vote names the affected travelers) takes answers from them only, any other vote from
 -- any member, and a closed vote from no one.
 create or replace function public.respond_vote(p_vote_id uuid, p_option_id uuid)
-returns void language plpgsql security definer set search_path = public as $$
+returns void language plpgsql security definer set search_path = public, pg_temp as $$
 declare v_vote public.votes%rowtype;
 begin
   select * into v_vote from public.votes where id = p_vote_id;
@@ -890,7 +890,10 @@ create policy "Assignees or planner update action items" on public.action_items 
 
 create policy "Members read votes" on public.votes for select using (public.is_trip_member(trip_id));
 create policy "Members create votes" on public.votes for insert
-  with check (public.is_trip_member(trip_id) and created_by = auth.uid());
+  with check (
+    public.is_trip_member(trip_id) and created_by = auth.uid()
+    and (incident_id is null or exists (select 1 from public.incidents i where i.id = incident_id and i.trip_id = votes.trip_id))
+  );
 create policy "Creator or planner updates votes" on public.votes for update
   using (created_by = auth.uid() or public.is_trip_planner(trip_id))
   with check (created_by = auth.uid() or public.is_trip_planner(trip_id));

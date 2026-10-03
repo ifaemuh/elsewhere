@@ -29,4 +29,10 @@ describe('tally', () => {
     expect(result.complete).toBe(false);
     expect(result.respondedCount).toBe(2);
   });
+
+  it('counts only required voters as responded', () => {
+    const result = tally(vote, options, [{ user_id: 'u1', option_id: 'o1' }, { user_id: 'gone', option_id: 'o1' }], ['u1', 'u2']);
+    expect(result.respondedCount).toBe(1);
+    expect(tally(vote, options, [{ user_id: 'gone', option_id: 'o1' }], []).respondedCount).toBe(1);
+  });
 });

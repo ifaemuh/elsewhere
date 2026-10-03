@@ -580,4 +580,28 @@ describe('votes (Task 13)', () => {
     await asUser(db, PLANNER, () => db.query("update public.votes set status = 'closed' where id = $1", [first.id]));
     await open();
   });
+
+  it('a vote\'s incident must belong to the vote\'s trip', async () => {
+    const otherTrip = await asUser(db, MEMBER, async () =>
+      (await one<{ id: string }>(`select public.create_trip('Elsewhere', 'FR', '2026-12-01', '2026-12-05', 'trip-vote-x1x1x1', 'Sam', null, '{}'::jsonb) as id`)).id,
+    );
+    const booking = await asService(db, () =>
+      one<{ id: string }>("insert into public.bookings (trip_id, kind, provider, extraction_confidence, dedupe_key) values ($1, 'flight', 'TAP', 0.95, 'flight|VOTEX') returning id", [otherTrip]),
+    );
+    const segment = await asService(db, () =>
+      one<{ id: string }>(
+        "insert into public.booking_segments (booking_id, trip_id, position, carrier_iata, flight_number, origin_iata, destination_iata, departure_local) values ($1, $2, 1, 'TP', '204', 'EWR', 'LIS', '2026-12-03T18:15') returning id",
+        [booking.id, otherTrip],
+      ),
+    );
+    const foreign = await asService(db, () =>
+      one<{ id: string }>("insert into public.incidents (trip_id, segment_id, event_type, dedupe_key) values ($1, $2, 'cancellation', 'vote-x:cancellation') returning id", [otherTrip, segment.id]),
+    );
+    // MEMBER plans the other trip and belongs to this one, so can read that incident: only the check stops the insert.
+    const read = await asUser(db, MEMBER, () => db.query('select id from public.incidents where id = $1', [foreign.id]));
+    expect(read.rows).toHaveLength(1);
+    await rejects(() =>
+      asUser(db, MEMBER, () => db.query("insert into public.votes (trip_id, incident_id, title, detail, created_by) values ($1, $2, 'x', '', $3)", [tripId, foreign.id, MEMBER])),
+    );
+  });
 });

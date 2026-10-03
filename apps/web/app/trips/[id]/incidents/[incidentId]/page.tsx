@@ -69,10 +69,10 @@ async function IncidentContent({ params }: { params: Params }) {
   let suggestions: string[] = [];
   if (canStartVote && !existingVote && incident.status !== 'resolved') {
     try {
-      const { data: segment } = await supabase.from('booking_segments').select('origin_iata, destination_iata, carrier_iata').eq('id', incident.segment_id).single();
+      const { data: segment } = await supabase.from('booking_segments').select('origin_iata, destination_iata, carrier_iata, flight_number, departure_local').eq('id', incident.segment_id).single();
       if (segment) {
         const options = await suggestAlternatives(
-          { originIata: segment.origin_iata, destinationIata: segment.destination_iata, carrierIata: segment.carrier_iata },
+          { originIata: segment.origin_iata, destinationIata: segment.destination_iata, carrierIata: segment.carrier_iata, flightNumber: segment.flight_number, departureLocal: segment.departure_local },
           await aeroApi(),
           new Date(),
         );

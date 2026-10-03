@@ -19,6 +19,7 @@ const state = {
   option: { id: OPTION } as unknown,
   respondError: null as { code: string; message: string } | null,
   closeRows: [{ id: VOTE }] as unknown[],
+  closeError: null as { message: string } | null,
   members: [{ user_id: 'u-pat' }, { user_id: 'u-sam' }, { user_id: 'u-lee' }],
 };
 const log: { table: string; op: string; row?: unknown; filters: [string, unknown][] }[] = [];
@@ -33,10 +34,10 @@ function table(name: string) {
   log.push(entry);
   const resolve = (): Result => {
     if (entry.op === 'insert') return name === 'votes' ? state.voteInsert : { data: null, error: state.optionsInsert.error };
-    if (entry.op === 'update') return { data: state.closeRows, error: null };
+    if (entry.op === 'update') return { data: state.closeRows, error: state.closeError };
     if (name === 'incidents') return { data: state.incident, error: null };
     if (name === 'votes') {
-      const wantsOpenForIncident = entry.filters.some(([c]) => c === 'incident_id');
+      const wantsOpenForIncident = entry.filters.some(([c]) => c === 'incident_id') && entry.filters.some(([c, v]) => c === 'status' && v === 'open');
       return { data: wantsOpenForIncident ? state.openVote : state.vote, error: null };
     }
     if (name === 'vote_options') return { data: state.option, error: null };
@@ -94,6 +95,7 @@ beforeEach(() => {
     option: { id: OPTION },
     respondError: null,
     closeRows: [{ id: VOTE }],
+    closeError: null,
   });
   vi.spyOn(console, 'error').mockImplementation(() => {});
 });
@@ -180,7 +182,14 @@ describe('createVote', () => {
     state.optionsInsert = { error: { message: 'boom' } };
     expect(await createVote(TRIP, INCIDENT, { error: null }, form())).toEqual({ error: 'We could not start the vote.' });
     expect(wrote('votes', 'update')[0].row).toEqual({ status: 'closed' });
+    expect(wrote('votes', 'update')[0].filters).toContainEqual(['id', VOTE]);
     expect(queueNotifications).not.toHaveBeenCalled();
+  });
+
+  it('says so when the optionless vote cannot be closed', async () => {
+    state.optionsInsert = { error: { message: 'boom' } };
+    state.closeError = { message: 'rls' };
+    expect((await createVote(TRIP, INCIDENT, { error: null }, form())).error).toMatch(/could not be closed/);
   });
 
   it('still opens the vote when a notification fails', async () => {
