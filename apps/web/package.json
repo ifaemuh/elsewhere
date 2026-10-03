@@ -12,6 +12,9 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:integration": "vitest run --config vitest.integration.config.ts",
+    "e2e": "playwright test",
+    "eval:extraction": "node --conditions=react-server --import tsx scripts/eval-extraction.mts",
+    "eval:replay": "node --conditions=react-server --import tsx scripts/eval-replay.mts",
     "predev": "npm run rules:build -w @elsewhere/rules",
     "prebuild": "npm run rules:build -w @elsewhere/rules",
     "pretypecheck": "npm run rules:build -w @elsewhere/rules"
@@ -39,6 +42,7 @@
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.8",
+    "@playwright/test": "1.63.0",
     "@tailwindcss/postcss": "4.3.3",
     "@types/node": "^22",
     "@types/react": "19.3.0",
