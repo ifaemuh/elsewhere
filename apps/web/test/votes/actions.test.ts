@@ -8,6 +8,7 @@ const VOTE = '44444444-4444-4444-8444-444444444444';
 const OPTION = '55555555-5555-4555-8555-555555555555';
 
 const state = {
+  userId: 'u-pat',
   isPlanner: true,
   isMember: true,
   incident: { id: INCIDENT, affected_user_ids: ['u-sam', 'u-pat'] } as unknown,
@@ -57,7 +58,7 @@ function table(name: string) {
 }
 
 vi.mock('@/lib/supabase/server', () => ({ createClient: async () => ({ rpc, from: table }) }));
-vi.mock('@/lib/auth/user', () => ({ requireUser: async () => ({ id: 'u-pat' }) }));
+vi.mock('@/lib/auth/user', () => ({ requireUser: async () => ({ id: state.userId }) }));
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
 vi.mock('next/navigation', () => ({
   redirect: (to: string) => {
@@ -82,6 +83,7 @@ beforeEach(() => {
   rpc.mockClear();
   queueNotifications.mockClear();
   Object.assign(state, {
+    userId: 'u-pat',
     isPlanner: true,
     isMember: true,
     incident: { id: INCIDENT, affected_user_ids: ['u-sam', 'u-pat'] },
@@ -109,11 +111,32 @@ describe('createVote', () => {
     expect(queueNotifications.mock.calls[0][0]).toMatchObject({ userIds: ['u-sam'], tripId: TRIP, template: 'vote', urgent: true, relatedEntityId: VOTE });
   });
 
-  it('refuses a non-planner before reading or writing anything', async () => {
+  it('lets an affected non-planner start an incident vote', async () => {
     state.isPlanner = false;
-    expect(await createVote(TRIP, INCIDENT, { error: null }, form())).toEqual({ error: 'Only the planner can start a vote.' });
-    expect(log).toHaveLength(0);
+    state.userId = 'u-sam';
+    await expect(createVote(TRIP, INCIDENT, { error: null }, form())).rejects.toThrow(`REDIRECT:/trips/${TRIP}/votes/${VOTE}`);
+    expect(wrote('votes', 'insert')[0].row).toMatchObject({ created_by: 'u-sam', required_user_ids: ['u-sam', 'u-pat'] });
+    expect(queueNotifications.mock.calls[0][0]).toMatchObject({ userIds: ['u-pat'] });
+  });
+
+  it('refuses an unaffected member for an incident vote, with no write and no notification', async () => {
+    state.isPlanner = false;
+    state.userId = 'u-lee';
+    expect((await createVote(TRIP, INCIDENT, { error: null }, form())).error).toMatch(/Only the planner or a traveler/);
+    expect(wrote('votes', 'insert')).toHaveLength(0);
+    expect(wrote('vote_options', 'insert')).toHaveLength(0);
     expect(queueNotifications).not.toHaveBeenCalled();
+  });
+
+  it('lets any member start a trip-level vote, and refuses a non-member', async () => {
+    state.isPlanner = false;
+    state.userId = 'u-lee';
+    await expect(createVote(TRIP, null, { error: null }, form())).rejects.toThrow('REDIRECT');
+    expect(wrote('votes', 'insert')).toHaveLength(1);
+    log.length = 0;
+    state.isMember = false;
+    expect((await createVote(TRIP, null, { error: null }, form())).error).toBe('Only people on this trip can start a vote.');
+    expect(log).toHaveLength(0);
   });
 
   it('refuses an incident that is not on this trip', async () => {

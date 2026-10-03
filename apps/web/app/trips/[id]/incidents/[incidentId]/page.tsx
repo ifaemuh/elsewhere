@@ -9,6 +9,7 @@ import { findRule } from '@/lib/rules/accessors';
 import { aeroApi } from '@/lib/flights/aeroapi';
 import { getLibrary } from '@/lib/rules/library';
 import { createClient } from '@/lib/supabase/server';
+import { canStartIncidentVote } from '@/lib/votes/access';
 import { suggestAlternatives } from '@/lib/votes/alternatives';
 import { AnswerButtons } from './answer-buttons';
 import { IncidentVoteForm } from './vote-form';
@@ -61,9 +62,9 @@ async function IncidentContent({ params }: { params: Params }) {
   const library = getLibrary();
   const owed = playbook ? shownOwed(playbook.owed, (id) => findRule(library, id)?.status === 'verified') : [];
   const question = incident.pending_question as { fact: string; prompt: string; options: { value: string; label: string }[] } | null;
-  // Only the planner can start a vote (createVote checks it), so only the planner pays for schedule suggestions,
-  // and only until a vote exists. A failure (AeroAPI down, a missing key) leaves the options blank to type.
-  const canStartVote = isPlanner === true;
+  // The planner or an affected traveler can start the vote (createVote checks it too), so only they pay for schedule
+  // suggestions, and only until a vote exists. A failure (AeroAPI down, a missing key) leaves the options blank to type.
+  const canStartVote = canStartIncidentVote(isPlanner === true, incident.affected_user_ids as string[] | null, user.id);
   const { data: existingVote } = await supabase.from('votes').select('id').eq('incident_id', incidentId).order('created_at', { ascending: false }).limit(1).maybeSingle();
   let suggestions: string[] = [];
   if (canStartVote && !existingVote && incident.status !== 'resolved') {

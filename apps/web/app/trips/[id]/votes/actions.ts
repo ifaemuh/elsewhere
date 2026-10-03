@@ -8,6 +8,7 @@ import { voteNotice } from '@/lib/notify/templates';
 import { queueNotifications } from '@/lib/notify/queue';
 import { createClient } from '@/lib/supabase/server';
 import { ALTERNATIVE_NOTE } from '@/lib/votes/alternatives';
+import { canStartIncidentVote } from '@/lib/votes/access';
 
 export interface VoteFormState {
   error: string | null;
@@ -16,15 +17,25 @@ export interface VoteFormState {
 const NOTE_SUFFIX = ` (${ALTERNATIVE_NOTE})`;
 
 /**
- * The planner starts a vote. tripId, incidentId and every form field are client-controlled, so the caller's role
- * is checked first and the incident must belong to the trip. An incident has at most one open vote: a repeat
+ * The planner or an affected traveler starts an incident vote; any member starts a trip-level one. tripId, incidentId
+ * and every form field are client-controlled, so the caller's role is checked first and the incident must belong to the trip. An incident has at most one open vote: a repeat
  * submit (or a race, caught by the unique index) lands on the vote that already exists, and notifies no one twice.
  */
 export async function createVote(tripId: string, incidentId: string | null, _prev: VoteFormState, form: FormData): Promise<VoteFormState> {
   const user = await requireUser(`/trips/${tripId}`);
   const supabase = await createClient();
   const { data: isPlanner } = await supabase.rpc('is_trip_planner', { p_trip_id: tripId });
-  if (isPlanner !== true) return { error: 'Only the planner can start a vote.' };
+  // An incident vote: the planner or someone the incident affects. A trip-level vote: any member (RLS agrees).
+  let affected: string[] = [];
+  if (incidentId) {
+    const { data } = await supabase.from('incidents').select('id, affected_user_ids').eq('id', incidentId).eq('trip_id', tripId).maybeSingle();
+    if (!data) return { error: 'That alert is not on this trip.' };
+    affected = (data.affected_user_ids ?? []) as string[];
+    if (!canStartIncidentVote(isPlanner === true, affected, user.id)) return { error: 'Only the planner or a traveler on the affected flight can start this vote.' };
+  } else {
+    const { data: isMember } = await supabase.rpc('is_trip_member', { p_trip_id: tripId });
+    if (isMember !== true) return { error: 'Only people on this trip can start a vote.' };
+  }
 
   const title = String(form.get('title') ?? '').trim().slice(0, 200);
   const options = String(form.get('options') ?? '')
@@ -36,9 +47,7 @@ export async function createVote(tripId: string, incidentId: string | null, _pre
 
   let required: string[] = [];
   if (incidentId) {
-    const { data: incident } = await supabase.from('incidents').select('id, affected_user_ids').eq('id', incidentId).eq('trip_id', tripId).maybeSingle();
-    if (!incident) return { error: 'That alert is not on this trip.' };
-    required = (incident.affected_user_ids ?? []) as string[];
+    required = affected;
     const { data: existing } = await supabase.from('votes').select('id').eq('incident_id', incidentId).eq('status', 'open').limit(1).maybeSingle();
     if (existing) redirect(`/trips/${tripId}/votes/${existing.id}`);
   }
