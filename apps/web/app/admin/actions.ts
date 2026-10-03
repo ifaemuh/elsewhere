@@ -6,7 +6,7 @@ import { HookNotFoundError } from 'workflow/errors';
 import { requireAdmin } from '@/lib/admin/guard';
 import { SWEEP_AFTER_MS, stuckIncidents, stuckMessages } from '@/lib/admin/sweep';
 import { checkCitations } from '@/lib/assist/citation-check';
-import { assessIncident } from '@/lib/assist/incidents';
+import { assessIncident, notifyAffected, releaseHeldPlaybooks } from '@/lib/assist/incidents';
 import { PlaybookSchema } from '@/lib/assist/playbook-schema';
 import { runDocumentChecks } from '@/lib/documents/service';
 import { approveQuarantined } from '@/lib/intake/quarantine';
@@ -26,77 +26,80 @@ async function startAndWake(tripId: string): Promise<void> {
   await wakeTripMonitor(tripId);
 }
 
-/** A comped trip is hand-run: trips.hand_run makes its playbooks wait for review before anyone is notified. */
-export async function compPass(tripId: string): Promise<void> {
+/**
+ * What a button gets back. Expected failures (a trip that already has a pass, a run that is not stuck any more) come
+ * back as `error`, so the message reaches the founder in production, where a thrown error is reduced to a digest.
+ * Unexpected failures still throw, to /admin's error page.
+ */
+export interface ActionResult {
+  error: string | null;
+}
+const ok: ActionResult = { error: null };
+const fail = (error: string): ActionResult => ({ error });
+
+/**
+ * A comped trip is hand-run: trips.hand_run makes its playbooks wait for review before anyone is notified. The comp_trip_pass
+ * function marks the trip and writes the pass row in one transaction, and refuses a trip that already has a pass.
+ */
+export async function compPass(tripId: string): Promise<ActionResult> {
   const founder = await requireAdmin();
-  const admin = createAdminClient();
-  const { data: trip, error } = await admin.from('trips').select('pass_status').eq('id', tripId).maybeSingle();
-  if (error) throw new Error(error.message);
-  if (!trip) throw new Error('Trip not found.');
-  // Never comp over a pass the group already has, paid or comped.
-  if (trip.pass_status !== 'none') throw new Error('This trip already has a pass.');
-  const { data: pass, error: passError } = await admin
-    .from('passes')
-    .insert({ trip_id: tripId, price_variant: 'comp', amount_cents: 0, status: 'comp', created_by: founder.id, paid_at: new Date().toISOString() })
-    .select('id')
-    .single();
-  if (passError) throw new Error(passError.message);
-  // The guard makes this the single winner when two comps (or a webhook) race: the loser's update matches nothing.
-  const { data: updated, error: tripError } = await admin.from('trips').update({ pass_status: 'comp', hand_run: true }).eq('id', tripId).eq('pass_status', 'none').select('id');
-  if (tripError) throw new Error(tripError.message);
-  if ((updated ?? []).length === 0) {
-    // Lost the race: take back the pass row this call wrote.
-    await admin.from('passes').delete().eq('id', pass.id);
-    throw new Error('This trip already has a pass.');
-  }
+  const { data: comped, error } = await createAdminClient().rpc('comp_trip_pass', { p_trip_id: tripId, p_created_by: founder.id });
+  if (error) return fail(`Could not comp the pass: ${error.message}`);
+  if (comped !== true) return fail('This trip already has a pass.');
   revalidatePath('/admin');
   try {
     await startAndWake(tripId);
   } catch (e) {
-    throw new Error(`The pass is comped, but monitoring did not start (${e instanceof Error ? e.message : 'unknown'}). Use Start monitoring.`);
+    return fail(`The pass is comped, but monitoring did not start (${e instanceof Error ? e.message : 'unknown'}). Use Start monitoring.`);
   }
+  return ok;
 }
 
 /** For a trip whose Stripe webhook could not start monitoring (Task 9). A second run exits, so repeating it is safe. */
-export async function startMonitoring(tripId: string): Promise<void> {
+export async function startMonitoring(tripId: string): Promise<ActionResult> {
   await requireAdmin();
   const { data: trip, error } = await createAdminClient().from('trips').select('pass_status').eq('id', tripId).maybeSingle();
   if (error) throw new Error(error.message);
-  if (!trip || trip.pass_status === 'none') throw new Error('Only a trip with a pass is monitored.');
+  if (!trip || trip.pass_status === 'none') return fail('Only a trip with a pass is monitored.');
   await startAndWake(tripId);
   revalidatePath('/admin');
+  return ok;
 }
 
-export async function rerunChecks(tripId: string): Promise<void> {
+export async function rerunChecks(tripId: string): Promise<ActionResult> {
   await requireAdmin();
   await runDocumentChecks(tripId);
   revalidatePath('/admin');
+  return ok;
 }
 
-export async function adminApproveQuarantined(messageId: string): Promise<void> {
+export async function adminApproveQuarantined(messageId: string): Promise<ActionResult> {
   await requireAdmin();
   // The same approval as the planner's feed button (Task 15), across every trip.
   if (await approveQuarantined(messageId, null)) await start(intakeWorkflow, [messageId]);
   revalidatePath('/admin');
+  return ok;
 }
 
 /** Starts the run for an open incident whose workflow never started. A run already working it exits as a duplicate. */
-export async function startIncidentRun(incidentId: string): Promise<void> {
+export async function startIncidentRun(incidentId: string): Promise<ActionResult> {
   await requireAdmin();
   // Age is not required here (the cutoff is pushed back to now): the founder is choosing to start it. It must still be open and un-notified.
   const found = await stuckIncidents(createAdminClient(), new Date(Date.now() + SWEEP_AFTER_MS), incidentId);
-  if (found.length === 0) throw new Error('That incident is resolved or the group was already told.');
+  if (found.length === 0) return fail('That incident is resolved or the group was already told.');
   await start(incidentWorkflow, [incidentId]);
   revalidatePath('/admin');
+  return ok;
 }
 
 /** Starts intake for a forwarded message nobody claimed. Intake's claim is idempotent. */
-export async function startIntakeRun(messageId: string): Promise<void> {
+export async function startIntakeRun(messageId: string): Promise<ActionResult> {
   await requireAdmin();
   const found = await stuckMessages(createAdminClient(), new Date(Date.now() + SWEEP_AFTER_MS), messageId);
-  if (found.length === 0) throw new Error('That message was already claimed or is not waiting.');
+  if (found.length === 0) return fail('That message was already claimed or is not waiting.');
   await start(intakeWorkflow, [messageId]);
   revalidatePath('/admin');
+  return ok;
 }
 
 export interface EditState {
@@ -144,14 +147,30 @@ export async function editPlaybook(incidentId: string, _prev: EditState, form: F
   return { error: null, saved: true };
 }
 
-export async function releasePlaybook(incidentId: string): Promise<void> {
+export async function releasePlaybook(incidentId: string): Promise<ActionResult> {
   const founder = await requireAdmin();
   try {
     await resumeHook(incidentReleaseToken(incidentId), { releasedBy: founder.id });
   } catch (error) {
-    // No hook: the two-hour hold already ran out and the workflow released the playbook itself. Anything else is real.
     if (!HookNotFoundError.is(error)) throw error;
-    console.warn('no release hook for the incident; the hold already ended', incidentId);
+    // No hook: either the two-hour hold ran out and the workflow released the playbook itself, or the run died while
+    // it was held. In the second case the playbook is still hidden, so release and notify here. Both steps are
+    // idempotent. A new incident run is never started: it would re-enter the hold.
+    const { data: latest, error: readError } = await createAdminClient()
+      .from('playbooks')
+      .select('held_for_review')
+      .eq('incident_id', incidentId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (readError) throw new Error(readError.message);
+    if (latest?.held_for_review === true) {
+      await releaseHeldPlaybooks(incidentId);
+      await notifyAffected(incidentId);
+    } else {
+      console.warn('no release hook for the incident, and nothing is held; the hold already ended', incidentId);
+    }
   }
   revalidatePath('/admin');
+  return ok;
 }

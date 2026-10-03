@@ -11,7 +11,7 @@
     },
     {
       "path": "/api/cron/document-checks",
-      "schedule": "0 13 * * *"
+      "schedule": "0 18 * * *"
     },
     {
       "path": "/api/cron/sweep",

@@ -8,7 +8,7 @@ import { GET } from '@/app/api/cron/sweep/route';
 const call = (authorization?: string) => GET(new Request('https://x.test/api/cron/sweep', authorization ? { headers: { authorization } } : {}));
 
 beforeEach(() => {
-  sweepStuckWork.mockReset().mockResolvedValue({ incidents: { started: 1, failed: [] }, messages: { started: 0, failed: [] } });
+  sweepStuckWork.mockReset().mockResolvedValue({ incidents: { started: 1, failed: [], skipped: 0 }, messages: { started: 0, failed: [], skipped: 0 } });
   process.env.CRON_SECRET = 'cron-test';
 });
 
@@ -28,11 +28,11 @@ describe('GET /api/cron/sweep', () => {
   it('runs the sweep and reports it', async () => {
     const res = await call('Bearer cron-test');
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ incidents: { started: 1, failed: [] }, messages: { started: 0, failed: [] } });
+    expect(await res.json()).toEqual({ incidents: { started: 1, failed: [], skipped: 0 }, messages: { started: 0, failed: [], skipped: 0 } });
   });
 
   it('answers 500 when a start failed, so the cron shows red', async () => {
-    sweepStuckWork.mockResolvedValue({ incidents: { started: 0, failed: ['i1'] }, messages: { started: 0, failed: [] } });
+    sweepStuckWork.mockResolvedValue({ incidents: { started: 0, failed: ['i1'], skipped: 0 }, messages: { started: 0, failed: [], skipped: 0 } });
     expect((await call('Bearer cron-test')).status).toBe(500);
   });
 });

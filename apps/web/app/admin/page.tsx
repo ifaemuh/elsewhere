@@ -1,16 +1,15 @@
 import { Suspense } from 'react';
 import Link from 'next/link';
-import { Button } from '@/components/ui/button';
 import { requireAdmin } from '@/lib/admin/guard';
 import { stuckIncidents, stuckMessages } from '@/lib/admin/sweep';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { adminApproveQuarantined, compPass, releasePlaybook, rerunChecks, startIncidentRun, startIntakeRun, startMonitoring } from './actions';
+import { ActionForm } from './action-form';
 import { PlaybookEditor } from './playbook-editor';
 
 export default function AdminPage() {
   return (
     <main className="mx-auto max-w-5xl px-6 py-12">
-      <h1 className="text-3xl font-bold tracking-tight">Hand-run trips</h1>
       <Suspense fallback={<p className="mt-6 text-[#4b5745]">Loading…</p>}>
         <AdminContent />
       </Suspense>
@@ -29,11 +28,11 @@ async function AdminContent() {
   await requireAdmin();
   const admin = createAdminClient();
   const [tripRows, incidentRows, quarantinedRows, fallbackRows, stuckIncidentRows, stuckMessageRows] = await Promise.all([
-    admin.from('trips').select('id, name, pass_status, hand_run, start_date, end_date').order('start_date', { ascending: true }).limit(200),
+    admin.from('trips').select('id, name, pass_status, hand_run, start_date, end_date').order('start_date', { ascending: false, nullsFirst: true }).limit(200),
     admin.from('incidents').select('id, trip_id, event_type, status, detected_at').neq('status', 'resolved').order('detected_at', { ascending: false }).limit(50),
     admin.from('inbound_messages').select('id, trip_id, sender, subject').eq('status', 'quarantined').limit(50),
     admin.from('booking_segments').select('id, trip_id, carrier_iata, flight_number, departure_local').eq('monitor_state', 'polling_only').order('scheduled_out').limit(50),
-    stuckIncidents(admin),
+    stuckIncidents(admin, new Date(), undefined, { excludeWaiting: true }),
     stuckMessages(admin),
   ]);
   const trips = rows(tripRows);
@@ -49,6 +48,7 @@ async function AdminContent() {
 
   return (
     <>
+      <h1 className="text-3xl font-bold tracking-tight">Hand-run trips</h1>
       <section className="mt-8">
         <h2 className="text-xl font-semibold">Trips</h2>
         <table className="mt-3 w-full text-left text-sm">
@@ -73,17 +73,11 @@ async function AdminContent() {
                 </td>
                 <td className="flex gap-2 py-2">
                   {trip.pass_status === 'none' ? (
-                    <form action={compPass.bind(null, trip.id)}>
-                      <Button size="sm" variant="outline" type="submit">Comp and hand-run</Button>
-                    </form>
+                    <ActionForm action={compPass} id={trip.id} label="Comp and hand-run" />
                   ) : (
-                    <form action={startMonitoring.bind(null, trip.id)}>
-                      <Button size="sm" variant="outline" type="submit">Start monitoring</Button>
-                    </form>
+                    <ActionForm action={startMonitoring} id={trip.id} label="Start monitoring" />
                   )}
-                  <form action={rerunChecks.bind(null, trip.id)}>
-                    <Button size="sm" variant="outline" type="submit">Re-run document checks</Button>
-                  </form>
+                  <ActionForm action={rerunChecks} id={trip.id} label="Re-run document checks" />
                 </td>
               </tr>
             ))}
@@ -103,9 +97,9 @@ async function AdminContent() {
               <>
                 <PlaybookEditor incidentId={incident.id} json={JSON.stringify(playbooks.get(incident.id)!.content, null, 2)} />
                 {playbooks.get(incident.id)!.held ? (
-                  <form action={releasePlaybook.bind(null, incident.id)} className="mt-2">
-                    <Button size="sm" type="submit">Release to the group</Button>
-                  </form>
+                  <div className="mt-2">
+                    <ActionForm action={releasePlaybook} id={incident.id} label="Release to the group" variant="default" />
+                  </div>
                 ) : null}
               </>
             ) : null}
@@ -116,7 +110,7 @@ async function AdminContent() {
       <section className="mt-10">
         <h2 className="text-xl font-semibold">Runs that never started</h2>
         <p className="mt-1 text-sm text-[#4b5745]">
-          Open incidents with no notice sent, and forwarded mail nobody claimed, both over an hour old. A daily job starts these too. Starting one that is already running does nothing.
+          Open incidents with no notice sent, and forwarded mail nobody claimed, both over an hour old. Incidents waiting for a planner's answer or for your release are not listed. A daily job starts the last 14 days' runs too. Starting one that is already running does nothing.
         </p>
         <ul className="mt-3 space-y-2 text-sm">
           {stuckIncidentRows.map((incident) => (
@@ -125,17 +119,13 @@ async function AdminContent() {
                 Incident: {incident.event_type} · {incident.status} · {incident.detected_at.replace('T', ' ').slice(0, 16)} UTC ·{' '}
                 <Link href={`/trips/${incident.trip_id}/incidents/${incident.id}`} className="underline">open</Link>
               </span>
-              <form action={startIncidentRun.bind(null, incident.id)}>
-                <Button size="sm" variant="outline" type="submit">Start</Button>
-              </form>
+              <ActionForm action={startIncidentRun} id={incident.id} label="Start" />
             </li>
           ))}
           {stuckMessageRows.map((message) => (
             <li key={message.id} className="flex items-center justify-between rounded-lg border border-[#e4dfd0] bg-white p-3">
               <span>Mail: {message.sender ?? 'unknown'} · {message.subject ?? 'no subject'} · {message.received_at.replace('T', ' ').slice(0, 16)} UTC</span>
-              <form action={startIntakeRun.bind(null, message.id)}>
-                <Button size="sm" variant="outline" type="submit">Start</Button>
-              </form>
+              <ActionForm action={startIntakeRun} id={message.id} label="Start" />
             </li>
           ))}
         </ul>
@@ -162,9 +152,7 @@ async function AdminContent() {
           {quarantined.map((message) => (
             <li key={message.id} className="flex items-center justify-between rounded-lg border border-[#e4dfd0] bg-white p-3">
               <span>{message.sender ?? 'unknown'} · {message.subject}</span>
-              <form action={adminApproveQuarantined.bind(null, message.id)}>
-                <Button size="sm" variant="outline" type="submit">Approve</Button>
-              </form>
+              <ActionForm action={adminApproveQuarantined} id={message.id} label="Approve" />
             </li>
           ))}
         </ul>
