@@ -1084,3 +1084,75 @@ create policy "Users revoke consents" on public.consents for update
 create policy "Members read passes" on public.passes for select using (public.is_trip_member(trip_id));
 -- webhook_events, experiment_assignments, funnel_telemetry_events, attribution_touchpoints:
 -- RLS on with no policies, so only the service role reads or writes them.
+
+-- 12. Admin, retention and the airports cache (Task 16) ----------------------------------
+-- Airport data is static, and each AeroAPI lookup costs money, so lookups are read through this table.
+-- Only the service role reads or writes it.
+create table public.airports (
+  iata text primary key check (iata ~ '^[A-Z0-9]{3,4}$'),
+  latitude double precision not null check (latitude between -90 and 90),
+  longitude double precision not null check (longitude between -180 and 180),
+  country_code text check (country_code is null or country_code ~ '^[A-Z]{2}$'),
+  timezone text,
+  fetched_at timestamptz not null default now()
+);
+alter table public.airports enable row level security;
+revoke all on public.airports from public, anon, authenticated;
+grant select, insert, update, delete on public.airports to service_role;
+
+-- /admin's comp action, in one transaction: marks the trip comped and hand-run, and writes the comp pass row, only if
+-- the trip has no pass. The trip row is locked first, so two comps (or a comp and a webhook) cannot both win. A paid or
+-- comped passes row also refuses it, which covers a paid session whose webhook has not marked the trip yet.
+-- Returns true when it comped.
+create or replace function public.comp_trip_pass(p_trip_id uuid, p_created_by uuid)
+returns boolean
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare
+  v_status pass_status;
+begin
+  select pass_status into v_status from public.trips where id = p_trip_id for update;
+  if not found then
+    raise exception 'trip not found';
+  end if;
+  if v_status <> 'none' or exists (select 1 from public.passes where trip_id = p_trip_id and status in ('paid', 'comp')) then
+    return false;
+  end if;
+  update public.trips set pass_status = 'comp', hand_run = true where id = p_trip_id;
+  insert into public.passes (trip_id, price_variant, amount_cents, status, created_by, paid_at)
+  values (p_trip_id, 'comp', 0, 'comp', p_created_by, now());
+  return true;
+end;
+$$;
+revoke execute on function public.comp_trip_pass(uuid, uuid) from public, anon, authenticated;
+grant execute on function public.comp_trip_pass(uuid, uuid) to service_role;
+
+-- The retention job's document rule, in one statement so there is no snapshot to go stale: delete a member's documents
+-- when they did not choose to keep them, were last saved over 30 days ago, and the member has no trip that ended
+-- (its end date, else its start date) within the last 30 days or is still to come. A trip with no dates counts as
+-- upcoming, so it protects the documents. A member on no trip has nothing to wait for. Returns the number deleted.
+create or replace function public.purge_member_documents(p_now timestamptz)
+returns int
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare
+  v_deleted int;
+begin
+  with gone as (
+    delete from public.member_documents d
+     where not d.keep_on_profile
+       and d.updated_at < p_now - interval '30 days'
+       and not exists (
+         select 1
+           from public.trip_members m
+           join public.trips t on t.id = m.trip_id
+          where m.user_id = d.user_id
+            and (coalesce(t.end_date, t.start_date) is null
+                 or coalesce(t.end_date, t.start_date) >= (p_now at time zone 'UTC')::date - 30)
+       )
+    returning 1
+  )
+  select count(*) into v_deleted from gone;
+  return v_deleted;
+end;
+$$;
+revoke execute on function public.purge_member_documents(timestamptz) from public, anon, authenticated;
+grant execute on function public.purge_member_documents(timestamptz) to service_role;

@@ -2,38 +2,35 @@ const DAY = 24 * 60 * 60 * 1000;
 
 export interface RetentionInput {
   now: Date;
-  trips: { id: string; end_date: string | null }[];
-  members: { trip_id: string; user_id: string }[];
-  documents: { user_id: string; keep_on_profile: boolean }[];
+  trips: { id: string; start_date: string | null; end_date: string | null }[];
   inbound: { id: string; storage_path: string | null; received_at: string }[];
 }
 
 export interface RetentionPlan {
-  deleteDocumentsFor: string[];
   purgeInbound: { id: string; storage_path: string }[];
   deleteBookingsForTrips: string[];
 }
 
+/**
+ * Raw inbound files and bookings. Documents are not planned here: `purge_member_documents` decides and deletes in one
+ * statement, because the rule needs each member's every trip and a read-then-delete would act on a stale snapshot.
+ */
 export function retentionPlan(input: RetentionInput): RetentionPlan {
-  const ends = new Map(input.trips.map((trip) => [trip.id, trip.end_date ? new Date(`${trip.end_date}T23:59:59Z`).getTime() : Number.POSITIVE_INFINITY]));
-  const lastTripEnd = new Map<string, number>();
-  for (const member of input.members) {
-    lastTripEnd.set(member.user_id, Math.max(lastTripEnd.get(member.user_id) ?? 0, ends.get(member.trip_id) ?? Number.POSITIVE_INFINITY));
-  }
-  const documentCutoff = input.now.getTime() - 30 * DAY;
-  const deleteDocumentsFor = [
-    ...new Set(
-      input.documents
-        .filter((doc) => !doc.keep_on_profile && (lastTripEnd.get(doc.user_id) ?? Number.POSITIVE_INFINITY) < documentCutoff)
-        .map((doc) => doc.user_id),
-    ),
-  ].sort();
+  const purgeCutoff = input.now.getTime() - 30 * DAY;
   const purgeInbound = input.inbound
-    .filter((m): m is { id: string; storage_path: string; received_at: string } => m.storage_path !== null && new Date(m.received_at).getTime() < documentCutoff)
+    .filter((m): m is { id: string; storage_path: string; received_at: string } => m.storage_path !== null && new Date(m.received_at).getTime() < purgeCutoff)
     .map(({ id, storage_path }) => ({ id, storage_path }));
-  const bookingCutoff = input.now.getTime() - 365 * DAY;
-  const deleteBookingsForTrips = input.trips.filter((trip) => (ends.get(trip.id) ?? Number.POSITIVE_INFINITY) < bookingCutoff).map((trip) => trip.id);
-  return { deleteDocumentsFor, purgeInbound, deleteBookingsForTrips };
+  // A year after the trip, by the calendar. A trip with no dates is never purged.
+  const deleteBookingsForTrips = input.trips
+    .filter((trip) => {
+      const last = trip.end_date ?? trip.start_date;
+      if (!last) return false;
+      const purgeAfter = new Date(`${last}T23:59:59Z`);
+      purgeAfter.setUTCFullYear(purgeAfter.getUTCFullYear() + 1);
+      return purgeAfter.getTime() < input.now.getTime();
+    })
+    .map((trip) => trip.id);
+  return { purgeInbound, deleteBookingsForTrips };
 }
 
 /**
@@ -71,29 +68,30 @@ export async function selectAll<T>(
   }
 }
 
+const BATCH = 100;
+
 /**
  * Applies the plan. Each part runs on its own: one that fails does not stop the others, and the failures are thrown
  * together at the end, so the cron reports them and the next day's run retries them.
  */
-export async function runRetention(now: Date = new Date()): Promise<RetentionPlan> {
+export async function runRetention(now: Date = new Date()): Promise<RetentionPlan & { documentsDeleted: number }> {
   const { createAdminClient } = await import('@/lib/supabase/admin');
   const { removeInbound } = await import('@/lib/intake/storage');
   const admin = createAdminClient();
-  const [trips, members, documents, inbound] = await Promise.all([
-    selectAll<{ id: string; end_date: string | null }>((from, to) => admin.from('trips').select('id, end_date').order('id').range(from, to)),
-    selectAll<{ trip_id: string; user_id: string }>((from, to) => admin.from('trip_members').select('trip_id, user_id').order('id').range(from, to)),
-    selectAll<{ user_id: string; keep_on_profile: boolean }>((from, to) => admin.from('member_documents').select('user_id, keep_on_profile').order('id').range(from, to)),
+  const [trips, inbound] = await Promise.all([
+    selectAll<{ id: string; start_date: string | null; end_date: string | null }>((from, to) => admin.from('trips').select('id, start_date, end_date').order('id').range(from, to)),
     selectAll<{ id: string; storage_path: string | null; received_at: string }>((from, to) =>
       admin.from('inbound_messages').select('id, storage_path, received_at').not('storage_path', 'is', null).order('id').range(from, to),
     ),
   ]);
-  const plan = retentionPlan({ now, trips, members, documents, inbound });
+  const plan = retentionPlan({ now, trips, inbound });
   const failures: string[] = [];
 
-  if (plan.deleteDocumentsFor.length > 0) {
-    const { error } = await admin.from('member_documents').delete().in('user_id', plan.deleteDocumentsFor).eq('keep_on_profile', false);
-    if (error) failures.push(`documents: ${error.message}`);
-  }
+  let documentsDeleted = 0;
+  const purged = await admin.rpc('purge_member_documents', { p_now: now.toISOString() });
+  if (purged.error) failures.push(`documents: ${purged.error.message}`);
+  else documentsDeleted = Number(purged.data ?? 0);
+
   for (const message of plan.purgeInbound) {
     try {
       await removeInbound(await inboundObjects(admin, message.storage_path));
@@ -104,10 +102,10 @@ export async function runRetention(now: Date = new Date()): Promise<RetentionPla
       failures.push(`inbound ${message.id}: ${error instanceof Error ? error.message : 'unknown'}`);
     }
   }
-  if (plan.deleteBookingsForTrips.length > 0) {
-    const { error } = await admin.from('bookings').delete().in('trip_id', plan.deleteBookingsForTrips);
+  for (let i = 0; i < plan.deleteBookingsForTrips.length; i += BATCH) {
+    const { error } = await admin.from('bookings').delete().in('trip_id', plan.deleteBookingsForTrips.slice(i, i + BATCH));
     if (error) failures.push(`bookings: ${error.message}`);
   }
   if (failures.length > 0) throw new Error(`retention finished with ${failures.length} failure(s): ${failures.join('; ')}`);
-  return plan;
+  return { ...plan, documentsDeleted };
 }

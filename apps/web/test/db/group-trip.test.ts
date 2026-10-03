@@ -846,39 +846,156 @@ describe('leaving a trip with an open balance (Task 15)', () => {
 });
 
 describe('admin and retention (Task 16)', () => {
-  it('accepts the comp pass /admin writes, and rejects a variant or status it does not know', async () => {
-    await asService(db, () =>
-      db.query("insert into public.passes (trip_id, price_variant, amount_cents, status, created_by, paid_at) values ($1, 'comp', 0, 'comp', $2, now())", [tripId, PLANNER]),
+  const newTrip = (name: string, start: string | null, end: string | null, code: string) =>
+    asUser(db, PLANNER, async () =>
+      (await one<{ id: string }>(`select public.create_trip($1, 'PT', $2, $3, $4, 'Pat', null, '{}'::jsonb) as id`, [name, start, end, code])).id,
     );
-    const seen = await asUser(db, MEMBER, () => db.query('select status from public.passes where trip_id = $1', [tripId]));
-    expect(seen.rows).toEqual([{ status: 'comp' }]);
-    await rejects(() => asService(db, () => db.query("insert into public.passes (trip_id, price_variant, amount_cents) values ($1, 'free', 0)", [tripId])), /check|violates/);
-    await asService(db, () => db.query('delete from public.passes where trip_id = $1', [tripId]));
+  const comp = (id: string) => asService(db, () => one<{ ok: boolean }>('select public.comp_trip_pass($1, $2) as ok', [id, PLANNER]));
+
+  describe('comp_trip_pass', () => {
+    it('comps a trip with no pass: hand-run, comp status, and one comp pass row the members can see', async () => {
+      const t = await newTrip('Comp me', '2027-05-01', '2027-05-08', 'trip-comp-0001');
+      expect((await comp(t)).ok).toBe(true);
+      const trip = await asService(db, () => one<{ pass_status: string; hand_run: boolean }>('select pass_status, hand_run from public.trips where id = $1', [t]));
+      expect(trip).toEqual({ pass_status: 'comp', hand_run: true });
+      const seen = await asUser(db, PLANNER, () => db.query('select status, price_variant, amount_cents from public.passes where trip_id = $1', [t]));
+      expect(seen.rows).toEqual([{ status: 'comp', price_variant: 'comp', amount_cents: 0 }]);
+    });
+
+    it('refuses a trip that is already comped or active, and writes nothing more', async () => {
+      const t = await newTrip('Twice', '2027-05-01', '2027-05-08', 'trip-comp-0002');
+      expect((await comp(t)).ok).toBe(true);
+      expect((await comp(t)).ok).toBe(false);
+      const active = await newTrip('Paid', '2027-05-01', '2027-05-08', 'trip-comp-0003');
+      await asService(db, () => db.query("update public.trips set pass_status = 'active' where id = $1", [active]));
+      expect((await comp(active)).ok).toBe(false);
+      const passes = await asService(db, () => one<{ n: number }>('select count(*)::int as n from public.passes where trip_id = any($1)', [[t, active]]));
+      expect(passes.n).toBe(1);
+    });
+
+    it('refuses a trip with a paid pass row the webhook has not applied yet, and leaves the trip alone', async () => {
+      const t = await newTrip('Racing webhook', '2027-05-01', '2027-05-08', 'trip-comp-0004');
+      await asService(db, () => db.query("insert into public.passes (trip_id, stripe_session_id, price_variant, amount_cents, status, paid_at) values ($1, 'cs_x1', 'p9', 900, 'paid', now())", [t]));
+      expect((await comp(t)).ok).toBe(false);
+      const trip = await asService(db, () => one<{ pass_status: string; hand_run: boolean }>('select pass_status, hand_run from public.trips where id = $1', [t]));
+      expect(trip).toEqual({ pass_status: 'none', hand_run: false });
+    });
+
+    it('is not fooled by a pending pass row, and raises for a missing trip', async () => {
+      const t = await newTrip('Pending', '2027-05-01', '2027-05-08', 'trip-comp-0005');
+      await asService(db, () => db.query("insert into public.passes (trip_id, stripe_session_id, price_variant, amount_cents, status) values ($1, 'cs_x2', 'p9', 900, 'pending')", [t]));
+      expect((await comp(t)).ok).toBe(true);
+      await rejects(() => comp('00000000-0000-4000-8000-00000000dead'), /trip not found/);
+    });
+
+    it('is executable by the service role only', async () => {
+      const t = await newTrip('Closed', '2027-05-01', '2027-05-08', 'trip-comp-0006');
+      await rejects(() => asUser(db, PLANNER, () => db.query('select public.comp_trip_pass($1, $2)', [t, PLANNER])));
+      await rejects(() => db.query('set role anon').then(() => db.query('select public.comp_trip_pass($1, $2)', [t, PLANNER])).finally(() => db.exec('reset role')));
+    });
   });
 
-  it('selects only received, never-claimed mail older than an hour for the sweep', async () => {
-    await asService(db, () =>
-      db.query(
-        `insert into public.inbound_messages (trip_id, source, status, claimed_by, received_at) values
-           ($1, 'email', 'received', null, now() - interval '2 hours'),
-           ($1, 'email', 'received', null, now() - interval '5 minutes'),
-           ($1, 'email', 'received', 'run-1', now() - interval '2 hours'),
-           ($1, 'email', 'quarantined', null, now() - interval '2 hours'),
-           ($1, 'email', 'processing', null, now() - interval '2 hours')`,
-        [tripId],
-      ),
-    );
-    const stuck = await asService(db, () =>
-      db.query("select status, claimed_by from public.inbound_messages where trip_id = $1 and status = 'received' and claimed_by is null and received_at < now() - interval '1 hour'", [tripId]),
-    );
-    expect(stuck.rows).toHaveLength(1);
-    await asService(db, () => db.query('delete from public.inbound_messages where trip_id = $1', [tripId]));
+  describe('purge_member_documents', () => {
+    const NOW = '2027-03-01T08:00:00Z';
+    let n = 0;
+    async function member(options: { trip?: { start: string | null; end: string | null }; savedDaysAgo: number; keep?: boolean }) {
+      const id = `00000000-0000-4000-8000-0000000d${String(++n).padStart(4, '0')}`;
+      await createAuthUser(db, { id, email: `purge${n}@example.test` });
+      if (options.trip) {
+        const t = await asUser(db, PLANNER, async () =>
+          (await one<{ id: string }>(`select public.create_trip('Purge ${n}', 'PT', $1, $2, $3, 'Pat', null, '{}'::jsonb) as id`, [options.trip!.start, options.trip!.end, `trip-purge-${String(n).padStart(4, '0')}`])).id,
+        );
+        await asUser(db, PLANNER, () => db.query("select public.set_join_token($1, $2, now() + interval '7 days')", [t, `purge-invite-token-${n}-0123456789`]));
+        await asUser(db, id, () => db.query("select public.join_trip($1, 'Purger')", [`purge-invite-token-${n}-0123456789`]));
+      }
+      await asService(db, () =>
+        db.query("insert into public.member_documents (user_id, kind, issuing_country, expires_on, keep_on_profile, updated_at) values ($1, 'passport', 'US', '2031-01-01', $2, $3::timestamptz - make_interval(days => $4))", [
+          id,
+          options.keep ?? false,
+          NOW,
+          options.savedDaysAgo,
+        ]),
+      );
+      return id;
+    }
+    const purge = () => asService(db, () => one<{ n: number }>('select public.purge_member_documents($1) as n', [NOW]));
+    const remaining = (id: string) => asService(db, () => one<{ n: number }>('select count(*)::int as n from public.member_documents where user_id = $1', [id]));
+
+    it('deletes old documents of a member whose last trip ended over 30 days ago, and of a member on no trip', async () => {
+      const ended = await member({ trip: { start: '2027-01-01', end: '2027-01-10' }, savedDaysAgo: 90 });
+      const noTrips = await member({ savedDaysAgo: 90 });
+      expect((await purge()).n).toBeGreaterThanOrEqual(2);
+      expect((await remaining(ended)).n).toBe(0);
+      expect((await remaining(noTrips)).n).toBe(0);
+    });
+
+    it('keeps documents saved within 30 days, even when the last trip ended long ago or there is none', async () => {
+      const fresh = await member({ savedDaysAgo: 0 });
+      const freshAfterOldTrip = await member({ trip: { start: '2026-01-01', end: '2026-01-10' }, savedDaysAgo: 5 });
+      await purge();
+      expect((await remaining(fresh)).n).toBe(1);
+      expect((await remaining(freshAfterOldTrip)).n).toBe(1);
+    });
+
+    it('keeps documents for an upcoming trip, and for a trip that ended within 30 days', async () => {
+      const upcoming = await member({ trip: { start: '2027-06-01', end: '2027-06-08' }, savedDaysAgo: 90 });
+      const justEnded = await member({ trip: { start: '2027-02-01', end: '2027-02-10' }, savedDaysAgo: 90 });
+      const boundary = await member({ trip: { start: '2027-01-25', end: '2027-01-30' }, savedDaysAgo: 90 });
+      await purge();
+      expect((await remaining(upcoming)).n).toBe(1);
+      expect((await remaining(justEnded)).n).toBe(1);
+      // 2027-03-01 minus 30 days is 2027-01-30: a trip ending that day still protects, the day before does not.
+      expect((await remaining(boundary)).n).toBe(1);
+    });
+
+    it('uses the start date when there is no end date, and treats a trip with neither date as upcoming', async () => {
+      const recentStart = await member({ trip: { start: '2027-02-20', end: null }, savedDaysAgo: 90 });
+      const oldStart = await member({ trip: { start: '2026-06-01', end: null }, savedDaysAgo: 90 });
+      const undated = await member({ trip: { start: null, end: null }, savedDaysAgo: 90 });
+      await purge();
+      expect((await remaining(recentStart)).n).toBe(1);
+      expect((await remaining(oldStart)).n).toBe(0);
+      expect((await remaining(undated)).n).toBe(1);
+    });
+
+    it('keeps what the member chose to keep', async () => {
+      const keeper = await member({ savedDaysAgo: 90, keep: true });
+      await purge();
+      expect((await remaining(keeper)).n).toBe(1);
+    });
+
+    it('returns the count it deleted, and is executable by the service role only', async () => {
+      const gone = await member({ savedDaysAgo: 400 });
+      const { n: deleted } = await purge();
+      expect(deleted).toBeGreaterThanOrEqual(1);
+      expect((await remaining(gone)).n).toBe(0);
+      expect((await purge()).n).toBe(0);
+      await rejects(() => asUser(db, PLANNER, () => db.query('select public.purge_member_documents($1)', [NOW])));
+    });
   });
 
-  it('deleting a trip’s bookings takes its segments and incidents with it, and leaves the trip', async () => {
-    const t = await asUser(db, PLANNER, async () =>
-      (await one<{ id: string }>(`select public.create_trip('Old trip', 'PT', '2025-01-03', '2025-01-10', 'trip-old-c2c2c2', 'Pat', null, '{}'::jsonb) as id`)).id,
-    );
+  describe('airports cache', () => {
+    it('is readable and writable by the service role only', async () => {
+      await asService(db, () => db.query("insert into public.airports (iata, latitude, longitude, country_code, timezone) values ('LIS', 38.77, -9.13, 'PT', 'Europe/Lisbon')"));
+      const read = await asService(db, () => db.query<{ iata: string }>('select iata from public.airports'));
+      expect(read.rows).toEqual([{ iata: 'LIS' }]);
+      await rejects(() => asUser(db, PLANNER, () => db.query('select * from public.airports')));
+      await rejects(() => asUser(db, PLANNER, () => db.query("insert into public.airports (iata, latitude, longitude) values ('EWR', 40.7, -74.1)")));
+    });
+
+    it('refuses a row without full coordinates', async () => {
+      await rejects(() => asService(db, () => db.query("insert into public.airports (iata, latitude, longitude) values ('XXX', null, 1)")), /null value|violates/);
+    });
+  });
+
+  it('has the inbound_messages columns the sweep filters on', async () => {
+    const cols = await asService(db, () => db.query<{ column_name: string }>("select column_name from information_schema.columns where table_name = 'inbound_messages' and column_name in ('status', 'claimed_by', 'received_at')"));
+    expect(cols.rows).toHaveLength(3);
+  });
+
+  it('deleting a trip’s bookings takes its segments and incidents, keeps the trip, and keeps expenses that pointed at an incident', async () => {
+    const t = await newTrip('Old trip', '2025-01-03', '2025-01-10', 'trip-old-c2c2c2');
+    await asUser(db, PLANNER, () => db.query("select public.set_join_token($1, $2, now() + interval '7 days')", [t, 'old-trip-invite-token-0123456789']));
     const counts = await asService(db, async () => {
       const booking = await one<{ id: string }>(
         `insert into public.bookings (trip_id, kind, provider, extraction_confidence, dedupe_key) values ($1, 'flight', 'TAP', 0.9, 'old-trip') returning id`,
@@ -889,26 +1006,21 @@ describe('admin and retention (Task 16)', () => {
          values ($1, $2, 1, 'TP', '204', 'EWR', 'LIS', '2025-01-03T18:15') returning id`,
         [booking.id, t],
       );
-      await db.query(`insert into public.incidents (trip_id, segment_id, event_type, dedupe_key) values ($1, $2, 'delay', 'old-trip:delay')`, [t, segment.id]);
+      const incident = await one<{ id: string }>(`insert into public.incidents (trip_id, segment_id, event_type, dedupe_key) values ($1, $2, 'delay', 'old-trip:delay') returning id`, [t, segment.id]);
+      await db.query(
+        "insert into public.expenses (trip_id, payer_user_id, amount_cents, description, split, incident_id, created_by) values ($1, $2, 4000, 'Hotel', $3::jsonb, $4, $2)",
+        [t, PLANNER, JSON.stringify({ kind: 'equal', user_ids: [PLANNER] }), incident.id],
+      );
       await db.query('delete from public.bookings where trip_id = $1', [t]);
-      return one<{ segments: number; incidents: number; trips: number }>(
+      return one<{ segments: number; incidents: number; trips: number; expenses: number; unlinked: number }>(
         `select (select count(*) from public.booking_segments where trip_id = $1)::int as segments,
                 (select count(*) from public.incidents where trip_id = $1)::int as incidents,
-                (select count(*) from public.trips where id = $1)::int as trips`,
+                (select count(*) from public.trips where id = $1)::int as trips,
+                (select count(*) from public.expenses where trip_id = $1)::int as expenses,
+                (select count(*) from public.expenses where trip_id = $1 and incident_id is null)::int as unlinked`,
         [t],
       );
     });
-    expect(counts).toEqual({ segments: 0, incidents: 0, trips: 1 });
-  });
-
-  it('keeps a document the member chose to keep when retention deletes by user', async () => {
-    const KEEPER = '00000000-0000-4000-8000-0000000000c6';
-    await createAuthUser(db, { id: KEEPER, email: 'keeper@example.test' });
-    await asUser(db, KEEPER, () =>
-      db.query("insert into public.member_documents (user_id, kind, issuing_country, expires_on, keep_on_profile) values ($1, 'passport', 'US', '2030-01-01', true), ($1, 'real_id', null, null, false)", [KEEPER]),
-    );
-    await asService(db, () => db.query('delete from public.member_documents where user_id = any($1) and keep_on_profile = false', [[KEEPER]]));
-    const left = await asService(db, () => db.query<{ kind: string }>('select kind from public.member_documents where user_id = $1', [KEEPER]));
-    expect(left.rows).toEqual([{ kind: 'passport' }]);
+    expect(counts).toEqual({ segments: 0, incidents: 0, trips: 1, expenses: 1, unlinked: 1 });
   });
 });

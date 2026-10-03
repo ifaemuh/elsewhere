@@ -8,7 +8,7 @@ import { GET } from '@/app/api/cron/retention/route';
 const call = (authorization?: string) => GET(new Request('https://x.test/api/cron/retention', authorization ? { headers: { authorization } } : {}));
 
 beforeEach(() => {
-  runRetention.mockReset().mockResolvedValue({ deleteDocumentsFor: ['a', 'b'], purgeInbound: [{ id: 'm', storage_path: 'p' }], deleteBookingsForTrips: [] });
+  runRetention.mockReset().mockResolvedValue({ documentsDeleted: 2, purgeInbound: [{ id: 'm', storage_path: 'p' }], deleteBookingsForTrips: [] });
   process.env.CRON_SECRET = 'cron-test';
 });
 
@@ -26,6 +26,6 @@ describe('GET /api/cron/retention', () => {
   });
 
   it('runs retention and reports counts only', async () => {
-    expect(await (await call('Bearer cron-test')).json()).toEqual({ documentsDeletedFor: 2, inboundPurged: 1, tripsWithBookingsDeleted: 0 });
+    expect(await (await call('Bearer cron-test')).json()).toEqual({ documentsDeleted: 2, inboundPurged: 1, tripsWithBookingsDeleted: 0 });
   });
 });

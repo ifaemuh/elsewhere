@@ -210,5 +210,7 @@ export async function aeroApi(): Promise<AeroApi> {
     const { fixtureAeroApi } = await import('./fixture-aeroapi');
     return fixtureAeroApi(fixtureDir);
   }
-  return httpAeroApi(requireEnv('AEROAPI_KEY'));
+  // Airport lookups are read through the `airports` table, so each airport is paid for once.
+  const { withAirportCache } = await import('./airport-cache');
+  return withAirportCache(httpAeroApi(requireEnv('AEROAPI_KEY')));
 }
