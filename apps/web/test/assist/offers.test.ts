@@ -137,16 +137,37 @@ describe('R1: the connection into the first new flight', () => {
     const back1 = leg('TP', 'LIS', 'EWR', '2026-11-10T12:00:00Z', '2026-11-10T20:20:00Z');
     const back2 = leg('UA', 'EWR', 'ORD', '2026-11-10T23:00:00Z', '2026-11-11T01:45:00Z');
     const booking = [out1, tp, back1, back2];
+    const next = leg('TP', 'EWR', 'LIS', '2026-11-04T23:15:00Z', '2026-11-05T06:35:00Z');
     it('the return is a booked flight, never the re-routing’s departure from the origin airport', () => {
       const viaJfk = [leg('UA', 'ORD', 'JFK', '2026-11-03T19:00:00Z', '2026-11-03T21:30:00Z'), leg('TP', 'JFK', 'LIS', '2026-11-03T23:00:00Z', '2026-11-04T06:00:00Z')];
       // Nothing new leaves EWR, so the departure is unknown; the return flight from EWR does not count.
-      expect(cancelled(tp, booking, [...viaJfk, back1, back2])).toEqual({ early: UNSET, arrival: UNSET });
+      expect(cancelled(tp, booking, [...viaJfk, back1, back2])).toEqual({ early: UNSET, arrival: 0 });
     });
-    it('the itinerary runs on past the final destination, so the arrival stays unset', () => {
-      const next = leg('TP', 'EWR', 'LIS', '2026-11-04T23:15:00Z', '2026-11-05T06:35:00Z');
-      expect(cancelled(tp, booking, [out1, next, back1, back2])).toEqual({ early: 0, arrival: UNSET });
+    it('the re-routing ends at the final destination when only the booked return follows', () => {
+      expect(cancelled(tp, booking, [out1, next, back1, back2])).toEqual({ early: 0, arrival: 1440 });
       expect(cancelled(tp, booking, [out1, next])).toEqual({ early: 0, arrival: 1440 });
     });
+    it('a new flight after the final destination still leaves the arrival unset', () => {
+      const onToOpo = leg('TP', 'LIS', 'OPO', '2026-11-05T09:00:00Z', '2026-11-05T10:00:00Z');
+      const afterReturn = leg('UA', 'ORD', 'SFO', '2026-11-11T10:00:00Z', '2026-11-11T14:30:00Z');
+      expect(cancelled(tp, booking, [out1, next, onToOpo])).toEqual({ early: 0, arrival: UNSET });
+      expect(cancelled(tp, booking, [out1, next, back1, back2, afterReturn])).toEqual({ early: 0, arrival: UNSET });
+    });
+  });
+  it('a booked flight of this journey after the final destination is not cut off', () => {
+    // A → B → f, B cancelled; the offer flies ORD→LIS direct, then lists f, which is on this journey.
+    const A = leg('UA', 'SFO', 'ORD', 0, 240);
+    const B = leg('UA', 'ORD', 'EWR', 300, 450);
+    const f = leg('TP', 'EWR', 'LIS', 540, 960);
+    const direct = leg('AA', 'ORD', 'LIS', 300, 500);
+    expect(cancelled(B, [A, B, f], [direct, f])).toEqual({ early: 0, arrival: UNSET });
+    expect(cancelled(B, [A, B, f], [direct])).toEqual({ early: 0, arrival: 0 });
+  });
+  it('an offer that reaches the final destination, flies on, and comes back has no one arrival', () => {
+    const next = leg('TP', 'EWR', 'LIS', '2026-11-04T23:15:00Z', '2026-11-05T06:35:00Z');
+    const away = leg('TP', 'LIS', 'OPO', '2026-11-05T09:00:00Z', '2026-11-05T10:00:00Z');
+    const back = leg('TP', 'OPO', 'LIS', '2026-11-05T12:00:00Z', '2026-11-05T13:00:00Z');
+    expect(cancelled(tp, [tp], [next, away, back])).toEqual({ early: 0, arrival: UNSET });
   });
   it('R1j: [the cancelled flight, a new flight onward from its destination] re-routes nothing', () => {
     expect(cancelled(tp, [tp], [tp, leg('TP', 'LIS', 'OPO', '2026-11-04T09:00:00Z', '2026-11-04T10:00:00Z')])).toEqual({ early: UNSET, arrival: UNSET });
@@ -413,10 +434,20 @@ function randomCase(rnd: () => number): SituationInput {
 
 describe('acceptance across random offer sets (seeded)', () => {
   const cases = (() => {
-    let seed = 20261002;
-    const rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+    // mulberry32: exact 32-bit arithmetic. (A float LCG loses precision past 2^53 and cycles within ~10k draws.)
+    let a = 20261002;
+    const rnd = () => {
+      a = (a + 0x6d2b79f5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
     return Array.from({ length: 2000 }, () => randomCase(rnd));
   })();
+
+  it('draws 2,000 distinct cases', () => {
+    expect(new Set(cases.map((c) => JSON.stringify(c))).size).toBe(2000);
+  });
 
   it('reversing the order of the offers never changes either fact', () => {
     let compared = 0;

@@ -80,14 +80,15 @@ export const departsEarlyMinutes = (bookedOut: number, leaves: number): number =
  * 2. The offer's new flights are those not on the booking. A rebooking often repeats booked flights, of this
  *    journey or of another (a re-issued ticket lists the return too); without a new flight, nothing is known.
  * 3. The offer takes over at the journey airport its first new flight leaves from. The itinerary is the journey's
- *    flights before that airport, then the offer's flights from its first new one on. If the offer stops short of
+ *    flights before that airport, then the offer's flights from its first new one on, ending at the first arrival
+ *    at the final destination when only booked flights of other journeys follow it. If the offer stops short of
  *    the final destination, the booked flights onward from where it stops complete it; the disrupted flight never
  *    does. A takeover airport that isn't on the journey makes the offer unknown.
  * 4. The itinerary must hold end to end: each flight leaves the airport the one before reached, with both times
- *    known, at least MIN_CONNECTION_MINUTES after it lands, and the last reaches the final destination, at a known
- *    time. Otherwise its arrival is null. A flight that leaves before the one before it lands, or flying the
- *    disrupted flight as booked, is contradictory, and makes the departure unknown too; so does a connection whose
- *    times are unknown, since it could hide a contradiction.
+ *    known, at least MIN_CONNECTION_MINUTES after it lands, and the last, and only the last, reaches the final
+ *    destination, at a known time. Otherwise its arrival is null. A flight that leaves before the one before it
+ *    lands, or flying the disrupted flight as booked, is contradictory, and makes the departure unknown too; so does
+ *    a connection whose times are unknown, since it could hide a contradiction.
  * 5. The departure is that of the itinerary's one new flight from the disrupted flight's origin airport. A listed
  *    copy of the disrupted flight never counts; with no such flight, or several, the departure is unknown.
  */
@@ -99,8 +100,14 @@ export function offerTimes(offer: ItinerarySegment[], journey: ItinerarySegment[
   if (first < 0) return UNKNOWN;
   const takeover = journey.findIndex((f) => f.originIata === flights[first].originIata);
   if (takeover < 0) return UNKNOWN;
-  const flown = [...journey.slice(0, takeover), ...flights.slice(first)];
   const finalDestination = journey[journey.length - 1].destinationIata;
+  const rest = flights.slice(first);
+  // A re-issued ticket also lists the booking's other journeys, such as the unchanged return. When only those follow
+  // the first arrival at the final destination, the re-routing ends there.
+  const reaches = rest.findIndex((f) => f.destinationIata === finalDestination);
+  const elsewhereOnBooking = (f: ItinerarySegment) => !isNew(f) && !journey.some((b) => sameFlight(b, f));
+  if (reaches >= 0 && rest.slice(reaches + 1).every(elsewhereOnBooking)) rest.length = reaches + 1;
+  const flown = [...journey.slice(0, takeover), ...rest];
   const stop = flown[flown.length - 1].destinationIata;
   if (stop !== finalDestination) {
     const onward = journey.findIndex((f) => f.originIata === stop);
@@ -108,7 +115,9 @@ export function offerTimes(offer: ItinerarySegment[], journey: ItinerarySegment[
   }
   if (flown.some((f) => sameFlight(f, disrupted))) return UNKNOWN;
 
-  let holds = flown[flown.length - 1].destinationIata === finalDestination && flown.filter(isNew).every((f) => time(f.scheduledOut) !== null && time(f.scheduledIn) !== null);
+  // Only the last flight reaches the final destination: an itinerary that gets there and comes back has no one arrival.
+  const reachedAt = flown.findIndex((f) => f.destinationIata === finalDestination);
+  let holds = reachedAt === flown.length - 1 && flown.filter(isNew).every((f) => time(f.scheduledOut) !== null && time(f.scheduledIn) !== null);
   let ordered = true;
   for (let i = 1; i < flown.length; i += 1) {
     const landed = time(flown[i - 1].scheduledIn);
