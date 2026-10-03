@@ -108,7 +108,9 @@ function parseFlight(v: unknown): AeroFlight | null {
 function parseAirport(v: unknown): AeroAirport | null {
   const o = obj(v);
   if (!o) return null;
-  return { code_iata: str(o.code_iata), country_code: str(o.country_code), latitude: num(o.latitude), longitude: num(o.longitude), timezone: str(o.timezone) };
+  // Region sets and the booking_segments check expect upper-case ISO 3166-1 alpha-2; anything else is unknown.
+  const country = str(o.country_code)?.toUpperCase() ?? null;
+  return { code_iata: str(o.code_iata), country_code: country && /^[A-Z]{2}$/.test(country) ? country : null, latitude: num(o.latitude), longitude: num(o.longitude), timezone: str(o.timezone) };
 }
 
 const list = <T>(v: unknown, parse: (x: unknown) => T | null): T[] => (Array.isArray(v) ? v.map(parse).filter((x): x is T => x !== null) : []);

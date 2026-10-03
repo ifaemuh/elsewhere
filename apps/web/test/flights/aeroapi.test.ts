@@ -47,6 +47,13 @@ describe('httpAeroApi', () => {
     expect(calls[0].url).toContain('destination=LIS');
   });
 
+  it('upper-cases the airport country code and drops one that is not alpha-2', async () => {
+    const { fetchImpl } = fakeFetch({ '/airports/LIS': { status: 200, body: { code_iata: 'LIS', country_code: 'pt', latitude: 38.78, longitude: -9.14, timezone: 'Europe/Lisbon' } } });
+    expect((await httpAeroApi('k', fetchImpl).airport('LIS'))?.country_code).toBe('PT');
+    const { fetchImpl: odd } = fakeFetch({ '/airports/XXX': { status: 200, body: { code_iata: 'XXX', country_code: 'Portugal', latitude: 1, longitude: 1, timezone: 'UTC' } } });
+    expect((await httpAeroApi('k', odd).airport('XXX'))?.country_code).toBeNull();
+  });
+
   it('returns null for an unknown airport', async () => {
     const { fetchImpl } = fakeFetch({});
     expect(await httpAeroApi('k', fetchImpl).airport('ZZZ')).toBeNull();
