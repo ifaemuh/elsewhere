@@ -82,7 +82,7 @@ async function IncidentContent({ params }: { params: Params }) {
         <>
           {owed.length > 0 ? (
             <section className="mt-8">
-              <h2 className="text-xl font-semibold">What you’re owed</h2>
+              <h2 className="text-xl font-semibold">What you may be entitled to</h2>
               <ul className="mt-2 list-disc space-y-1 pl-6">
                 {owed.map((item) => (
                   <li key={item.text}>
