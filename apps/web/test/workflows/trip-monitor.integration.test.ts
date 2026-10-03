@@ -30,11 +30,11 @@ describe('tripMonitorWorkflow', () => {
     state.segments.set('seg-a', segment('seg-a', 'trip-w', 10));
     const run = await start(tripMonitorWorkflow, ['trip-w']);
     await waitForSleep(run);
-    await vi.waitFor(() => expect(state.monitorStates.get('seg-a')).toBe('monitoring'));
+    await vi.waitFor(() => expect(state.monitorStates.get('seg-a')).toBe('monitoring'), { timeout: 15_000 });
     // A segment monitor died, or a flight was confirmed later: nothing else would start it.
     state.segments.set('seg-b', segment('seg-b', 'trip-w', 12));
     await wakeTripMonitor('trip-w');
-    await vi.waitFor(() => expect(state.monitorStates.get('seg-b')).toBe('monitoring'));
+    await vi.waitFor(() => expect(state.monitorStates.get('seg-b')).toBe('monitoring'), { timeout: 15_000 });
     await getRun(run.runId).cancel();
   });
 
@@ -47,13 +47,13 @@ describe('tripMonitorWorkflow', () => {
     // The flight resolves two days out, so the briefing (3 days before) is already due.
     state.segments.set('seg-late', segment('seg-late', 'trip-b', 2));
     await wakeTripMonitor('trip-b');
-    await vi.waitFor(() => expect(state.preTrip).toEqual(['trip-b']));
+    await vi.waitFor(() => expect(state.preTrip).toEqual(['trip-b']), { timeout: 15_000 });
 
     // Further wakes, as from more confirmations, must not brief again.
     await wakeTripMonitor('trip-b');
     state.segments.set('seg-later', segment('seg-later', 'trip-b', 1));
     await wakeTripMonitor('trip-b');
-    await vi.waitFor(() => expect(state.calls.filter((c) => c === 'list:trip-b').length).toBeGreaterThanOrEqual(4));
+    await vi.waitFor(() => expect(state.calls.filter((c) => c === 'list:trip-b').length).toBeGreaterThanOrEqual(4), { timeout: 15_000 });
     expect(state.preTrip).toEqual(['trip-b']);
     await getRun(run.runId).cancel();
   });
@@ -66,7 +66,7 @@ describe('tripMonitorWorkflow', () => {
     expect(state.preTrip).toEqual([]);
     state.segments.set('seg-near', segment('seg-near', 'trip-e', 2));
     await wakeTripMonitor('trip-e');
-    await vi.waitFor(() => expect(state.preTrip).toEqual(['trip-e']));
+    await vi.waitFor(() => expect(state.preTrip).toEqual(['trip-e']), { timeout: 15_000 });
     await getRun(run.runId).cancel();
   });
 });

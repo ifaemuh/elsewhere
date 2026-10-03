@@ -13,6 +13,8 @@ export async function segmentMonitorWorkflow(segmentId: string) {
   try {
     const segment = await loadSegmentStep(segmentId);
     if (!segment?.scheduledOut) return { segmentId, status: 'unresolved' as const, incidents };
+    // A wake or restart can reach a segment whose flight is over: it must not register an alert or poll again.
+    if (segment.monitorState === 'ended') return { segmentId, status: 'ended' as const, incidents };
     const state = await registerAlertStep(segmentId);
 
     const departure = new Date(segment.scheduledOut).getTime();

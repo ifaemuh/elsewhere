@@ -22,7 +22,9 @@ export function livePorts(): WorkflowPorts {
         .select('id, bookings!inner(confirmed_at)')
         .eq('trip_id', tripId)
         .not('scheduled_out', 'is', null)
-        .not('bookings.confirmed_at', 'is', null);
+        .not('bookings.confirmed_at', 'is', null)
+        // Ended segments are over: restarting them would repeat paid calls and undo their ended state.
+        .neq('monitor_state', 'ended');
       if (error) throw new Error(error.message);
       return (data ?? []).map((s) => s.id as string);
     },
@@ -54,7 +56,7 @@ export function livePorts(): WorkflowPorts {
     async loadSegment(segmentId) {
       const { data: s, error } = await admin
         .from('booking_segments')
-        .select('id, trip_id, carrier_iata, flight_number, origin_iata, destination_iata, departure_local, scheduled_out, scheduled_in, aeroapi_alert_id')
+        .select('id, trip_id, carrier_iata, flight_number, origin_iata, destination_iata, departure_local, scheduled_out, scheduled_in, aeroapi_alert_id, monitor_state')
         .eq('id', segmentId)
         .maybeSingle();
       if (error) throw new Error(error.message);
@@ -69,6 +71,7 @@ export function livePorts(): WorkflowPorts {
         scheduledOut: s.scheduled_out,
         scheduledIn: s.scheduled_in,
         alertId: s.aeroapi_alert_id,
+        monitorState: s.monitor_state,
       };
       return segment;
     },

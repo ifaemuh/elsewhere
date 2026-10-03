@@ -10,6 +10,8 @@ export interface MonitoredSegment {
   scheduledOut: string | null;
   scheduledIn: string | null;
   alertId: string | null;
+  /** A monitor started for a segment that has already ended does nothing. */
+  monitorState?: 'idle' | 'monitoring' | 'polling_only' | 'ended';
 }
 
 export interface WorkflowPorts {

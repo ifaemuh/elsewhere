@@ -413,7 +413,7 @@ describe('incident detection (Task 9)', () => {
     // Other kinds repeat freely.
     await asService(db, () => insert('notified'));
     await asService(db, () => insert('notified'));
-    // And an on-conflict-do-nothing insert, as record.ts does, is a quiet no-op.
+    // ON CONFLICT DO NOTHING is a quiet no-op. (record.ts itself does a plain insert and reads the 23505 as success, because PostgREST cannot name a partial index.)
     await asService(db, () => db.query("insert into public.incident_events (incident_id, kind) values ($1, 'detected') on conflict do nothing", [incident.id]));
     const count = await asService(db, () => one<{ n: number }>("select count(*)::int as n from public.incident_events where incident_id = $1 and kind = 'detected'", [incident.id]));
     expect(count.n).toBe(1);

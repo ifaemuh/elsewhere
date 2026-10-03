@@ -44,7 +44,7 @@ export async function tripMonitorWorkflow(tripId: string) {
         await preTripStep(tripId);
         briefed = true;
       }
-      // With no flights yet there is no trip end to go by: keep listening for a month.
+      // The trip end is the trip's end date, which may be unset; then keep listening for a month.
       const endAt = timing.tripEnd ? new Date(timing.tripEnd).getTime() + 7 * DAY : Date.now() + 30 * DAY;
       if (endAt > Date.now() && (await wait(endAt)) === 'woken') continue;
       return { tripId, status: 'done' as const, segments };

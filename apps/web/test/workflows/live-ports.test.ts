@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 type Result = { data: unknown; error: { message: string } | null };
 const selects: Record<string, Result> = {};
 const updates: Record<string, unknown>[] = [];
+const filters: unknown[][] = [];
 let updateError: string | null = null;
 
 function chain(result: () => Result) {
@@ -12,6 +13,7 @@ function chain(result: () => Result) {
     select: self,
     eq: self,
     not: self,
+    neq: (...args: unknown[]) => (filters.push(args), q),
     order: self,
     limit: self,
     single: async () => result(),
@@ -54,6 +56,7 @@ beforeEach(() => {
   runDocumentChecks.mockClear();
   queueNotifications.mockClear();
   updates.length = 0;
+  filters.length = 0;
   updateError = null;
   consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
 });
@@ -99,6 +102,14 @@ describe('livePorts.registerAlert', () => {
     deleteAlert.mockRejectedValue(new Error('aeroapi down'));
     await expect(livePorts().registerAlert(segment)).rejects.toThrow('db down');
     expect(consoleError).toHaveBeenCalledWith('could not delete the orphaned alert', 'alert-9', 'aeroapi down');
+  });
+});
+
+describe('livePorts.listMonitorableSegmentIds', () => {
+  it('leaves out segments that have ended, so a wake never restarts a finished flight', async () => {
+    selects.booking_segments = { data: [{ id: 's1' }], error: null };
+    expect(await livePorts().listMonitorableSegmentIds('t1')).toEqual(['s1']);
+    expect(filters).toContainEqual(['monitor_state', 'ended']);
   });
 });
 

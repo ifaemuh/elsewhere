@@ -68,6 +68,17 @@ describe('segmentMonitorWorkflow', () => {
     expect(result).toEqual({ segmentId: 'seg-3', status: 'ended', incidents: [] });
   });
 
+  it('does nothing for a segment that has already ended: no alert, no polls', async () => {
+    const state = memoryState();
+    const departs = new Date(Date.now() + 30 * 3600_000).toISOString();
+    state.segments.set('done', { id: 'done', tripId: 't', ident: 'TP1', departureDate: departs.slice(0, 10), originIata: 'EWR', destinationIata: 'LIS', scheduledOut: departs, scheduledIn: departs, alertId: null, monitorState: 'ended' });
+    const run = await start(segmentMonitorWorkflow, ['done']);
+    expect(await run.returnValue).toEqual({ segmentId: 'done', status: 'ended', incidents: [] });
+    expect(state.monitorStates.has('done')).toBe(false);
+    expect(state.calls).toEqual([]);
+    expect(state.ended).toEqual([]);
+  });
+
   describe('cadence', () => {
     const H = 3600_000;
     const M = 60_000;
