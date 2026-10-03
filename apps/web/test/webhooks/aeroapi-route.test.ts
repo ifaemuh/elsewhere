@@ -1,6 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const state: { insertError: { code?: string; message: string } | null; segment: { id: string } | null; deleted: string[] } = { insertError: null, segment: { id: 's1' }, deleted: [] };
+const state: { insertError: { code?: string; message: string } | null; segment: { id: string } | null; deleted: string[]; releaseError: string | null } = { insertError: null, segment: { id: 's1' }, deleted: [], releaseError: null };
 const record = vi.hoisted(() => vi.fn());
 vi.mock('@/lib/monitor/record', () => ({ recordFlightSnapshot: record }));
 vi.mock('@/lib/supabase/admin', () => ({
@@ -8,7 +8,7 @@ vi.mock('@/lib/supabase/admin', () => ({
     from: (table: string) => ({
       insert: async () => ({ error: state.insertError }),
       select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: state.segment, error: null }) }) }),
-      delete: () => ({ eq: () => ({ eq: async (_c: string, id: string) => (state.deleted.push(`${table}:${id}`), { error: null }) }) }),
+      delete: () => ({ eq: () => ({ eq: async (_c: string, id: string) => (state.deleted.push(`${table}:${id}`), { error: state.releaseError ? { message: state.releaseError } : null }) }) }),
     }),
   }),
 }));
@@ -17,7 +17,7 @@ beforeAll(() => {
   process.env.AEROAPI_WEBHOOK_SECRET = 'hook-secret-123';
 });
 beforeEach(() => {
-  Object.assign(state, { insertError: null, segment: { id: 's1' }, deleted: [] });
+  Object.assign(state, { insertError: null, segment: { id: 's1' }, deleted: [], releaseError: null });
   record.mockReset().mockResolvedValue({ incidentId: 'inc-1' });
 });
 
@@ -71,5 +71,17 @@ describe('POST /api/webhooks/aeroapi/[secret]', () => {
     record.mockRejectedValue(new Error('db down'));
     await expect(post('hook-secret-123')).rejects.toThrow('db down');
     expect(state.deleted).toHaveLength(1);
+  });
+
+  it('logs, and still raises the recording error, when the claim cannot be released', async () => {
+    record.mockRejectedValue(new Error('db down'));
+    state.releaseError = 'release failed';
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      await expect(post('hook-secret-123')).rejects.toThrow('db down');
+      expect(error).toHaveBeenCalledWith('could not release the aeroapi delivery claim', expect.any(String), 'release failed');
+    } finally {
+      error.mockRestore();
+    }
   });
 });

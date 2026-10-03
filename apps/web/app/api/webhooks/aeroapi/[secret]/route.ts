@@ -43,7 +43,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ sec
     return Response.json({ incidentId });
   } catch (error) {
     // Release the dedupe claim so AeroAPI's retry of this delivery is processed instead of dropped as a duplicate.
-    await admin.from('webhook_events').delete().eq('provider', 'aeroapi').eq('event_id', eventId);
+    const { error: releaseError } = await admin.from('webhook_events').delete().eq('provider', 'aeroapi').eq('event_id', eventId);
+    if (releaseError) console.error('could not release the aeroapi delivery claim', eventId, releaseError.message);
     throw error;
   }
 }

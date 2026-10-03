@@ -18,7 +18,8 @@ export interface WorkflowPorts {
   preTripChecks(tripId: string): Promise<void>;
   loadSegment(segmentId: string): Promise<MonitoredSegment | null>;
   registerAlert(segment: MonitoredSegment): Promise<'monitoring' | 'polling_only'>;
-  pollAndRecord(segmentId: string): Promise<{ incidentId: string | null; ended: boolean; failed?: boolean }>;
+  /** `latestArrival` is the actual or estimated arrival when AeroAPI has one: the monitor keeps watching until 6h after it. */
+  pollAndRecord(segmentId: string): Promise<{ incidentId: string | null; ended: boolean; failed?: boolean; latestArrival?: string | null }>;
   endSegment(segmentId: string): Promise<void>;
   flagMonitorTrouble(segmentId: string): Promise<void>;
 }

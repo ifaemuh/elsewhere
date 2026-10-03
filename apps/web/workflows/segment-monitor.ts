@@ -1,9 +1,7 @@
 import { FatalError, createHook, sleep } from 'workflow';
+import { HOUR, nextStopAt, pollWait } from '@/lib/monitor/cadence';
 import { workflowPorts, type WorkflowPorts } from '@/lib/workflows/ports';
 import { segmentMonitorToken } from '@/lib/workflows/tokens';
-
-const HOUR = 3600_000;
-const MINUTE = 60_000;
 
 export async function segmentMonitorWorkflow(segmentId: string) {
   'use workflow';
@@ -18,17 +16,23 @@ export async function segmentMonitorWorkflow(segmentId: string) {
     const state = await registerAlertStep(segmentId);
 
     const departure = new Date(segment.scheduledOut).getTime();
-    const stopAt = new Date(segment.scheduledIn ?? segment.scheduledOut).getTime() + 6 * HOUR;
-    const watchFrom = new Date(departure - 24 * HOUR);
-    if (watchFrom.getTime() > Date.now()) await sleep(watchFrom);
+    const scheduledEnd = new Date(segment.scheduledIn ?? segment.scheduledOut).getTime();
+    // Polling runs until 6h after the flight lands. A flight known to be late moves that out, up to 48h past its schedule.
+    let stopAt = nextStopAt(scheduledEnd + 6 * HOUR, scheduledEnd, null);
+    // The workflow's own clock: the later of real time and the end of the last sleep, so it never runs behind its sleeps.
+    let clock = Date.now();
+    const now = () => Math.max(clock, Date.now());
+    const watchFrom = departure - 24 * HOUR;
+    if (watchFrom > now()) {
+      await sleep(new Date(watchFrom));
+      clock = watchFrom;
+    }
 
     let failures = 0;
-    while (Date.now() < stopAt) {
-      const beforeDeparture = departure - Date.now();
-      const interval = state === 'monitoring' ? (beforeDeparture > 6 * HOUR ? 6 * HOUR : HOUR) : beforeDeparture > 6 * HOUR ? 2 * HOUR : 30 * MINUTE;
-      // After a failed poll, retry sooner: 5, 10, 20 minutes and so on, never later than the normal interval.
-      const wait = failures === 0 ? interval : Math.min(5 * MINUTE * 2 ** (failures - 1), interval);
-      await sleep(new Date(Date.now() + wait));
+    while (now() < stopAt) {
+      const wake = now() + pollWait(state, departure - now(), failures);
+      await sleep(new Date(wake));
+      clock = wake;
       const polled = await pollStep(segmentId);
       if (polled.failed) {
         failures += 1;
@@ -38,6 +42,7 @@ export async function segmentMonitorWorkflow(segmentId: string) {
       failures = 0;
       if (polled.incidentId) incidents.push(polled.incidentId);
       if (polled.ended) break;
+      stopAt = nextStopAt(stopAt, scheduledEnd, polled.latestArrival);
     }
     await endStep(segmentId);
     return { segmentId, status: 'ended' as const, incidents };

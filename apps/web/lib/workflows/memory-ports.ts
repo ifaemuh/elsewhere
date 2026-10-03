@@ -5,7 +5,7 @@ interface MemoryState {
   segments: Map<string, MonitoredSegment>;
   alertFails: boolean;
   monitorStates: Map<string, string>;
-  pollResults: { incidentId: string | null; ended: boolean; failed?: boolean }[];
+  pollResults: { incidentId: string | null; ended: boolean; failed?: boolean; latestArrival?: string | null }[];
   ended: string[];
   troubled: string[];
   preTrip: string[];

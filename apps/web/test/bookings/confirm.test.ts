@@ -185,7 +185,7 @@ describe('onBookingsConfirmed', () => {
       expect(await onBookingsConfirmed('t1', ['b1'])).toEqual({ monitorSegmentIds: [] });
     });
 
-    it('returns none when the flight lookup throws, so the retry computes them', async () => {
+    it('returns nothing, and throws, when the flight lookup fails, so the retry computes the ids', async () => {
       state.ready = [{ id: 's1' }];
       state.upsertError = 'db down';
       await expect(onBookingsConfirmed('t1', ['b1'])).rejects.toThrow('db down');

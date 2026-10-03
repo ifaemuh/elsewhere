@@ -7,10 +7,13 @@ function check(result: { error: { message: string } | null }): void {
 }
 
 /**
- * Opens an incident when the snapshot reveals a new event, then saves the snapshot. Safe to call twice with the
- * same data. `last_status` is written last and every write is checked: if anything fails first, the error
- * propagates and the next alert or poll classifies the same change again, so an event is never hidden behind a
- * snapshot that was already saved.
+ * Opens an incident when the snapshot reveals a new event, then saves the snapshot. Safe to call again with the same
+ * data, including after a partial failure: the incident is found by its dedupe key, its `detected` event is written
+ * if it is missing, and the same incident id is returned. `last_status` is written last and every write is checked,
+ * so if anything fails first the error propagates and the next alert or poll classifies the same change again. An
+ * event is never hidden behind a snapshot that was already saved. A second path that finds the incident already
+ * recorded (an alert and a poll for the same event) gets its id too, so callers must start per-incident work
+ * idempotently.
  */
 export async function recordFlightSnapshot(segmentId: string, snapshot: FlightSnapshot, source: 'alert' | 'poll'): Promise<{ incidentId: string | null }> {
   const admin = createAdminClient();
@@ -44,10 +47,19 @@ export async function recordFlightSnapshot(segmentId: string, snapshot: FlightSn
       )
       .select('id');
     if (incidentError) throw new Error(incidentError.message);
-    // Null when an earlier alert or poll already recorded this incident.
     incidentId = (inserted?.[0]?.id as string | undefined) ?? null;
+    if (!incidentId) {
+      // An earlier alert, poll or failed attempt recorded it: recover its id.
+      const { data: existing, error: existingError } = await admin.from('incidents').select('id').eq('dedupe_key', `${segmentId}:${event.dedupeSuffix}`).maybeSingle();
+      if (existingError) throw new Error(existingError.message);
+      incidentId = (existing?.id as string | undefined) ?? null;
+    }
     if (incidentId) {
-      check(await admin.from('incident_events').insert({ incident_id: incidentId, kind: 'detected', detail: { source, type: event.type, delay_minutes: event.delayMinutes } }));
+      const { data: logged, error: loggedError } = await admin.from('incident_events').select('id').eq('incident_id', incidentId).eq('kind', 'detected').limit(1);
+      if (loggedError) throw new Error(loggedError.message);
+      if ((logged ?? []).length === 0) {
+        check(await admin.from('incident_events').insert({ incident_id: incidentId, kind: 'detected', detail: { source, type: event.type, delay_minutes: event.delayMinutes } }));
+      }
     }
   }
   check(await admin.from('booking_segments').update({ last_status: snapshot, fa_flight_id: snapshot.faFlightId }).eq('id', segmentId));

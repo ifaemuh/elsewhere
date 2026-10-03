@@ -35,6 +35,10 @@ export function livePorts(): WorkflowPorts {
     },
     async preTripChecks(tripId) {
       await runDocumentChecks(tripId);
+      // A retry after a partial failure, or a restarted trip monitor, must not brief the group again.
+      const { data: sent, error: sentError } = await admin.from('notifications').select('id').eq('trip_id', tripId).eq('template', 'briefing').limit(1);
+      if (sentError) throw new Error(sentError.message);
+      if ((sent ?? []).length > 0) return;
       const { data: trip, error } = await admin.from('trips').select('name').eq('id', tripId).single();
       if (error) throw new Error(error.message);
       const { data: members, error: membersError } = await admin.from('trip_members').select('user_id').eq('trip_id', tripId);
@@ -70,18 +74,30 @@ export function livePorts(): WorkflowPorts {
     },
     async registerAlert(segment) {
       if (segment.alertId) return 'monitoring';
-      // Built from the app's own configured URL, never from a request host. A missing setting is a ConfigError and fatal.
-      const targetUrl = `${appUrl()}/api/webhooks/aeroapi/${requireEnv('AEROAPI_WEBHOOK_SECRET')}`;
+      let api: Awaited<ReturnType<typeof aeroApi>>;
+      let alertId: string;
       try {
-        const api = await aeroApi();
-        const alertId = await api.createAlert({ ident: segment.ident, origin: segment.originIata, destination: segment.destinationIata, date: segment.departureDate, targetUrl });
-        check(await admin.from('booking_segments').update({ aeroapi_alert_id: alertId, monitor_state: 'monitoring' }).eq('id', segment.id));
-        return 'monitoring';
+        // Built from the app's own configured URL, never from a request host. Missing settings, like AeroAPI
+        // refusing the alert, leave the flight on polling, which needs neither the app URL nor the secret.
+        const targetUrl = `${appUrl()}/api/webhooks/aeroapi/${requireEnv('AEROAPI_WEBHOOK_SECRET')}`;
+        api = await aeroApi();
+        alertId = await api.createAlert({ ident: segment.ident, origin: segment.originIata, destination: segment.destinationIata, date: segment.departureDate, targetUrl });
       } catch (error) {
         console.error('alert registration failed; polling only', segment.id, error instanceof Error ? error.message : 'unknown');
         check(await admin.from('booking_segments').update({ monitor_state: 'polling_only' }).eq('id', segment.id));
         return 'polling_only';
       }
+      const saved = await admin.from('booking_segments').update({ aeroapi_alert_id: alertId, monitor_state: 'monitoring' }).eq('id', segment.id);
+      if (saved.error) {
+        // The alert exists at AeroAPI but we cannot remember it. Remove it so it is not orphaned, then let the step retry.
+        try {
+          await api.deleteAlert(alertId);
+        } catch (e) {
+          console.error('could not delete the orphaned alert', alertId, e instanceof Error ? e.message : 'unknown');
+        }
+        throw new Error(saved.error.message);
+      }
+      return 'monitoring';
     },
     async pollAndRecord(segmentId) {
       const { data: s, error } = await admin.from('booking_segments').select('carrier_iata, flight_number, scheduled_out').eq('id', segmentId).single();
@@ -105,12 +121,18 @@ export function livePorts(): WorkflowPorts {
       if (!flight) return { incidentId: null, ended: false };
       const snapshot = snapshotFromAero(flight);
       const { incidentId } = await recordFlightSnapshot(segmentId, snapshot, 'poll');
-      return { incidentId, ended: flightEnded(snapshot) };
+      return { incidentId, ended: flightEnded(snapshot), latestArrival: snapshot.actualIn ?? snapshot.estimatedIn ?? snapshot.scheduledIn };
     },
     async endSegment(segmentId) {
       const { data: s, error } = await admin.from('booking_segments').select('aeroapi_alert_id').eq('id', segmentId).single();
       if (error) throw new Error(error.message);
-      if (s?.aeroapi_alert_id) await (await aeroApi()).deleteAlert(s.aeroapi_alert_id).catch(() => undefined);
+      if (s?.aeroapi_alert_id) {
+        try {
+          await (await aeroApi()).deleteAlert(s.aeroapi_alert_id);
+        } catch (e) {
+          console.error('could not delete the alert', s.aeroapi_alert_id, e instanceof Error ? e.message : 'unknown');
+        }
+      }
       check(await admin.from('booking_segments').update({ monitor_state: 'ended' }).eq('id', segmentId));
     },
     async flagMonitorTrouble(segmentId) {

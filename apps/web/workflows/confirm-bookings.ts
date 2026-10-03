@@ -10,6 +10,8 @@ export async function confirmBookingsWorkflow(tripId: string, bookingIds: string
   'use workflow';
   const monitorSegmentIds = await confirmStep(tripId, bookingIds);
   for (const segmentId of monitorSegmentIds) await start(segmentMonitorWorkflow, [segmentId]);
+  // Only an active pass returns segments. A running trip monitor then re-reads the first departure and schedules the briefing.
+  if (monitorSegmentIds.length > 0) await wakeStep(tripId);
   return { monitorSegmentIds };
 }
 
@@ -24,4 +26,9 @@ async function confirmStep(tripId: string, bookingIds: string[]): Promise<string
     if (error instanceof ConfigError) throw new FatalError(error.message);
     throw error;
   }
+}
+
+async function wakeStep(tripId: string): Promise<void> {
+  'use step';
+  await (await import('../lib/workflows/wake')).wakeTripMonitor(tripId);
 }
