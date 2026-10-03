@@ -10,6 +10,7 @@ const airports = {
 function api(scheduled: Awaited<ReturnType<AeroApi['schedules']>>): AeroApi {
   return {
     schedules: async () => scheduled,
+    routeSchedules: async () => [],
     airport: async (iata) => airports[iata as keyof typeof airports] ?? null,
     flights: async () => [],
     createAlert: async () => 'a1',

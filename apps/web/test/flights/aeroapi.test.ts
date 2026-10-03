@@ -36,6 +36,17 @@ describe('httpAeroApi', () => {
     expect(scheduled.actual_ident).toBeNull();
   });
 
+  it('reads a route\'s schedules through the same parser, keeping an empty actual ident', async () => {
+    const { fetchImpl, calls } = fakeFetch({
+      '/schedules/2026-11-03/2026-11-05': { status: 200, body: { scheduled: [{ ident_iata: 'UA64', actual_ident_iata: '', origin_iata: 'EWR', destination_iata: 'LIS', scheduled_out: '2026-11-04T01:00:00Z', scheduled_in: '2026-11-04T12:30:00Z' }, 'junk'] } },
+    });
+    const scheduled = await httpAeroApi('k', fetchImpl).routeSchedules('2026-11-03', '2026-11-05', 'EWR', 'LIS');
+    expect(scheduled).toHaveLength(1);
+    expect(scheduled[0].actual_ident_iata).toBe('');
+    expect(calls[0].url).toContain('origin=EWR');
+    expect(calls[0].url).toContain('destination=LIS');
+  });
+
   it('returns null for an unknown airport', async () => {
     const { fetchImpl } = fakeFetch({});
     expect(await httpAeroApi('k', fetchImpl).airport('ZZZ')).toBeNull();

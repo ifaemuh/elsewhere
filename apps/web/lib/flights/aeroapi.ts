@@ -42,6 +42,7 @@ export interface AeroScheduled {
 
 export interface AeroApi {
   schedules(dateStart: string, dateEnd: string, airline: string, flightNumber: string): Promise<AeroScheduled[]>;
+  routeSchedules(dateStart: string, dateEnd: string, origin: string, destination: string): Promise<AeroScheduled[]>;
   airport(iata: string): Promise<AeroAirport | null>;
   flights(ident: string, startIso: string, endIso: string): Promise<AeroFlight[]>;
   createAlert(input: { ident: string; origin: string; destination: string; date: string; targetUrl: string }): Promise<string>;
@@ -162,6 +163,10 @@ export function httpAeroApi(key: string, fetchImpl: typeof fetch = fetch, option
   return {
     async schedules(dateStart, dateEnd, airline, flightNumber) {
       const body = obj(await get(`/schedules/${dateStart}/${dateEnd}`, { airline, flight_number: flightNumber }));
+      return list(body?.scheduled, parseScheduled);
+    },
+    async routeSchedules(dateStart, dateEnd, origin, destination) {
+      const body = obj(await get(`/schedules/${dateStart}/${dateEnd}`, { origin, destination }));
       return list(body?.scheduled, parseScheduled);
     },
     async airport(iata) {

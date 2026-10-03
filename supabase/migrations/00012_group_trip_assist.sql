@@ -503,6 +503,32 @@ create table public.vote_responses (
   foreign key (option_id, vote_id) references public.vote_options(id, vote_id) on delete cascade
 );
 
+-- Members answer only through here. A direct upsert would also SET vote_id and user_id, which no column
+-- grant allows, and this function decides who may answer: a vote that names required voters
+-- (an incident vote names the affected travelers) takes answers from them only, any other vote from
+-- any member, and a closed vote from no one.
+create or replace function public.respond_vote(p_vote_id uuid, p_option_id uuid)
+returns void language plpgsql security definer set search_path = public as $$
+declare v_vote public.votes%rowtype;
+begin
+  select * into v_vote from public.votes where id = p_vote_id;
+  if not found or not public.is_trip_member(v_vote.trip_id) then
+    raise exception 'vote not found' using errcode = 'P0002';
+  end if;
+  if v_vote.status <> 'open' then
+    raise exception 'vote is closed' using errcode = '22023';
+  end if;
+  if cardinality(v_vote.required_user_ids) > 0 and not (auth.uid() = any (v_vote.required_user_ids)) then
+    raise exception 'not a voter on this vote' using errcode = '42501';
+  end if;
+  insert into public.vote_responses (vote_id, user_id, option_id)
+  values (p_vote_id, auth.uid(), p_option_id)
+  on conflict (vote_id, user_id) do update set option_id = excluded.option_id, responded_at = now();
+end;
+$$;
+revoke execute on function public.respond_vote(uuid, uuid) from public, anon;
+grant execute on function public.respond_vote(uuid, uuid) to authenticated;
+
 create table public.expenses (
   id uuid primary key default gen_random_uuid(),
   trip_id uuid not null references public.trips(id) on delete cascade,
@@ -752,6 +778,8 @@ create index playbooks_incident_idx on public.playbooks (incident_id);
 create index action_items_assigned_gin on public.action_items using gin (assigned_user_ids);
 create index votes_trip_idx on public.votes (trip_id);
 create index vote_options_vote_idx on public.vote_options (vote_id);
+-- A double-submitted "start the vote" cannot open two votes for one incident.
+create unique index votes_one_open_per_incident on public.votes (incident_id) where status = 'open' and incident_id is not null;
 create index expenses_trip_idx on public.expenses (trip_id);
 create index settlements_trip_idx on public.settlements (trip_id);
 create index passes_trip_idx on public.passes (trip_id);
@@ -769,7 +797,6 @@ grant update (name, destination_country, start_date, end_date) on public.trips t
 grant update (display_name) on public.trip_members to authenticated;
 grant update (status, due_at) on public.action_items to authenticated;
 grant update (title, detail, deadline, status) on public.votes to authenticated;
-grant update (option_id, responded_at) on public.vote_responses to authenticated;
 grant update (revoked_at) on public.consents to authenticated;
 -- email and phone mirror auth.users (handle_new_user); users may not rewrite them, or the SMS opt-in
 -- that depends on a verified phone would be forgeable.
@@ -876,16 +903,7 @@ create policy "Vote creator adds options" on public.vote_options for insert with
 create policy "Members read responses" on public.vote_responses for select using (
   exists (select 1 from public.votes v where v.id = vote_id and public.is_trip_member(v.trip_id))
 );
-create policy "Members respond to open votes" on public.vote_responses for insert with check (
-  user_id = auth.uid()
-  and exists (select 1 from public.votes v where v.id = vote_id and v.status = 'open' and public.is_trip_member(v.trip_id))
-);
-create policy "Members change their open-vote response" on public.vote_responses for update
-  using (user_id = auth.uid())
-  with check (
-    user_id = auth.uid()
-    and exists (select 1 from public.votes v where v.id = vote_id and v.status = 'open' and public.is_trip_member(v.trip_id))
-  );
+-- No write policies on vote_responses: members answer through respond_vote().
 
 create policy "Members read expenses" on public.expenses for select using (public.is_trip_member(trip_id));
 create policy "Members add expenses" on public.expenses for insert

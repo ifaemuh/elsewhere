@@ -510,3 +510,74 @@ describe('hand-run trips and held playbooks (Task 12)', () => {
     expect((await read(OUTSIDER)).rows).toHaveLength(0);
   });
 });
+
+describe('votes (Task 13)', () => {
+  async function vote(required: string[]) {
+    const v = await asUser(db, PLANNER, () =>
+      one<{ id: string }>(
+        "insert into public.votes (trip_id, title, detail, required_user_ids, created_by) values ($1, 'Which flight?', '', $2, $3) returning id",
+        [tripId, `{${required.join(',')}}`, PLANNER],
+      ),
+    );
+    const options = await asUser(db, PLANNER, () =>
+      db.query<{ id: string }>("insert into public.vote_options (vote_id, label, position) values ($1, 'Tomorrow 7:05', 1), ($1, 'Tonight via Denver', 2) returning id", [v.id]),
+    );
+    return { id: v.id, first: options.rows[0].id, second: options.rows[1].id };
+  }
+  const respond = (user: string, voteId: string, optionId: string) => asUser(db, user, () => db.query('select public.respond_vote($1, $2)', [voteId, optionId]));
+
+  it('a member votes, then changes their vote while it is open', async () => {
+    const v = await vote([]);
+    await respond(MEMBER, v.id, v.first);
+    await respond(MEMBER, v.id, v.second);
+    const rows = await asService(db, () => db.query('select user_id, option_id from public.vote_responses where vote_id = $1', [v.id]));
+    expect(rows.rows).toEqual([{ user_id: MEMBER, option_id: v.second }]);
+  });
+
+  it('a vote that names its voters takes answers from them only', async () => {
+    const v = await vote([MEMBER]);
+    await rejects(() => respond(PLANNER, v.id, v.first), /not a voter on this vote/);
+    await respond(MEMBER, v.id, v.first);
+  });
+
+  it('a closed vote takes no answers', async () => {
+    const v = await vote([]);
+    await asUser(db, PLANNER, () => db.query("update public.votes set status = 'closed' where id = $1", [v.id]));
+    await rejects(() => respond(MEMBER, v.id, v.first), /vote is closed/);
+  });
+
+  it('outsiders cannot answer, nobody writes responses directly, and an option must belong to the vote', async () => {
+    const v = await vote([]);
+    const other = await vote([]);
+    await rejects(() => respond(OUTSIDER, v.id, v.first), /vote not found/);
+    await rejects(() =>
+      asUser(db, MEMBER, () => db.query('insert into public.vote_responses (vote_id, user_id, option_id) values ($1, $2, $3)', [v.id, MEMBER, v.first])),
+    );
+    await rejects(() => respond(MEMBER, v.id, other.first), /violates foreign key/);
+    const anon = await asService(db, () => one<{ ok: boolean }>("select has_function_privilege('anon', 'public.respond_vote(uuid, uuid)', 'execute') as ok"));
+    expect(anon.ok).toBe(false);
+  });
+
+  it('an incident has at most one open vote, and a new one may follow a closed vote', async () => {
+    const booking = await asService(db, () =>
+      one<{ id: string }>("insert into public.bookings (trip_id, kind, provider, extraction_confidence, dedupe_key) values ($1, 'flight', 'TAP', 0.95, 'flight|VOTE1') returning id", [tripId]),
+    );
+    const segment = await asService(db, () =>
+      one<{ id: string }>(
+        "insert into public.booking_segments (booking_id, trip_id, position, carrier_iata, flight_number, origin_iata, destination_iata, departure_local) values ($1, $2, 1, 'TP', '204', 'EWR', 'LIS', '2026-11-03T18:15') returning id",
+        [booking.id, tripId],
+      ),
+    );
+    const incident = await asService(db, () =>
+      one<{ id: string }>("insert into public.incidents (trip_id, segment_id, event_type, dedupe_key) values ($1, $2, 'cancellation', 'vote-1:cancellation') returning id", [tripId, segment.id]),
+    );
+    const open = () =>
+      asUser(db, PLANNER, () =>
+        one<{ id: string }>("insert into public.votes (trip_id, incident_id, title, detail, created_by) values ($1, $2, 'Which flight?', '', $3) returning id", [tripId, incident.id, PLANNER]),
+      );
+    const first = await open();
+    await rejects(open, /votes_one_open_per_incident|duplicate key/);
+    await asUser(db, PLANNER, () => db.query("update public.votes set status = 'closed' where id = $1", [first.id]));
+    await open();
+  });
+});

@@ -6,9 +6,12 @@ import { shownOwed } from '@/lib/assist/owed';
 import { PlaybookSchema } from '@/lib/assist/playbook-schema';
 import { requireUser } from '@/lib/auth/user';
 import { findRule } from '@/lib/rules/accessors';
+import { aeroApi } from '@/lib/flights/aeroapi';
 import { getLibrary } from '@/lib/rules/library';
 import { createClient } from '@/lib/supabase/server';
+import { suggestAlternatives } from '@/lib/votes/alternatives';
 import { AnswerButtons } from './answer-buttons';
+import { IncidentVoteForm } from './vote-form';
 
 type Params = Promise<{ id: string; incidentId: string }>;
 
@@ -43,11 +46,11 @@ function Cites({ ids }: { ids: string[] }) {
 
 async function IncidentContent({ params }: { params: Params }) {
   const { id, incidentId } = await params;
-  await requireUser(`/trips/${id}/incidents/${incidentId}`);
+  const user = await requireUser(`/trips/${id}/incidents/${incidentId}`);
   const supabase = await createClient();
   // Everything here is read as the signed-in user. RLS hides a playbook that waits for the founder's review,
   // from the planner too, so until it is released this page has no playbook to show.
-  const { data: incident } = await supabase.from('incidents').select('id, status, pending_question, detected_at').eq('id', incidentId).eq('trip_id', id).maybeSingle();
+  const { data: incident } = await supabase.from('incidents').select('id, status, pending_question, detected_at, segment_id, affected_user_ids').eq('id', incidentId).eq('trip_id', id).maybeSingle();
   if (!incident) notFound();
   const { data: isPlanner } = await supabase.rpc('is_trip_planner', { p_trip_id: id });
   const { data: latest } = await supabase.from('playbooks').select('content, rules_cited').eq('incident_id', incidentId).order('created_at', { ascending: false }).limit(1).maybeSingle();
@@ -58,6 +61,26 @@ async function IncidentContent({ params }: { params: Params }) {
   const library = getLibrary();
   const owed = playbook ? shownOwed(playbook.owed, (id) => findRule(library, id)?.status === 'verified') : [];
   const question = incident.pending_question as { fact: string; prompt: string; options: { value: string; label: string }[] } | null;
+  // Only the planner can start a vote (createVote checks it), so only the planner pays for schedule suggestions,
+  // and only until a vote exists. A failure (AeroAPI down, a missing key) leaves the options blank to type.
+  const canStartVote = isPlanner === true;
+  const { data: existingVote } = await supabase.from('votes').select('id').eq('incident_id', incidentId).order('created_at', { ascending: false }).limit(1).maybeSingle();
+  let suggestions: string[] = [];
+  if (canStartVote && !existingVote && incident.status !== 'resolved') {
+    try {
+      const { data: segment } = await supabase.from('booking_segments').select('origin_iata, destination_iata, carrier_iata').eq('id', incident.segment_id).single();
+      if (segment) {
+        const options = await suggestAlternatives(
+          { originIata: segment.origin_iata, destinationIata: segment.destination_iata, carrierIata: segment.carrier_iata },
+          await aeroApi(),
+          new Date(),
+        );
+        suggestions = options.map((o) => `${o.label} (${o.note})`);
+      }
+    } catch (error) {
+      console.error('schedule suggestions failed', incidentId, error);
+    }
+  }
 
   return (
     <>
@@ -126,6 +149,15 @@ async function IncidentContent({ params }: { params: Params }) {
             </ul>
           ) : null}
         </>
+      ) : null}
+      {existingVote ? (
+        <p className="mt-10">
+          <Link href={`/trips/${id}/votes/${existingVote.id}`} className="text-[#b4532a] underline">
+            See the group’s vote
+          </Link>
+        </p>
+      ) : canStartVote ? (
+        <IncidentVoteForm tripId={id} incidentId={incidentId} suggestions={suggestions} />
       ) : null}
       <p className="mt-10 text-xs text-[#4b5745]">We drafted this from the linked rules. You decide and send. Not legal advice.</p>
     </>
