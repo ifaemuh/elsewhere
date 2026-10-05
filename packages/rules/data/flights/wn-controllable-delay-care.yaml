@@ -31,7 +31,7 @@ applies_when:
 entitlement:
   kind: care
   amount:
-    rebooking: "next available Southwest flight(s) with seats available to your ticketed destination at no additional cost; owed for a delay within Southwest's control of three hours or longer or a Southwest-initiated cancellation within its control"
+    rebooking: "next available Southwest flight(s) with seats available to your ticketed destination at no additional cost; owed for a delay within Southwest's control of three hours or longer or a Southwest-initiated cancellation within its control. For a missed connection, the flight Southwest delayed must have been three or more hours late"
     meals: "a meal voucher upon request at the airport for participating vendors, or, if participating vendors or vouchers are not available, reimbursement of reasonable requests for meals purchased; owed for a delay within Southwest's control of three or more hours, or a Southwest-initiated cancellation within its control that results in a wait of three or more hours for a flight at the airport. For a missed connection, the flight Southwest delayed must have been three or more hours late"
     lodging: "lodging arranged upon request if available, or reimbursement of reasonable requests for lodging (provided you do not reside locally); owed only if Southwest flight accommodations departing the same day to your intended destination or applicable co-terminal city are not available following a delay or Southwest-initiated cancellation within its control, resulting in an unscheduled overnight delay or stay when your itinerary did not originally include an overnight layover. No hours threshold is stated"
     ground_transportation: "a voucher upon request, or reimbursement of reasonable requests, if the lodging Southwest arranges does not provide shuttle service to and from the airport"
@@ -95,7 +95,7 @@ sources:
     source: wn-contract-of-carriage
     quotes:
       - text: "Southwest does not guarantee that aPassenger will make connections to other flights, whether operated by Southwest or anotherairline."
-        supports: [summary, exceptions]
+        supports: [exceptions]
       - text: "Southwest may offer to transport the Passenger at no additional charge on the nextSouthwest Airlines flight(s)"
         supports: [exceptions]
       - text: "Unless provided at the direction of Southwest, Southwest does not assume responsibilityfor the ground transportation of any Passenger or his or her Baggage between any Airportused by Southwest and any other location."
@@ -127,7 +127,7 @@ sources:
       - text: "If you believe an airline has not fulfilled its commitment, contact the airline first to ensure it gives you what is owed."
         supports: [how_to_claim.steps.5]
 lead_character: capybara
-tags: [delay, cancellation, care, meals, hotel, southwest, controllable]
+tags: [delay, cancellation, care, meals, hotel, southwest, controllable, missed-connection]
 last_verified: null
 verified_by: null
 review_by: null
