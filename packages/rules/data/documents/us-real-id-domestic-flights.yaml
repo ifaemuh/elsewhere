@@ -6,7 +6,7 @@ jurisdiction: US-TSA
 title: "Flying within the US? Bring a REAL ID or another acceptable form of ID"
 summary: >-
   TSA says U.S. travelers must be REAL ID compliant to board domestic flights. A passport or another acceptable form
-  of identification may be used instead. TSA's page says travelers without an acceptable form of ID must pay a $45 fee.
+  of identification may be used instead.
 applies_when:
   all:
     - fact: flight.is_domestic_us
@@ -17,17 +17,19 @@ entitlement:
   kind: requirement
   amount:
     accepted_id: a REAL ID-compliant driver's license or ID, a passport, or another acceptable form of identification
-    fee_without_acceptable_id_usd: 45
 how_to_claim:
   steps:
-    - "Check whether your driver's license or ID has a star (and/or flag) or says Enhanced. If it does, it is REAL ID compliant."
+    - "Check whether your driver's license or ID has a star (and/or flag) or says Enhanced. If it does, TSA says you're REAL ID ready."
     - "If it doesn't, bring a passport. TSA says a passport may be used instead of a REAL ID driver's license or ID to board domestic flights."
     - "If you have neither, check TSA's list of acceptable forms of identification for another one you hold."
-    - "If you have no acceptable ID, TSA says you must pay a $45 fee (TSA ConfirmID). Otherwise, visit your state or territory's DMV to get a REAL ID."
+    - "If you have none of these, make a plan with your local DMV to be REAL ID ready."
+    - "TSA's page also shows an alert that travelers without an acceptable form of ID must pay a $45 fee (TSA ConfirmID). It doesn't say what the fee covers or whether you'll be allowed to fly."
   templates: []
 exceptions:
-  - "TSA's page describes this for U.S. travelers. It doesn't say whether other travelers are treated differently."
-  - "TSA's page does not list the other acceptable forms of identification. It links to a separate TSA page for that list."
+  - "TSA describes this for U.S. travelers. It doesn't say whether other travelers are treated differently."
+  - "TSA keeps the full list of acceptable IDs on a separate page."
+  - "The REAL ID rules cover both physical and digital (mobile) driver's licenses and ID cards. Noncompliant ones aren't accepted for certain official purposes."
+  - "TSA's page shows an alert that travelers without an acceptable form of ID must pay a $45 fee (TSA ConfirmID). It doesn't say what the fee covers or whether you'll be allowed to fly."
 sources:
   - id: s1
     source: tsa-real-id
@@ -43,11 +45,13 @@ sources:
       - text: "These alternate forms of identification may be used in lieu of a REAL ID Drivers License or ID at the airport to board domestic flights and when visiting federal facilities."
         supports: [summary, entitlement.amount, how_to_claim.steps.2, exceptions]
       - text: "TSA ConfirmID Alert: Travelers without an acceptable form of ID must pay a $45 fee."
-        supports: [summary, entitlement.amount, how_to_claim.steps.3]
+        supports: [how_to_claim.steps.4, exceptions]
       - text: "Important: if you want to board domestic flights or visit federal facilities, you must have a REAL ID or another acceptable form of identification."
         supports: [summary, applies_when, how_to_claim.steps.3]
-      - text: "to visit your local DMV to learn more."
+      - text: "Click on your home state or territory to make a plan with your local DMV to be REAL ID ready."
         supports: [how_to_claim.steps.3]
+      - text: "prohibit federal agencies from accepting for certain official purposes noncompliant driver’s licenses and identification cards, both physical and digital"
+        supports: [exceptions]
 lead_character: owl
 tags: [documents, real-id]
 last_verified: null

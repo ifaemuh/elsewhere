@@ -3,15 +3,15 @@ version: 1
 status: draft
 domain: documents
 jurisdiction: country:GB
-title: "Visiting the UK from the US, Canada or Australia? You usually need an ETA, not a visa"
+title: "Visiting the UK on a US, Canadian or Australian passport? You usually need an ETA before you go"
 summary: >-
-  Most visitors to the UK need an ETA or a visa, depending on nationality and why they're coming. You usually need an
-  ETA rather than a visa if you're from the USA, Australia or Canada. It costs £20, each traveler needs one, and it
-  does not guarantee entry.
+  Most visitors to the UK, Jersey, Guernsey or the Isle of Man need an ETA or a visa, depending on nationality and why
+  they're coming. You usually need an ETA rather than a visa from the USA, Australia or Canada. It costs £20, each
+  traveler needs one, and it does not guarantee entry.
 applies_when:
   all:
     - fact: trip.destination_country
-      in: [GB]
+      in: [GB, JE, GG, IM]
     - fact: passenger.nationality
       in: [US, CA, AU]
 entitlement:
@@ -26,7 +26,7 @@ how_to_claim:
     - "Apply for an ETA for every person in your group, including babies and children. You can apply for other people."
     - "Apply on the UK government's site. Other websites may charge more, so avoid sites that imitate government services."
     - "If you are only passing through border control at a UK airport on your way onward, you still need an ETA. Check with your airline if you are not sure."
-    - "If you already have an ETA, you can check online whether you have one and when it expires."
+    - "The page has an online check for whether you have an ETA and when your ETA expires."
   templates: []
 exceptions:
   - "You may need a visa instead of an ETA, depending on your reason for visiting. The page says what you need depends on your nationality and why you're coming."
@@ -41,7 +41,7 @@ sources:
       - text: "your nationality"
         supports: [summary, exceptions, how_to_claim.steps.0]
       - text: "why you’re coming to the UK, Jersey, Guernsey or the Isle of Man"
-        supports: [summary, exceptions, how_to_claim.steps.0]
+        supports: [summary, applies_when, exceptions, how_to_claim.steps.0]
       - text: "You usually need an ETA rather than a visa if you’re from Europe, the USA, Australia, Canada or certain other countries."
         supports: [summary, applies_when, entitlement]
       - text: "An ETA costs £20."
@@ -64,7 +64,9 @@ sources:
         supports: [how_to_claim.steps.3]
       - text: "You can check with your airline if you are not sure."
         supports: [how_to_claim.steps.3]
-      - text: "Check your ETA online"
+      - text: "if you have an ETA"
+        supports: [how_to_claim.steps.4]
+      - text: "when your ETA expires"
         supports: [how_to_claim.steps.4]
 lead_character: owl
 tags: [documents, uk-eta, entry-permit]

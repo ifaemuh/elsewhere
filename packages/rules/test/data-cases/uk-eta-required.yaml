@@ -26,3 +26,9 @@ cases:
     situation: { passenger.nationality: US }
     outcome: may_apply
     missing_facts: [trip.destination_country]
+  - name: US passport, trip to Jersey
+    situation: { trip.destination_country: JE, passenger.nationality: US }
+    outcome: applies
+  - name: French passport, trip to the UK (eligible nationalities beyond US, CA, AU not encoded yet)
+    situation: { trip.destination_country: GB, passenger.nationality: FR }
+    outcome: does_not_apply

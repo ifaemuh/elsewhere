@@ -17,3 +17,6 @@ cases:
     situation: { passenger.has_real_id: false }
     outcome: may_apply
     missing_facts: [flight.is_domestic_us]
+  - name: international flight, ID status not known yet
+    situation: { flight.is_domestic_us: false }
+    outcome: does_not_apply
