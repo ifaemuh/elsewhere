@@ -10,8 +10,6 @@ summary: >-
   cancelled or significantly delayed or changed and you choose not to travel or take compensation instead.
 applies_when:
   all:
-    - fact: trip.booked_via
-      eq: ota
     - fact: trip.ticket_charged_by
       eq: ticket_agent
     - fact: flight.touches_us
