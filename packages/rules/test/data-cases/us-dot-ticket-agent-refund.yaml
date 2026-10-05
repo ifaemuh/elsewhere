@@ -1,52 +1,78 @@
 rule: us-dot-ticket-agent-refund
 cases:
   - name: cancelled, booked through an OTA, declined the rebooking
-    situation: { trip.booked_via: ota, event.type: cancellation, flight.touches_us: true, passenger.accepted_alternative: false }
+    situation: { trip.booked_via: ota, trip.ticket_charged_by: ticket_agent, event.type: cancellation, flight.touches_us: true, passenger.accepted_alternative: false }
     outcome: applies
   - name: cancellation needs no delay threshold
-    situation: { trip.booked_via: ota, event.type: cancellation, flight.touches_us: true, passenger.accepted_alternative: false, trip.itinerary_domestic_us: true, event.delay_minutes: 0 }
+    situation: { trip.booked_via: ota, trip.ticket_charged_by: ticket_agent, event.type: cancellation, flight.touches_us: true, passenger.accepted_alternative: false, trip.itinerary_domestic_us: true, event.delay_minutes: 0 }
     outcome: applies
   - name: booked directly with the airline
-    situation: { trip.booked_via: direct, event.type: cancellation, flight.touches_us: true, passenger.accepted_alternative: false }
+    situation: { trip.booked_via: direct, trip.ticket_charged_by: ticket_agent, event.type: cancellation, flight.touches_us: true, passenger.accepted_alternative: false }
     outcome: does_not_apply
   - name: booking channel not known yet
-    situation: { event.type: cancellation, flight.touches_us: true, passenger.accepted_alternative: false }
+    situation: { trip.ticket_charged_by: ticket_agent, event.type: cancellation, flight.touches_us: true, passenger.accepted_alternative: false }
     outcome: may_apply
     missing_facts: [trip.booked_via]
   - name: flight does not touch the US
-    situation: { trip.booked_via: ota, event.type: cancellation, flight.touches_us: false, passenger.accepted_alternative: false }
+    situation: { trip.booked_via: ota, trip.ticket_charged_by: ticket_agent, event.type: cancellation, flight.touches_us: false, passenger.accepted_alternative: false }
     outcome: does_not_apply
   - name: touches the US not known yet
-    situation: { trip.booked_via: ota, event.type: cancellation, passenger.accepted_alternative: false }
+    situation: { trip.booked_via: ota, trip.ticket_charged_by: ticket_agent, event.type: cancellation, passenger.accepted_alternative: false }
     outcome: may_apply
     missing_facts: [flight.touches_us]
   - name: took the rebooking or voucher
-    situation: { trip.booked_via: ota, event.type: cancellation, flight.touches_us: true, passenger.accepted_alternative: true }
+    situation: { trip.booked_via: ota, trip.ticket_charged_by: ticket_agent, event.type: cancellation, flight.touches_us: true, passenger.accepted_alternative: true }
     outcome: does_not_apply
   - name: has not decided yet
-    situation: { trip.booked_via: ota, event.type: cancellation, flight.touches_us: true }
+    situation: { trip.booked_via: ota, trip.ticket_charged_by: ticket_agent, event.type: cancellation, flight.touches_us: true }
     outcome: may_apply
     missing_facts: [passenger.accepted_alternative]
   - name: other event type
-    situation: { trip.booked_via: ota, event.type: denied_boarding, flight.touches_us: true, passenger.accepted_alternative: false }
+    situation: { trip.booked_via: ota, trip.ticket_charged_by: ticket_agent, event.type: denied_boarding, flight.touches_us: true, passenger.accepted_alternative: false }
     outcome: does_not_apply
   - name: domestic delay 179 minutes
-    situation: { trip.booked_via: ota, event.type: delay, flight.touches_us: true, passenger.accepted_alternative: false, trip.itinerary_domestic_us: true, event.delay_minutes: 179 }
+    situation: { trip.booked_via: ota, trip.ticket_charged_by: ticket_agent, event.type: delay, flight.touches_us: true, passenger.accepted_alternative: false, trip.itinerary_domestic_us: true, event.delay_minutes: 179 }
     outcome: does_not_apply
   - name: domestic delay exactly 180 minutes
-    situation: { trip.booked_via: ota, event.type: delay, flight.touches_us: true, passenger.accepted_alternative: false, trip.itinerary_domestic_us: true, event.delay_minutes: 180 }
+    situation: { trip.booked_via: ota, trip.ticket_charged_by: ticket_agent, event.type: delay, flight.touches_us: true, passenger.accepted_alternative: false, trip.itinerary_domestic_us: true, event.delay_minutes: 180 }
     outcome: applies
   - name: international schedule change 359 minutes
-    situation: { trip.booked_via: ota, event.type: schedule_change, flight.touches_us: true, passenger.accepted_alternative: false, trip.itinerary_domestic_us: false, event.delay_minutes: 359 }
+    situation: { trip.booked_via: ota, trip.ticket_charged_by: ticket_agent, event.type: schedule_change, flight.touches_us: true, passenger.accepted_alternative: false, trip.itinerary_domestic_us: false, event.delay_minutes: 359 }
     outcome: does_not_apply
   - name: international schedule change exactly 360 minutes
-    situation: { trip.booked_via: ota, event.type: schedule_change, flight.touches_us: true, passenger.accepted_alternative: false, trip.itinerary_domestic_us: false, event.delay_minutes: 360 }
+    situation: { trip.booked_via: ota, trip.ticket_charged_by: ticket_agent, event.type: schedule_change, flight.touches_us: true, passenger.accepted_alternative: false, trip.itinerary_domestic_us: false, event.delay_minutes: 360 }
     outcome: applies
   - name: delay length not known yet
-    situation: { trip.booked_via: ota, event.type: delay, flight.touches_us: true, passenger.accepted_alternative: false, trip.itinerary_domestic_us: true }
+    situation: { trip.booked_via: ota, trip.ticket_charged_by: ticket_agent, event.type: delay, flight.touches_us: true, passenger.accepted_alternative: false, trip.itinerary_domestic_us: true }
     outcome: may_apply
     missing_facts: [event.delay_minutes]
   - name: domestic or international not known yet
-    situation: { trip.booked_via: ota, event.type: delay, flight.touches_us: true, passenger.accepted_alternative: false, event.delay_minutes: 200 }
+    situation: { trip.booked_via: ota, trip.ticket_charged_by: ticket_agent, event.type: delay, flight.touches_us: true, passenger.accepted_alternative: false, event.delay_minutes: 200 }
     outcome: may_apply
     missing_facts: [trip.itinerary_domestic_us]
+  - name: the airline is the merchant of record
+    situation: { trip.booked_via: ota, trip.ticket_charged_by: airline, event.type: cancellation, flight.touches_us: true, passenger.accepted_alternative: false }
+    outcome: does_not_apply
+  - name: merchant of record not known yet
+    situation: { trip.booked_via: ota, event.type: cancellation, flight.touches_us: true, passenger.accepted_alternative: false }
+    outcome: may_apply
+    missing_facts: [trip.ticket_charged_by]
+  - name: international cancellation needs no threshold
+    situation: { trip.booked_via: ota, trip.ticket_charged_by: ticket_agent, event.type: cancellation, flight.touches_us: true, passenger.accepted_alternative: false, trip.itinerary_domestic_us: false, event.delay_minutes: 0 }
+    outcome: applies
+  - name: domestic schedule change 179 minutes
+    situation: { trip.booked_via: ota, trip.ticket_charged_by: ticket_agent, event.type: schedule_change, flight.touches_us: true, passenger.accepted_alternative: false, trip.itinerary_domestic_us: true, event.delay_minutes: 179 }
+    outcome: does_not_apply
+  - name: domestic schedule change exactly 180 minutes
+    situation: { trip.booked_via: ota, trip.ticket_charged_by: ticket_agent, event.type: schedule_change, flight.touches_us: true, passenger.accepted_alternative: false, trip.itinerary_domestic_us: true, event.delay_minutes: 180 }
+    outcome: applies
+  - name: international delay 359 minutes
+    situation: { trip.booked_via: ota, trip.ticket_charged_by: ticket_agent, event.type: delay, flight.touches_us: true, passenger.accepted_alternative: false, trip.itinerary_domestic_us: false, event.delay_minutes: 359 }
+    outcome: does_not_apply
+  - name: international delay exactly 360 minutes
+    situation: { trip.booked_via: ota, trip.ticket_charged_by: ticket_agent, event.type: delay, flight.touches_us: true, passenger.accepted_alternative: false, trip.itinerary_domestic_us: false, event.delay_minutes: 360 }
+    outcome: applies
+  - name: event type not known yet
+    situation: { trip.booked_via: ota, trip.ticket_charged_by: ticket_agent, flight.touches_us: true, passenger.accepted_alternative: false }
+    outcome: may_apply
+    missing_facts: [event.type, trip.itinerary_domestic_us, event.delay_minutes]
