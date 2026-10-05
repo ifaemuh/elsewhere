@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { ecfrXmlToText, fetchEcfrPart, type FetchLike } from '../src/ecfr';
+import { ecfrXmlToText, fetchEcfrPart, guardTruncated, type FetchLike } from '../src/ecfr';
 import { FIXTURES } from './helpers';
 
 const xml = readFileSync(join(FIXTURES, 'ecfr/title-14-part-260.xml'), 'utf8');
@@ -95,4 +95,19 @@ test('fetchEcfrPart surfaces non-OK versions and XML responses', async () => {
   await assert.rejects(fetchEcfrPart(ref, respond({ versionsStatus: 500 })), /eCFR 500/);
   await assert.rejects(fetchEcfrPart(ref, respond({ xmlStatus: 406 })), /eCFR 406/);
   await assert.rejects(fetchEcfrPart(ref, respond({ xmlStatus: 503 })), /eCFR 503/);
+});
+
+test('fetchEcfrPart aborts a stalled request instead of hanging (#22)', async () => {
+  const fake: FetchLike = async (_url, init) => {
+    assert.ok(init?.signal, 'every request carries an abort signal');
+    return new Promise((_resolve, reject) => init!.signal!.addEventListener('abort', () => reject(new Error('aborted'))));
+  };
+  await assert.rejects(fetchEcfrPart({ title: 14, part: 260 }, fake, { timeoutMs: 20 }), /aborted|timed out/);
+});
+
+test('guardTruncated refuses a body under half the previous one (#23)', () => {
+  const previous = 'x'.repeat(1000);
+  assert.throws(() => guardTruncated(previous, 'x'.repeat(499)), /truncated/);
+  assert.doesNotThrow(() => guardTruncated(previous, 'x'.repeat(500)));
+  assert.doesNotThrow(() => guardTruncated('', 'tiny'));
 });

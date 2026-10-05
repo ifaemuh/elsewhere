@@ -1,0 +1,19 @@
+rule: us-dot-refund-service-not-provided
+cases:
+  - name: paid seat or Wi-Fi not provided on a US flight
+    situation: { event.type: service_not_provided, flight.touches_us: true }
+    outcome: applies
+  - name: touches the US is not known yet
+    situation: { event.type: service_not_provided }
+    outcome: may_apply
+    missing_facts: [flight.touches_us]
+  - name: flight does not touch the US
+    situation: { event.type: service_not_provided, flight.touches_us: false }
+    outcome: does_not_apply
+  - name: cancellation is handled by the cancelled-flight rule
+    situation: { event.type: cancellation, flight.touches_us: true }
+    outcome: does_not_apply
+  - name: event type not known yet
+    situation: { flight.touches_us: true }
+    outcome: may_apply
+    missing_facts: [event.type]

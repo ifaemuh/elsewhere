@@ -3708,7 +3708,7 @@ jobs:
             --title "Rules backstop: quotes not found ($(date -u +%F))" --body-file body.md
 ````
 
-PRs opened with `github.token` don't trigger other workflows, which is a GitHub rule. The backstop PR body carries the full check output instead, and the founder re-runs CI from the PR page if needed.
+A PR opened with `github.token` gets no automatic workflow run until a maintainer clicks "Approve workflows to run" (or closes and reopens the PR), and a `workflow_dispatch` run does not count as the required "Rules CI / rules" check. So the backstop does not dispatch anything (final re-review fix); its PR body tells the founder to approve the workflow run. In CI, `rules:check-quotes --base-ref` also stops a flagged rule from failing: a quote that is new or changed relative to the merge-base must be found, but an unchanged quote of a rule that is no longer `verified` only warns, so the backstop PR (which flips status and changes no quote) goes green once approved. The PR body also carries the full check output.
 
 - [ ] **Step 2: FOUNDER CONFIRMATION — let Actions open PRs**
 
@@ -4213,16 +4213,18 @@ Branch `rules/add-<short-name>`, title `Rules: add <ids>`. Body, once per rule:
 
 ## 7. Approval
 
-The founder reviews, at about two minutes per rule, and merges. Then, on `main`:
+The founder reviews, at about two minutes per rule, and merges. Then, from a fresh branch
+off `main` (main is protected; nothing is pushed to it directly):
 
 ```bash
+git switch main && git pull && git switch -c rules/verify-<date>
 npm run rules:verify -w @elsewhere/rules -- <id> [<id> ...] --by ifaemuh
 git commit -am "Verify rules: <ids>"
+git push -u origin HEAD && gh pr create --base main --fill
 ```
 
 `rules:verify` sets `status: verified`, `last_verified`, `verified_by`, and `review_by`
-(+90 days), and appends the verified history entry. Pushing to `main` needs the founder's
-go-ahead.
+(+90 days), and appends the verified history entry. Merge that PR once Rules CI is green.
 
 ## Changing a verified rule
 
@@ -4257,6 +4259,8 @@ EOF
 ```
 
 ### Task 16: The Rules Keeper Dot
+
+> **Final-review note (I4, M2):** the files in `packages/rules/dot/` are authoritative; the copies embedded below predate the final review. It changed `goal.md` (OTA commit titles mapped by file path, a Federal Register `lte` bound, `needs_review` on every version bump) and `setup.md` ("Do not allow bypassing" on branch protection, a recorded connector identity and `workflows`-permission check, and the soft-limit caveat when the connector is the founder's own account).
 
 **Files:**
 - Create: `packages/rules/dot/goal.md`, `packages/rules/dot/setup.md`
@@ -4402,7 +4406,8 @@ Dots have no API, so the founder does this in ChatGPT on the Pro account. Give t
 3. Connect GitHub. Authorize `ifaemuh/elsewhere` (read and write) and `ifaemuh/elsewhere-sources-versions` (read). If the connector can't be scoped per repository, the Custom Rules below enforce the scope.
 4. Allow web access to `www.federalregister.gov`.
 5. Enter the Custom Rules exactly as in the table in `packages/rules/dot/setup.md`.
-6. Reply with the date and confirm the Dot is running.
+6. Fill in the "Connector identity" and "Connector scopes" rows of `setup.md` (the account the connector authenticates as; confirmation that it has no `workflows` or Actions write permission), and confirm the server-side guards there are already in place.
+7. Reply with the date and confirm the Dot is running.
 
 - [ ] **Step 4: Record the configuration**
 
@@ -4530,18 +4535,32 @@ cases:
     outcome: does_not_apply
 ```
 
-FOUNDER CONFIRMATION, then push and record a first version:
+A new source and a rule citing it cannot pass CI in one PR, because the source's text does not exist in `elsewhere-sources-versions` until the tracker has run. So this goes in two PRs (final-review fix I5): first the source only (`sources.yaml` and `ota-overrides.yaml`), merged, then `gh workflow run sources-track.yml --repo ifaemuh/elsewhere` and wait for the text to appear; then the rule and its data-case file in a second PR. Main is protected, so neither is pushed directly.
+
+FOUNDER CONFIRMATION, then open the source PR and record a first version:
 
 ```bash
 npm test -w @elsewhere/rules
-git add packages/rules && git commit -F - <<'EOF'
-Add the acceptance-test canary source and rule (temporary)
+git switch -c rules/add-canary-source
+git add packages/rules/sources.yaml packages/rules/ota-overrides.yaml && git commit -F - <<'EOF'
+Add the acceptance-test canary source (temporary)
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01CZeaGyqM4LkMDPkaein2Sc
 EOF
-git push origin HEAD:main
+git push -u origin HEAD
+gh pr create --base main --fill   # merge once Rules CI is green
+git switch main && git pull
 gh workflow run sources-track.yml --repo ifaemuh/elsewhere
+```
+
+After the tracker run, open the second PR with the rule and its data-case file:
+
+```bash
+git switch -c rules/add-canary-rule
+git add packages/rules/data packages/rules/test/data-cases && git commit -m "Add the acceptance-test canary rule (temporary)" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>" -m "Claude-Session: https://claude.ai/code/session_01CZeaGyqM4LkMDPkaein2Sc"
+git push -u origin HEAD
+gh pr create --base main --fill   # merge once Rules CI is green
 ```
 
 Expected: after the run, `gh api "repos/ifaemuh/elsewhere-sources-versions/contents/Elsewhere%20Canary"` lists `Official Guidance.md`. "Rules CI" on `main` passes, so the quote is found.
@@ -4606,6 +4625,7 @@ Delete `packages/rules/data/flights/canary-acceptance-test.yaml` and `packages/r
 
 ```bash
 npm test -w @elsewhere/rules
+git switch -c rules/remove-canary
 git add -A packages/rules && git commit -F - <<'EOF'
 Remove the acceptance-test canary
 
@@ -4615,7 +4635,9 @@ passed; see the closed refresh and backstop PRs.
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01CZeaGyqM4LkMDPkaein2Sc
 EOF
-git push origin HEAD:main
+git push -u origin HEAD
+gh pr create --base main --fill   # merge once Rules CI is green
+git switch main && git pull
 gh workflow run sources-track.yml --repo ifaemuh/elsewhere
 ```
 
@@ -4769,14 +4791,15 @@ gh pr create --base main --title "Rules: add us-dot-refund-cancelled-flight, us-
 Write `pr-body.md` from the template first, and delete it after the PR is open.
 
 - [ ] **Step 6:** Wait for check A5. The founder reviews and merges.
-- [ ] **Step 7: FOUNDER CONFIRMATION.** Verify on `main`:
+- [ ] **Step 7: FOUNDER CONFIRMATION.** Verify on a branch cut from `main` and open a PR (main is protected):
 
 ```bash
-git switch main && git pull
+git switch main && git pull && git switch -c rules/verify-$(date +%F)
 npm run rules:verify -w @elsewhere/rules -- us-dot-refund-cancelled-flight us-dot-refund-significant-change us-dot-bag-fee-refund-delayed-bag us-dot-refund-service-not-provided --by ifaemuh
 npm test -w @elsewhere/rules
 git commit -am "Verify rules: us-dot-refund-cancelled-flight, us-dot-refund-significant-change, us-dot-bag-fee-refund-delayed-bag, us-dot-refund-service-not-provided" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>" -m "Claude-Session: https://claude.ai/code/session_01CZeaGyqM4LkMDPkaein2Sc"
-git push origin main
+git push -u origin HEAD
+gh pr create --base main --fill   # main is protected: merge once Rules CI is green
 ```
 
 Check A6 passes when each file's last history entry is `{ version: 1, status: verified, date: <today> }`.
@@ -4824,14 +4847,15 @@ gh pr create --base main --title "Rules: add us-dot-24-hour-cancellation, us-dot
 ```
 
 - [ ] **Step 6:** Wait for check A5. The founder reviews and merges.
-- [ ] **Step 7: FOUNDER CONFIRMATION.** Verify on `main`:
+- [ ] **Step 7: FOUNDER CONFIRMATION.** Verify on a branch cut from `main` and open a PR (main is protected):
 
 ```bash
-git switch main && git pull
+git switch main && git pull && git switch -c rules/verify-$(date +%F)
 npm run rules:verify -w @elsewhere/rules -- us-dot-24-hour-cancellation us-dot-bumping-compensation us-dot-tarmac-delay-limits --by ifaemuh
 npm test -w @elsewhere/rules
 git commit -am "Verify rules: us-dot-24-hour-cancellation, us-dot-bumping-compensation, us-dot-tarmac-delay-limits" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>" -m "Claude-Session: https://claude.ai/code/session_01CZeaGyqM4LkMDPkaein2Sc"
-git push origin main
+git push -u origin HEAD
+gh pr create --base main --fill   # main is protected: merge once Rules CI is green
 ```
 
 ### Task 21: Rules 8–10, EU261
@@ -4894,14 +4918,15 @@ gh pr create --base main --title "Rules: add eu261-delay-compensation, eu261-can
 ```
 
 - [ ] **Step 6:** Wait for check A5. The founder reviews and merges.
-- [ ] **Step 7: FOUNDER CONFIRMATION.** Verify on `main`:
+- [ ] **Step 7: FOUNDER CONFIRMATION.** Verify on a branch cut from `main` and open a PR (main is protected):
 
 ```bash
-git switch main && git pull
+git switch main && git pull && git switch -c rules/verify-$(date +%F)
 npm run rules:verify -w @elsewhere/rules -- eu261-delay-compensation eu261-cancellation-compensation eu261-right-to-care --by ifaemuh
 npm test -w @elsewhere/rules
 git commit -am "Verify rules: eu261-delay-compensation, eu261-cancellation-compensation, eu261-right-to-care" -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>" -m "Claude-Session: https://claude.ai/code/session_01CZeaGyqM4LkMDPkaein2Sc"
-git push origin main
+git push -u origin HEAD
+gh pr create --base main --fill   # main is protected: merge once Rules CI is green
 ```
 
 Track A's first deliverable is done when `npm run rules:build -w @elsewhere/rules` prints `Built 10 rules`, and every rule shows `status: verified`.

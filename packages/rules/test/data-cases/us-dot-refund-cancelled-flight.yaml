@@ -1,0 +1,26 @@
+rule: us-dot-refund-cancelled-flight
+cases:
+  - name: declined the rebooking
+    situation: { event.type: cancellation, flight.touches_us: true, passenger.accepted_alternative: false }
+    outcome: applies
+  - name: has not decided yet
+    situation: { event.type: cancellation, flight.touches_us: true }
+    outcome: may_apply
+    missing_facts: [passenger.accepted_alternative]
+  - name: took the voucher or the rebooking
+    situation: { event.type: cancellation, flight.touches_us: true, passenger.accepted_alternative: true }
+    outcome: does_not_apply
+  - name: cancelled flight that does not touch the US
+    situation: { event.type: cancellation, flight.touches_us: false, passenger.accepted_alternative: false }
+    outcome: does_not_apply
+  - name: touches the US is not known yet
+    situation: { event.type: cancellation, passenger.accepted_alternative: false }
+    outcome: may_apply
+    missing_facts: [flight.touches_us]
+  - name: delay is not a cancellation
+    situation: { event.type: delay, flight.touches_us: true, passenger.accepted_alternative: false }
+    outcome: does_not_apply
+  - name: event type not known yet
+    situation: { flight.touches_us: true, passenger.accepted_alternative: false }
+    outcome: may_apply
+    missing_facts: [event.type]
