@@ -6,8 +6,8 @@ jurisdiction: carrier:AA
 title: "American Airlines delayed or cancelled your flight? If it's their doing, ask for a meal credit, hotel and transport"
 summary: >-
   When American causes a delay, cancellation or missed connection, its plan gives you on request a food credit if your
-  delay is 3 or more hours after your scheduled departure, and a hotel voucher plus transport if you are delayed
-  overnight and away from your city of residence. Nothing is promised if the cause is beyond American's control.
+  delay is 3 or more hours after your scheduled departure, and a hotel voucher plus transport if you're away from home
+  and not boarded before 11:59 p.m. Nothing is promised if the cause is beyond American's control, except after a diversion.
 applies_when:
   all:
     - fact: flight.marketing_carrier_iata
@@ -39,12 +39,13 @@ how_to_claim:
   templates: [airline_care_request]
 exceptions:
   - "Only when American causes the delay or cancellation, except after a diversion (see below). If it is caused by events beyond American's control (like weather), you are responsible for your own overnight accommodations, meals and incidental expenses, though American agents may be able to help you find a hotel."
-  - "American's contract lists what it counts as beyond its control. Besides weather, strikes and civil disorder, the list includes labor disputes that involve or affect its service, government regulations or requirements, shortage of labor, fuel or facilities of American or others, and any fact not reasonably foreseen or predicted by American. A staffing shortage may therefore be treated as beyond American's control."
+  - "American's contract says that when there's an event it can't control like weather, a strike or other civil disorder, it may have to cancel, divert or delay flights. Its list of such events includes meteorological or weather conditions, civil disturbances including war, embargoes or unsettled international conditions (real or threatened), acts of terror, public health emergencies of domestic or international concern, labor disputes that involve or affect its service, government regulations or requirements, shortage of labor, fuel or facilities of American or others, and any fact not reasonably foreseen or predicted by American. A staffing shortage may therefore be treated as beyond American's control."
+  - "American's contract of carriage lists only the hotel, not the food credit or transport; those come from its customer service plan, which federal rules require it to follow. The contract also says that if American or its airline partner cancels your flight or your departure or arrival is delayed for 3 or more hours (domestic) / 4 or more hours (international), its sole obligation is to refund the unused ticket value and any optional fees according to its involuntary refunds policy, subject to its policy for rebooking your delayed / canceled flight."
   - "The food credit is for a delay of 3 or more hours after your scheduled departure. For a cancellation, it applies only if you end up leaving 3 or more hours after your original scheduled departure."
   - "The hotel commitment has no hour count in the plan. The contract words it as: the disruption is American's fault and American doesn't board you before 11:59 p.m. local time on your scheduled arrival day, and you're away from your city of residence."
   - "If your flight is diverted to another city, the plan gives you a hotel voucher, transportation and, if you are delayed in the diversion city for more than 3 hours, a food credit, whatever caused the diversion, if American doesn't board you to your final destination before 11:59 p.m."
   - "If you book a hotel on your own without written authorization from American Airlines, you're responsible to pay for your hotel, meals and other expenses."
-  - "On a flight sold under American's number but operated by a partner airline, the plan says American will make every reasonable effort to ensure its domestic codeshare partners offer comparable levels of service. It does not promise these commitments."
+  - "On a flight sold under American's number but operated by a partner airline, the plan says American will make every reasonable effort to ensure its domestic codeshare partners offer comparable levels of service. The plan doesn't say American itself provides these on a partner-operated flight."
 sources:
   - id: s1
     source: aa-customer-service-plan
@@ -56,7 +57,7 @@ sources:
       - text: "A voucher for an approved hotel with available rooms if you are delayed overnight if you’re away from your city of residence."
         supports: [summary, entitlement.amount, exceptions]
       - text: "Transportation to a hotel and back to the airport by hotel shuttle / third-party transportation service, or a transportation voucher."
-        supports: [summary, entitlement.amount]
+        supports: [summary, entitlement.amount, exceptions]
       - text: "Food / beverage credit if your delay is 3 or more hours after your scheduled departure."
         supports: [summary, applies_when, entitlement.amount, exceptions]
       - text: "If we can’t provide you with a voucher for an approved hotel, we’ll reimburse you for reasonable hotel costs. If a hotel shuttle / third-party transportation service isn’t available, or we can’t provide you with a transportation voucher, we’ll reimburse you for reasonable transportation costs."
@@ -80,6 +81,18 @@ sources:
         supports: [exceptions]
       - text: "Under the name \"American Airlines\" we operate mainline flights as American Airlines and regional codeshare flights (doing business as American Eagle) operated by:"
         supports: [applies_when]
+      - text: "When there's an event we can't control like weather, a strike or other civil disorder, we may have to cancel, divert or delay flights."
+        supports: [exceptions]
+      - text: "Meteorological or weather conditions"
+        supports: [exceptions]
+      - text: "Civil disturbances including war, embargoes or unsettled international conditions (real or threatened)"
+        supports: [exceptions]
+      - text: "Acts of terror"
+        supports: [exceptions]
+      - text: "Public health emergencies of domestic or international concern"
+        supports: [exceptions]
+      - text: "If we or our airline partner cancels your flight or your departure or arrival is delayed for 3 or more hours (domestic) / 4 or more hours (international), our sole obligation is to refund the unused ticket value and any optional fees according to our involuntary refunds policy, subject to our policy for rebooking your delayed / canceled flight."
+        supports: [exceptions]
       - text: "Labor disputes that involve or affect our service"
         supports: [exceptions]
       - text: "Government regulations or requirements"
@@ -92,7 +105,7 @@ sources:
     source: ecfr-14-cfr-259
     quotes:
       - text: "Each covered carrier must adopt a Customer Service Plan applicable to its scheduled flights as specified in paragraphs (b)(1) through (14) of this section and adhere to the plan's terms."
-        supports: [summary, entitlement.timing]
+        supports: [exceptions]
   - id: s4
     source: dot-customer-service-dashboard
     quotes:

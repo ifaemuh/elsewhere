@@ -28,14 +28,15 @@ how_to_claim:
   steps:
     - "Ask American Airlines staff to rebook you on the next flight with available seats. It is at no additional cost."
     - "If no American flights are available until the next day, ask whether the disruption was caused by American. If it was, ask to be rebooked on a partner airline."
-    - "If your flight was delayed or canceled and you don't accept American's alternative arrangements, or none were available, ask for a refund of the remaining ticket value and any optional fees according to its involuntary refunds policy. The contract applies this when American cancels your flight or your departure or arrival is delayed for 3 or more hours (domestic) / 4 or more hours (international)."
+    - "If your flight was delayed or canceled and you don't accept American's alternative arrangements, or none were available, ask for a refund of the remaining ticket value and any optional fees according to its involuntary refunds policy. That policy refunds the ticketed fare if there is a cancellation or significant flight itinerary change and you choose not to fly on the changed flight, accept rebooking on an alternative flight, or accept other compensation. Eligible changes include changes to itineraries for 3 or more hours (domestic) / 4 or more hours (international), changes in origination / destination airports, downgrades to a lower cabin, and an increased number of connections. So a rebooking that adds a connection can be grounds for a refund."
+    - "If you believe American hasn't fulfilled its commitment, contact American first to ensure it gives you what is owed."
   templates: []
 exceptions:
   - "The partner-airline rebooking applies only if no American flights are available until the next day and the disruption is caused by American."
   - "If your connection is on a separate ticket, the plan doesn't say American will rebook it."
   - "Beyond the rebooking and refund above, American's contract says its flight schedule is not guaranteed and not part of the contract, and that it is not liable if it is late or you don't make your connection."
   - "Rules for delays on international trips are governed by the Montreal Convention and Warsaw Convention."
-  - "On a flight sold under American's number but operated by a partner airline, the plan says American will make every reasonable effort to ensure its domestic codeshare partners offer comparable levels of service. It does not promise this rebooking."
+  - "On a flight sold under American's number but operated by a partner airline, the plan says American will make every reasonable effort to ensure its domestic codeshare partners offer comparable levels of service. The plan doesn't say American itself provides this on a partner-operated flight."
 sources:
   - id: s1
     source: aa-customer-service-plan
@@ -55,14 +56,31 @@ sources:
         supports: [entitlement.amount]
       - text: "If your flight was delayed or canceled and you don’t accept our alternative arrangements, or none were available, we'll refund the remaining ticket value and any optional fees according to our involuntary refunds policy."
         supports: [how_to_claim.steps.2]
+      - text: "The ticketed fare, including taxes and fees, if there is a cancellation or significant flight itinerary change, when the customer chooses either not to fly on the changed flight, accept rebooking on an alternative flight, or accept other compensation. Eligible flight itinerary changes include:"
+        supports: [how_to_claim.steps.2]
+      - text: "Changes to itineraries for 3 or more hours (domestic) / 4 or more hours (international)"
+        supports: [how_to_claim.steps.2]
+      - text: "Changes in origination / destination airports"
+        supports: [how_to_claim.steps.2]
+      - text: "Downgrades to a lower cabin"
+        supports: [how_to_claim.steps.2]
+      - text: "Increased number of connections"
+        supports: [how_to_claim.steps.2]
       - text: "If we or our airline partner cancels your flight or your departure or arrival is delayed for 3 or more hours (domestic) / 4 or more hours (international), our sole obligation is to refund the unused ticket value and any optional fees according to our involuntary refunds policy, subject to our policy for rebooking your delayed / canceled flight."
         supports: [how_to_claim.steps.2]
       - text: "We do our best to be on time but our flight schedule is not guaranteed and not part of this contract. We are not liable if:"
+        supports: [exceptions]
+      - text: "We're late or you don't make your connection"
         supports: [exceptions]
       - text: "Rules for delays on international trips are governed by the Montreal Convention and Warsaw Convention."
         supports: [exceptions]
       - text: "Under the name \"American Airlines\" we operate mainline flights as American Airlines and regional codeshare flights (doing business as American Eagle) operated by:"
         supports: [applies_when]
+  - id: s4
+    source: dot-customer-service-dashboard
+    quotes:
+      - text: "DOT will hold airlines accountable if they fail to fulfill a customer service commitment. If you believe an airline has not fulfilled its commitment, contact the airline first to ensure it gives you what is owed."
+        supports: [how_to_claim.steps.3]
   - id: s3
     source: aa-customer-service-plan
     quotes:
