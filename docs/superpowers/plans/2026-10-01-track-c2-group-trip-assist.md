@@ -25,10 +25,12 @@
 
 **Depends on:**
 - **Every C1 task.** The schema, clients, proxy, `getLibrary()`, the cast, sign-in, trips, the trip pass, and the Stripe webhook must all exist.
-- **Track A, including its Task 18 contract amendment** (adds `flight.departs_us`) **and contract 30b549f** (adds the itinerary facts `trip.itinerary_domestic_us` and `trip.us_foreign_nonstop_minutes`, and removes `flight.scheduled_duration_minutes`).
+- **Track A, including its Task 18 contract amendment** (adds `flight.departs_us`), **contract 30b549f** (adds the itinerary facts `trip.itinerary_domestic_us` and `trip.us_foreign_nonstop_minutes`, and removes `flight.scheduled_duration_minutes`), **and contract bd7e847** (adds `event.at_us_airport`, `passenger.volunteered`, `trip.hours_booked_before_departure`, `trip.touches_us`, and `trip.booked_with_us_carrier`; removes `trip.days_until_departure`; defines `denied_boarding` as an oversold flight). `packages/rules` on `restart/track-c` has none of these yet. The controller merges Track A into `restart/track-c` before Task 10, and Task 10 starts by checking that the merge landed.
 - **Track A's rule conventions,** which C2 relies on. C2's tests pin them with fixtures. Report gaps to Track A; do not edit rules here.
   - A document-requirement rule encodes the failing condition, so `applies` means action is needed.
   - Its minimum is in `entitlement.amount.min_months_valid_after_return`.
+  - A passport rule carries the `passport` tag. The documents page shows the official renewal route only on checks whose rule has it (Task 7).
+  - A rule on `trip.hours_booked_before_departure` asks for "at least N hours ahead" (`gte` or `gt`). Confirmations often print only the booking date, so C2 sets a lower bound (Task 10), which is safe only for that direction.
 
 ## Global Constraints
 
@@ -36,6 +38,7 @@
 - **Pinned versions:**
   - `workflow` 5.0.1, `@workflow/vitest` 5.0.1, `ai` 7.0.127
   - `resend` 6.32.0, `twilio` 6.1.2, `@playwright/test` 1.63.0, `standardwebhooks` 1.1.1 (dev)
+  - `@vercel/firewall` 1.2.5, the version Track D uses
   - everything C1 pins
 - **AI SDK 7:** `generateObject` no longer exists. Use `generateText({ model, output: Output.object({ schema }), instructions, prompt | messages })` and read `result.output`. Use `instructions` for system text, not the deprecated `system`.
 - **AI Gateway model IDs** (verified in `@ai-sdk/gateway` 4.0.103; the spec's dashed IDs are wrong):
@@ -72,7 +75,8 @@
   Claude-Session: https://claude.ai/code/session_01CZeaGyqM4LkMDPkaein2Sc
   ```
 - **[Founder confirms]:** a step marked this way is outward-facing (provider accounts, DNS, A2P registration, production deploys). Stop and get explicit approval first.
-- **Working directory:** paths are relative to the repo root, `/Users/eapha/Github/elsewhere-restart`.
+- **Schema changes** edit `supabase/migrations/00012_group_trip_assist.sql` in place. No remote database has it yet; C1 Task 12 Step 3 applies it. Before a step that edits it, ask the controller whether 00012 has been applied anywhere. If it has, put that step's SQL in a new `supabase/migrations/00013_group_trip_assist_c2.sql` instead, appending in task order, and keep the DB tests unchanged. Every change comes with tests in `apps/web/test/db/group-trip.test.ts`, on C1's PGlite harness, and C1's `apps/web/test/db/schema.test.ts` must keep passing.
+- **Working directory:** paths are relative to the repo root, `/Users/eapha/Github/elsewhere-track-c`, on branch `restart/track-c`. C1 is built there.
 
 ## New environment variables
 
@@ -89,55 +93,71 @@
 
 ## File Structure
 
+Relative to `/Users/eapha/Github/elsewhere-track-c`. "C1" marks a file C1 built that C2 changes.
+
 ```
+supabase/migrations/00012_group_trip_assist.sql   # C1, modify: set_join_token (1); bookings.booked_at, funnel_forwarded_trip_idx (5);
+                                                  #   claim_booking_seat (8); trips.hand_run, playbooks.held_for_review + read policy (12);
+                                                  #   respond_vote, no direct vote_responses writes (13)
+.gitignore                                        # modify: Workflow output (9), e2e output (17)
+.env.example                                      # modify
 apps/web/
-  next.config.ts                       # modify: withWorkflow
-  vitest.integration.config.ts         # create
-  playwright.config.ts                 # create
-  vercel.json                          # create: crons
+  next.config.ts                       # C1, modify: withWorkflow (5), server-action body limit (8)
+  vitest.integration.config.ts         # create (9)
+  playwright.config.ts  .env.e2e.example  # create (17)
+  vercel.json                          # create: crons, daily until Task 18 Step 2 (2, 16, 18)
   workflows/intake.ts  trip-monitor.ts  segment-monitor.ts  incident.ts
   app/
-    login/{page.tsx,login-form.tsx,actions.ts}          # modify: phone codes
+    login/{page.tsx,login-form.tsx,actions.ts}          # C1, modify: phone codes, code-send rate limit (1)
     join/[token]/{page.tsx,join-form.tsx,actions.ts,opengraph-image.tsx}
-    trips/[id]/page.tsx                                 # rewrite: smart feed
-    trips/[id]/actions.ts                               # modify: join link
+    trips/new/actions.ts                                # C1, modify: trip-creation rate limit (1)
+    trips/[id]/page.tsx                                 # C1, modify: invite section (1); TripContent becomes the feed (15)
+    trips/[id]/actions.ts                               # C1, modify: join link (1)
+    trips/[id]/feed-actions.ts
     trips/[id]/members/page.tsx
-    trips/[id]/bookings/{page.tsx,actions.ts}
-    trips/[id]/documents/{page.tsx,actions.ts}
-    trips/[id]/incidents/[incidentId]/{page.tsx,actions.ts}
-    trips/[id]/votes/[voteId]/{page.tsx,actions.ts}
-    trips/[id]/money/{page.tsx,actions.ts}
+    trips/[id]/bookings/{page.tsx,actions.ts,forms.tsx}
+    trips/[id]/documents/{page.tsx,actions.ts,documents-form.tsx}
+    trips/[id]/incidents/[incidentId]/{page.tsx,actions.ts,vote-form.tsx}
+    trips/[id]/votes/[voteId]/page.tsx  trips/[id]/votes/actions.ts
+    trips/[id]/money/{page.tsx,actions.ts,expense-form.tsx}
     privacy/page.tsx  sms-terms/page.tsx                # Task 18: the pages A2P registration links to
     admin/{page.tsx,playbook-editor.tsx,actions.ts}
     api/webhooks/inbound-email/route.ts
     api/webhooks/aeroapi/[secret]/route.ts
     api/webhooks/twilio/route.ts
-    api/webhooks/stripe/route.ts                        # modify: start monitoring
+    api/webhooks/stripe/route.ts                        # C1, modify: start monitoring, never failing the webhook (9)
     api/cron/notifications/route.ts
     api/cron/retention/route.ts
     api/cron/document-checks/route.ts                   # Task 16: the T-30 document check
   lib/
     types/trip-room.ts
-    auth/phone.ts
+    auth/phone.ts  rate-limit.ts
+    funnel/events.ts                                    # C1, modify: booking_forwarded dedupe is a no-op (5)
     trips/join-token.ts  trips/join-preview.ts  trips/join-lookup.ts  trips/feed.ts
     notify/quiet-hours.ts  notify/templates.ts  notify/plan.ts  notify/deliver.ts  notify/queue.ts  notify/sms-consent.ts
     ai/models.ts
-    intake/sender.ts  intake/inbound-source.ts  intake/storage.ts  intake/extract.ts
+    intake/sender.ts  intake/inbound-source.ts  intake/storage.ts  intake/extract.ts  intake/quarantine.ts
     intake/normalize.ts  intake/passengers.ts  intake/process.ts  intake/live-deps.ts
-    flights/aeroapi.ts  flights/fixture-aeroapi.ts  flights/geo.ts  flights/resolve.ts
+    flights/aeroapi.ts  flights/fixture-aeroapi.ts  flights/geo.ts  flights/resolve.ts  flights/regions.ts
+    bookings/confirm.ts  bookings/manual.ts  bookings/screenshot.ts
     documents/facts.ts  documents/check.ts  documents/deadlines.ts  documents/service.ts
     monitor/snapshot.ts  monitor/record.ts
     workflows/tokens.ts  workflows/ports.ts  workflows/live-ports.ts  workflows/memory-ports.ts
     assist/carriers.ts  assist/situation.ts  assist/questions.ts  assist/assess.ts
-    assist/playbook.ts  assist/citation-check.ts  assist/template.ts  assist/incidents.ts
-    votes/tally.ts
+    assist/playbook.ts  assist/playbook-schema.ts  assist/citation-check.ts  assist/template.ts  assist/incidents.ts
+    votes/tally.ts  votes/alternatives.ts
     expenses/settle.ts  expenses/pay-links.ts
     admin/emails.ts  admin/guard.ts  retention.ts
   scripts/setup-storage.mts  eval-extraction.mts  eval-replay.mts  resend-setup.mts  smoke-production.mts
   test/
-    helpers/webhooks.ts  helpers/mock-model.ts  fixtures/e2e/**
+    db/group-trip.test.ts                               # C2's DB tests, on C1's PGlite harness (1, 5, 8, 12, 13)
+    db/schema.test.ts                                   # C1, modify: one line, respond_vote (13)
+    login/actions.test.ts                               # C1, rewrite: contact/channel state (1)
+    trips/create-trip-action.test.ts                    # C1, modify: rate limit (1)
+    payments/webhook-route.test.ts                      # C1, rewrite: activation starts monitoring (9)
+    helpers/webhooks.ts  helpers/mock-model.ts
     **/*.test.ts(x)  workflows/*.integration.test.ts
-  e2e/prepare.sh  e2e/helpers.ts  e2e/group-trip.spec.ts
+  e2e/env.ts  e2e/prepare.sh  e2e/helpers.ts  e2e/group-trip.spec.ts
 ```
 
 ---
@@ -145,17 +165,23 @@ apps/web/
 ### Task 1: Group join by link, phone codes, and the join-link preview
 
 **Files:**
-- Create: `apps/web/lib/types/trip-room.ts`, `apps/web/lib/auth/phone.ts`, `apps/web/lib/trips/join-token.ts`, `apps/web/lib/trips/join-preview.ts`, `apps/web/lib/trips/join-lookup.ts`, `apps/web/app/join/[token]/page.tsx`, `apps/web/app/join/[token]/join-form.tsx`, `apps/web/app/join/[token]/actions.ts`, `apps/web/app/join/[token]/opengraph-image.tsx`, `apps/web/test/auth/phone.test.ts`, `apps/web/test/trips/join-token.test.ts`, `apps/web/test/trips/join-preview.test.ts`
-- Modify: `apps/web/app/login/actions.ts`, `apps/web/app/login/login-form.tsx`, `apps/web/app/login/page.tsx`, `apps/web/app/trips/[id]/actions.ts`, `apps/web/app/trips/[id]/page.tsx`, `.env.example`
+- Create: `apps/web/lib/types/trip-room.ts`, `apps/web/lib/auth/phone.ts`, `apps/web/lib/rate-limit.ts`, `apps/web/lib/trips/join-token.ts`, `apps/web/lib/trips/join-preview.ts`, `apps/web/lib/trips/join-lookup.ts`, `apps/web/app/join/[token]/page.tsx`, `apps/web/app/join/[token]/join-form.tsx`, `apps/web/app/join/[token]/actions.ts`, `apps/web/app/join/[token]/opengraph-image.tsx`, `apps/web/test/db/group-trip.test.ts`, `apps/web/test/auth/phone.test.ts`, `apps/web/test/rate-limit.test.ts`, `apps/web/test/trips/join-token.test.ts`, `apps/web/test/trips/join-preview.test.ts`
+- Modify: `supabase/migrations/00012_group_trip_assist.sql` (`set_join_token`), `apps/web/app/login/actions.ts`, `apps/web/app/login/login-form.tsx`, `apps/web/app/login/page.tsx`, `apps/web/test/login/actions.test.ts` (C1's, rewritten for the new state), `apps/web/app/trips/new/actions.ts` and `apps/web/test/trips/create-trip-action.test.ts` (rate limit), `apps/web/app/trips/[id]/actions.ts`, `apps/web/app/trips/[id]/page.tsx`, `apps/web/package.json` (dependency `@vercel/firewall`), `.env.example`
 
 **Interfaces:**
-- Consumes: C1's `create_trip`/`join_trip` SQL, `requireUser`, `createClient`, `createAdminClient`, `Character`, `CHARACTER_NAMES`, `characterDataUrl`, and `formatIsoDate`.
+- Consumes:
+  - C1's `create_trip` SQL, and `join_trip(p_token text, p_display_name text)`, which takes the RAW token and hashes it itself
+  - C1's `trips` grants: planners may update only `name`, `destination_country`, `start_date`, and `end_date`, so the join-token columns change only through `set_join_token`
+  - `requireUser`, `createClient`, `createAdminClient`, `Character`, `CHARACTER_NAMES`, `characterDataUrl`, and `formatIsoDate`
 - Produces:
-  - **Archived trip-room types** (`lib/types/trip-room.ts`): `TripActionItem`, `TripActionItemKind`, `TripActionItemStatus`, `TripVote`, `TripVoteOption`
+  - **SQL:** `set_join_token(p_trip_id uuid, p_token text, p_expires_at timestamptz)`, planner-only, storing sha256 hex of the raw token, as `join_trip` hashes it
+  - **DB tests:** `apps/web/test/db/group-trip.test.ts`, C1-style, with a planner, a member, an outsider, and a joiner. Tasks 5, 8, 12, and 13 append to it.
+  - **Archived trip-room types** (`lib/types/trip-room.ts`): `TripVote` and `TripVoteOption`, which Task 13's `tally` returns. The archive's `TripActionItem` types are not kept: the feed (Task 15) reads `action_items` rows as they are.
   - **Phone helpers:** `parsePhone(v): string | null` (E.164) and `smsEnabled(): boolean`
+  - **Rate limits** (`lib/rate-limit.ts`): `RATE_LIMIT_RULES = { codeSend: 'auth-code-send', tripCreate: 'trips-create' }` and `rateLimited(rule): Promise<boolean>`, checked with `@vercel/firewall` against named Vercel Firewall rules, as Track D does. Task 18 creates the rules before trips open.
   - **Join tokens:**
     - `joinToken(secret, tripId, expiresAtIso): string` (22 base64url characters)
-    - `hashJoinToken(token): string` (64 hex characters)
+    - `hashJoinToken(token): string` (64 hex characters), used by the service-role lookup
     - `joinExpiry(endDate, now?): string`
     - `isJoinTokenShape(token): boolean`
   - **Join preview:**
@@ -167,7 +193,9 @@ apps/web/
   - **Login:** `LoginState = { step: 'contact' | 'verify'; channel: 'email' | 'phone'; contact: string; error: string | null }`, which replaces C1's shape.
   - **Join action:** `joinTripAction(token, prev, form)`. Task 7 adds a document-check call to it.
 
-- [ ] **Step 1: Restore the archived trip-room types**
+**Out of scope:** a member who signed in by email has no phone on their profile, so the join form offers them no SMS opt-in, and they get every alert by email (which always goes out). Adding and verifying a phone number for an email account waits for v2.
+
+- [ ] **Step 1: Restore the archived vote types**
 
 ```bash
 git show archive/mobile-expo-2026-10:packages/shared/src/types/trip-room.ts > /tmp/trip-room.ts
@@ -176,22 +204,6 @@ Create `apps/web/lib/types/trip-room.ts`. It holds only the contracts C2 uses, c
 ```ts
 // Contracts kept from the archived trip room:
 // archive/mobile-expo-2026-10:packages/shared/src/types/trip-room.ts
-export type TripActionItemKind = 'approval' | 'payment' | 'document' | 'checklist' | 'assist' | 'booking' | 'media';
-export type TripActionItemStatus = 'open' | 'snoozed' | 'done';
-
-export interface TripActionItem {
-  id: string;
-  tripId: string;
-  kind: TripActionItemKind;
-  title: string;
-  detail: string;
-  assignedUserIds: string[];
-  dueAt: string | null;
-  status: TripActionItemStatus;
-  relatedEntityId: string | null;
-  notificationState: 'enabled' | 'quiet' | 'sent';
-}
-
 export interface TripVoteOption {
   id: string;
   label: string;
@@ -211,7 +223,126 @@ export interface TripVote {
 ```
 Run `diff <(sed -n '/^export interface TripVoteOption/,/^}/p' /tmp/trip-room.ts) <(sed -n '/^export interface TripVoteOption/,/^}/p' apps/web/lib/types/trip-room.ts)`. Expected: no output.
 
-- [ ] **Step 2: Write the failing tests**
+- [ ] **Step 2: Let the planner set the invite link in the database**
+
+C1 grants planners `update` on four `trips` columns only, and its tests assert a planner cannot write `join_token_hash`. A security definer function sets the link instead.
+
+Ask the controller whether 00012 has been applied to any remote database (Global Constraints). Then write the failing test. `apps/web/test/db/group-trip.test.ts`:
+```ts
+import { createHash } from 'node:crypto';
+import { beforeAll, describe, expect, it } from 'vitest';
+import { asService, asUser, createAuthUser, createTestDb, type TestDb } from './harness';
+
+// C2's additions to 00012. C1's schema.test.ts covers the rest of the schema.
+const PLANNER = '00000000-0000-4000-8000-0000000000c1';
+const MEMBER = '00000000-0000-4000-8000-0000000000c2';
+const OUTSIDER = '00000000-0000-4000-8000-0000000000c3';
+const JOINER = '00000000-0000-4000-8000-0000000000c4';
+const TOKEN = 'c2-invite-token-0123456789';
+const sha256 = (value: string) => createHash('sha256').update(value).digest('hex');
+
+let db: TestDb;
+let tripId: string;
+let plannerMemberId: string;
+let memberMemberId: string;
+
+async function one<T>(sql: string, params: unknown[] = []): Promise<T> {
+  const result = await db.query<T>(sql, params);
+  return result.rows[0] as T;
+}
+const rejects = (fn: () => Promise<unknown>, pattern: RegExp = /permission denied|row-level security|violates/) => expect(fn()).rejects.toThrow(pattern);
+
+beforeAll(async () => {
+  db = await createTestDb();
+  await createAuthUser(db, { id: PLANNER, email: 'pat@example.test', displayName: 'Pat' });
+  await createAuthUser(db, { id: MEMBER, email: 'sam@example.test', displayName: 'Sam' });
+  await createAuthUser(db, { id: OUTSIDER, email: 'out@example.test' });
+  await createAuthUser(db, { id: JOINER, email: 'jo@example.test' });
+  tripId = await asUser(db, PLANNER, async () =>
+    (await one<{ id: string }>(
+      `select public.create_trip('Lisbon 2026', 'PT', '2026-11-03', '2026-11-10', 'trip-c2c2c2c2c2c2', 'Pat', null, '{}'::jsonb) as id`,
+    )).id,
+  );
+  await asUser(db, PLANNER, () => db.query("select public.set_join_token($1, $2, now() + interval '7 days')", [tripId, TOKEN]));
+  await asUser(db, MEMBER, () => db.query("select public.join_trip($1, 'Sam')", [TOKEN]));
+  const members = await asService(db, () => db.query<{ id: string; user_id: string }>('select id, user_id from public.trip_members where trip_id = $1', [tripId]));
+  plannerMemberId = members.rows.find((m) => m.user_id === PLANNER)!.id;
+  memberMemberId = members.rows.find((m) => m.user_id === MEMBER)!.id;
+}, 60_000);
+
+describe('invite links (Task 1)', () => {
+  it('stores only the hash of the token the planner sets, and rotating it retires the old link', async () => {
+    const rotated = 'c2-rotated-token-9876543210';
+    await asUser(db, PLANNER, () => db.query("select public.set_join_token($1, $2, now() + interval '7 days')", [tripId, rotated]));
+    const stored = await asService(db, () => one<{ h: string }>('select join_token_hash as h from public.trips where id = $1', [tripId]));
+    expect(stored.h).toBe(sha256(rotated));
+    await rejects(() => asUser(db, JOINER, () => db.query("select public.join_trip($1, 'Jo')", [TOKEN])), /invalid or expired link/);
+    await asUser(db, JOINER, () => db.query("select public.join_trip($1, 'Jo')", [rotated]));
+    const joined = await asService(db, () => one<{ n: number }>('select count(*)::int as n from public.trip_members where trip_id = $1 and user_id = $2', [tripId, JOINER]));
+    expect(joined.n).toBe(1);
+  });
+
+  it('refuses a member, an outsider, a short token, or a past expiry', async () => {
+    await rejects(() => asUser(db, MEMBER, () => db.query("select public.set_join_token($1, $2, now() + interval '7 days')", [tripId, 'member-token-0123456789'])), /only the planner/);
+    await rejects(() => asUser(db, OUTSIDER, () => db.query("select public.set_join_token($1, $2, now() + interval '7 days')", [tripId, 'outsider-token-0123456789'])), /only the planner/);
+    await rejects(() => asUser(db, PLANNER, () => db.query("select public.set_join_token($1, 'short', now() + interval '7 days')", [tripId])), /invalid invite token/);
+    await rejects(() => asUser(db, PLANNER, () => db.query("select public.set_join_token($1, $2, now() - interval '1 day')", [tripId, 'expired-token-0123456789'])), /invalid invite token/);
+  });
+
+  it('is closed to anon', async () => {
+    const grants = await asService(db, () =>
+      one<{ anon: boolean; signed_in: boolean }>(
+        "select has_function_privilege('anon', 'public.set_join_token(uuid, text, timestamptz)', 'execute') as anon, has_function_privilege('authenticated', 'public.set_join_token(uuid, text, timestamptz)', 'execute') as signed_in",
+      ),
+    );
+    expect(grants).toEqual({ anon: false, signed_in: true });
+  });
+});
+```
+`plannerMemberId` and `memberMemberId` are set here for the blocks Tasks 8 and 13 append.
+
+```bash
+cd apps/web && npx vitest run test/db; cd ../..
+```
+Expected: FAIL, with `function public.set_join_token(...) does not exist`. C1's `schema.test.ts` still passes.
+
+In `supabase/migrations/00012_group_trip_assist.sql`, directly after the `trip_inbound_code` function in section 3, add:
+```sql
+
+-- Planners set or rotate the invite link here, because join_token_hash is not column-writable
+-- (section 11). The app derives the raw token; only its hash is stored, hashed exactly as join_trip
+-- hashes the token a visitor presents.
+create or replace function public.set_join_token(p_trip_id uuid, p_token text, p_expires_at timestamptz)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  if not public.is_trip_planner(p_trip_id) then
+    raise exception 'only the planner can invite' using errcode = '42501';
+  end if;
+  if length(coalesce(p_token, '')) < 16 or p_expires_at is null or p_expires_at <= now() then
+    raise exception 'invalid invite token' using errcode = '22023';
+  end if;
+  update public.trips
+     set join_token_hash = encode(sha256(convert_to(p_token, 'UTF8')), 'hex'),
+         join_token_expires_at = p_expires_at
+   where id = p_trip_id;
+end;
+$$;
+revoke execute on function public.set_join_token(uuid, text, timestamptz) from public, anon;
+grant execute on function public.set_join_token(uuid, text, timestamptz) to authenticated;
+```
+
+```bash
+cd apps/web && npx vitest run test/db; cd ../..
+```
+Expected: PASS, for both `schema.test.ts` and `group-trip.test.ts`.
+
+- [ ] **Step 3: Add the rate-limit SDK**
+
+```bash
+npm install @vercel/firewall@1.2.5 -w @elsewhere/web
+```
+
+- [ ] **Step 4: Write the failing tests**
 
 `apps/web/test/auth/phone.test.ts`:
 ```ts
@@ -279,14 +410,212 @@ describe('joinPreview', () => {
 });
 ```
 
-- [ ] **Step 3: Run the tests to verify they fail**
+`apps/web/test/rate-limit.test.ts`:
+```ts
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+const { checkRateLimit } = vi.hoisted(() => ({ checkRateLimit: vi.fn() }));
+vi.mock('@vercel/firewall', () => ({ checkRateLimit }));
+vi.mock('next/headers', () => ({ headers: async () => new Headers({ 'x-forwarded-for': '203.0.113.9' }) }));
+
+import { rateLimited } from '@/lib/rate-limit';
+
+afterEach(() => {
+  delete process.env.VERCEL;
+  checkRateLimit.mockReset();
+  vi.restoreAllMocks();
+});
+
+describe('rateLimited', () => {
+  it('limits nothing off Vercel, where there is no firewall', async () => {
+    expect(await rateLimited('auth-code-send')).toBe(false);
+    expect(checkRateLimit).not.toHaveBeenCalled();
+  });
+
+  it('asks the named firewall rule on Vercel, with the request headers', async () => {
+    process.env.VERCEL = '1';
+    checkRateLimit.mockResolvedValueOnce({ rateLimited: true });
+    expect(await rateLimited('auth-code-send')).toBe(true);
+    const [rule, options] = checkRateLimit.mock.calls[0];
+    expect(rule).toBe('auth-code-send');
+    expect(new Headers(options.headers).get('x-forwarded-for')).toBe('203.0.113.9');
+  });
+
+  it('treats a firewall block as limited', async () => {
+    process.env.VERCEL = '1';
+    checkRateLimit.mockResolvedValueOnce({ rateLimited: false, error: 'blocked' });
+    expect(await rateLimited('trips-create')).toBe(true);
+  });
+
+  it('fails open, with a log, when the rule is missing or the firewall errors', async () => {
+    process.env.VERCEL = '1';
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    checkRateLimit.mockResolvedValueOnce({ rateLimited: false, error: 'not-found' });
+    expect(await rateLimited('trips-create')).toBe(false);
+    checkRateLimit.mockRejectedValueOnce(new Error('network down'));
+    expect(await rateLimited('trips-create')).toBe(false);
+    expect(warn).toHaveBeenCalled();
+    expect(error).toHaveBeenCalled();
+  });
+});
+```
+
+`apps/web/test/login/actions.test.ts`. This is C1's test. Replace the whole file, so it covers the new `contact`/`channel` state and keeps every hostile-`next` case:
+```ts
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+const verifyOtp = vi.fn();
+const signInWithOtp = vi.fn();
+vi.mock('@/lib/supabase/server', () => ({
+  createClient: async () => ({ auth: { verifyOtp, signInWithOtp } }),
+}));
+vi.mock('next/navigation', () => ({
+  redirect: (to: string) => {
+    throw new Error(`REDIRECT:${to}`);
+  },
+}));
+const { rateLimited } = vi.hoisted(() => ({ rateLimited: vi.fn() }));
+vi.mock('@/lib/rate-limit', () => ({ RATE_LIMIT_RULES: { codeSend: 'auth-code-send', tripCreate: 'trips-create' }, rateLimited }));
+
+import { loginAction, type LoginState } from '@/app/login/actions';
+
+function form(values: Record<string, string>) {
+  const data = new FormData();
+  for (const [k, v] of Object.entries(values)) data.set(k, v);
+  return data;
+}
+const contactStep: LoginState = { step: 'contact', channel: 'email', contact: '', error: null };
+const verifyStep: LoginState = { step: 'verify', channel: 'email', contact: 'pat@example.test', error: null };
+
+beforeEach(() => {
+  verifyOtp.mockReset().mockResolvedValue({ error: null });
+  signInWithOtp.mockReset().mockResolvedValue({ error: null });
+  rateLimited.mockReset().mockResolvedValue(false);
+  delete process.env.SMS_ENABLED;
+});
+
+describe('loginAction verify', () => {
+  const verify = (next: string) => loginAction(verifyStep, form({ intent: 'verify', channel: 'email', contact: 'pat@example.test', code: '123 456', next }));
+
+  it.each(['//evil.test', 'https://evil.test', '/\tevil', '/\\evil.test'])('sends a hostile next (%j) to /trips', async (next) => {
+    await expect(verify(next)).rejects.toThrow('REDIRECT:/trips');
+  });
+
+  it('honors a safe next', async () => {
+    await expect(verify('/trips/abc')).rejects.toThrow('REDIRECT:/trips/abc');
+    expect(verifyOtp).toHaveBeenCalledWith({ email: 'pat@example.test', token: '123456', type: 'email' });
+  });
+
+  it('returns the generic message and does not redirect on a verifyOtp error', async () => {
+    verifyOtp.mockResolvedValue({ error: { message: 'Token has expired or is invalid' } });
+    const result = await verify('/trips/abc');
+    expect(result).toEqual({
+      step: 'verify',
+      channel: 'email',
+      contact: 'pat@example.test',
+      error: 'That code did not work. Check it, or go back and request a new one.',
+    });
+  });
+
+  it('normalizes the email it verifies', async () => {
+    await expect(loginAction(verifyStep, form({ intent: 'verify', contact: ' Pat@Example.TEST ', code: '123456', next: '/trips' }))).rejects.toThrow('REDIRECT:/trips');
+    expect(verifyOtp).toHaveBeenCalledWith({ email: 'pat@example.test', token: '123456', type: 'email' });
+  });
+
+  it('stays on the verify step without a code, and falls back to the previous contact', async () => {
+    const noCode = await loginAction(verifyStep, form({ intent: 'verify', contact: 'pat@example.test', code: 'abc' }));
+    expect(noCode).toEqual({ step: 'verify', channel: 'email', contact: 'pat@example.test', error: 'Enter the code we sent you.' });
+    const badContact = await loginAction(verifyStep, form({ intent: 'verify', contact: 'not-an-email', code: '123456' })).catch((e) => e);
+    expect(verifyOtp).toHaveBeenCalledWith(expect.objectContaining({ email: 'pat@example.test' }));
+    expect(badContact).toBeInstanceOf(Error);
+    verifyOtp.mockClear();
+    const none = await loginAction(contactStep, form({ intent: 'verify', code: '123456' }));
+    expect(none.step).toBe('verify');
+    expect(none.error).toBe('Enter the code we sent you.');
+    expect(verifyOtp).not.toHaveBeenCalled();
+  });
+
+  it('verifies a text-message code once SMS is on', async () => {
+    process.env.SMS_ENABLED = 'true';
+    const phoneStep: LoginState = { step: 'verify', channel: 'phone', contact: '+15551234567', error: null };
+    await expect(loginAction(phoneStep, form({ intent: 'verify', channel: 'phone', contact: '+15551234567', code: '123456', next: '/trips/abc' }))).rejects.toThrow(
+      'REDIRECT:/trips/abc',
+    );
+    expect(verifyOtp).toHaveBeenCalledWith({ phone: '+15551234567', token: '123456', type: 'sms' });
+  });
+});
+
+describe('loginAction send', () => {
+  it('moves to verify on success and normalizes the email', async () => {
+    const result = await loginAction(contactStep, form({ intent: 'send', channel: 'email', contact: ' Pat@Example.TEST ' }));
+    expect(result).toEqual({ step: 'verify', channel: 'email', contact: 'pat@example.test', error: null });
+    expect(signInWithOtp).toHaveBeenCalledWith({ email: 'pat@example.test', options: { shouldCreateUser: true } });
+    expect(verifyOtp).not.toHaveBeenCalled();
+  });
+
+  it('stays on the contact step with an error when sending fails', async () => {
+    signInWithOtp.mockResolvedValue({ error: { message: 'rate limit' } });
+    const result = await loginAction(contactStep, form({ intent: 'send', contact: 'pat@example.test' }));
+    expect(result).toEqual({ step: 'contact', channel: 'email', contact: 'pat@example.test', error: 'We could not send a code just now. Try again in a minute.' });
+  });
+
+  it('rejects an invalid email without calling Supabase', async () => {
+    const result = await loginAction(contactStep, form({ intent: 'send', contact: 'pat@' }));
+    expect(result).toEqual({ step: 'contact', channel: 'email', contact: '', error: 'Enter a valid email address.' });
+    expect(signInWithOtp).not.toHaveBeenCalled();
+  });
+
+  it('treats a missing intent as send', async () => {
+    await loginAction(contactStep, form({ contact: 'pat@example.test' }));
+    expect(signInWithOtp).toHaveBeenCalled();
+    expect(verifyOtp).not.toHaveBeenCalled();
+  });
+
+  it('ignores a phone request while SMS is off, and sends by text once it is on', async () => {
+    const off = await loginAction(contactStep, form({ intent: 'send', channel: 'phone', contact: '(555) 123-4567' }));
+    expect(off).toEqual({ step: 'contact', channel: 'email', contact: '', error: 'Enter a valid email address.' });
+    process.env.SMS_ENABLED = 'true';
+    const on = await loginAction(contactStep, form({ intent: 'send', channel: 'phone', contact: '(555) 123-4567' }));
+    expect(on).toEqual({ step: 'verify', channel: 'phone', contact: '+15551234567', error: null });
+    expect(signInWithOtp).toHaveBeenCalledWith({ phone: '+15551234567', options: { shouldCreateUser: true } });
+  });
+
+  it('sends no code while the visitor is over the code-send limit', async () => {
+    rateLimited.mockResolvedValue(true);
+    const result = await loginAction(contactStep, form({ intent: 'send', contact: 'pat@example.test' }));
+    expect(result).toEqual({ step: 'contact', channel: 'email', contact: 'pat@example.test', error: 'Too many codes requested. Wait a minute, then try again.' });
+    expect(rateLimited).toHaveBeenCalledWith('auth-code-send');
+    expect(signInWithOtp).not.toHaveBeenCalled();
+  });
+});
+```
+
+In `apps/web/test/trips/create-trip-action.test.ts` (C1's):
+1. After the `vi.mock('@/lib/funnel/events', …)` line, add:
+   ```ts
+   const { rateLimited } = vi.hoisted(() => ({ rateLimited: vi.fn() }));
+   vi.mock('@/lib/rate-limit', () => ({ RATE_LIMIT_RULES: { codeSend: 'auth-code-send', tripCreate: 'trips-create' }, rateLimited }));
+   ```
+2. In `beforeEach`, add `rateLimited.mockReset().mockResolvedValue(false);`.
+3. Add this test as the last one in `describe('createTrip', …)`:
+   ```ts
+     it('refuses while the visitor is over the trip-creation limit', async () => {
+       rateLimited.mockResolvedValue(true);
+       await expect(createTrip({ error: null }, form(valid))).resolves.toEqual({ error: 'Too many new trips from here. Wait a minute, then try again.' });
+       expect(rateLimited).toHaveBeenCalledWith('trips-create');
+       expect(rpc).not.toHaveBeenCalled();
+     });
+   ```
+
+- [ ] **Step 5: Run the tests to verify they fail**
 
 ```bash
-cd apps/web && npx vitest run test/auth/phone.test.ts test/trips/join-token.test.ts test/trips/join-preview.test.ts; cd ../..
+cd apps/web && npx vitest run test/auth/phone.test.ts test/rate-limit.test.ts test/trips/join-token.test.ts test/trips/join-preview.test.ts test/login/actions.test.ts test/trips/create-trip-action.test.ts; cd ../..
 ```
-Expected: FAIL, with modules not found.
+Expected: FAIL. The new modules are not found, the login test fails on C1's `email` state, and the trip-creation limit test fails because C1's action never checks a limit.
 
-- [ ] **Step 4: Implement the pure modules**
+- [ ] **Step 6: Implement the pure modules**
 
 `apps/web/lib/auth/phone.ts`:
 ```ts
@@ -357,14 +686,49 @@ export function joinPreview(trip: { name: string; start_date: string | null; end
 }
 ```
 
-- [ ] **Step 5: Run the tests to verify they pass**
+- [ ] **Step 7: Run the pure tests to verify they pass**
 
 ```bash
 cd apps/web && npx vitest run test/auth/phone.test.ts test/trips/join-token.test.ts test/trips/join-preview.test.ts; cd ../..
 ```
-Expected: PASS.
+Expected: PASS. The rate-limit, login, and trip-creation tests pass after Step 8.
 
-- [ ] **Step 6: Write the server lookup, planner link actions, and phone-aware sign-in**
+- [ ] **Step 8: Write the rate limit, the server lookup, planner link actions, and phone-aware sign-in**
+
+`apps/web/lib/rate-limit.ts`:
+```ts
+import 'server-only';
+import { checkRateLimit } from '@vercel/firewall';
+import { headers } from 'next/headers';
+
+/** Vercel Firewall rate-limit rules, each keyed by the visitor's IP. Task 18 creates them before trips open. */
+export const RATE_LIMIT_RULES = { codeSend: 'auth-code-send', tripCreate: 'trips-create' } as const;
+export type RateLimitRule = (typeof RATE_LIMIT_RULES)[keyof typeof RATE_LIMIT_RULES];
+
+/**
+ * True when this visitor has used up the rule. Off Vercel (dev, tests, the e2e server) there is no firewall,
+ * so nothing is limited. A missing rule or a firewall error fails open, with a log: Supabase's own Auth
+ * limits and Twilio's SMS pumping protection still stand behind it.
+ */
+export async function rateLimited(rule: RateLimitRule): Promise<boolean> {
+  if (process.env.VERCEL !== '1') return false;
+  try {
+    const { rateLimited: limited, error } = await checkRateLimit(rule, { headers: await headers() });
+    if (error === 'not-found') console.warn(`rate limit rule "${rule}" is not configured in Vercel Firewall`);
+    return limited || error === 'blocked';
+  } catch (error) {
+    console.error('rate limit check failed', rule, error);
+    return false;
+  }
+}
+```
+
+In `apps/web/app/trips/new/actions.ts` (C1's `createTrip`):
+1. Add `import { RATE_LIMIT_RULES, rateLimited } from '@/lib/rate-limit';`.
+2. Directly after `if (!parsed.success) return { error: parsed.error };`, add:
+   ```ts
+     if (await rateLimited(RATE_LIMIT_RULES.tripCreate)) return { error: 'Too many new trips from here. Wait a minute, then try again.' };
+   ```
 
 `apps/web/lib/trips/join-lookup.ts`:
 ```ts
@@ -391,7 +755,7 @@ export async function findJoinableTrip(token: string) {
 Append to `apps/web/app/trips/[id]/actions.ts`:
 ```ts
 import { revalidatePath } from 'next/cache';
-import { joinExpiry, joinToken, hashJoinToken } from '@/lib/trips/join-token';
+import { joinExpiry, joinToken } from '@/lib/trips/join-token';
 import { requireEnv } from '@/lib/env';
 
 async function requirePlanner(tripId: string) {
@@ -408,11 +772,9 @@ export async function createJoinLink(tripId: string): Promise<string> {
   if (error || !trip?.end_date) throw new Error('Set the trip dates before inviting the group.');
   const expiresAt = joinExpiry(trip.end_date);
   const token = joinToken(requireEnv('JOIN_LINK_SECRET'), tripId, expiresAt);
-  const { error: updateError } = await supabase
-    .from('trips')
-    .update({ join_token_hash: hashJoinToken(token), join_token_expires_at: expiresAt })
-    .eq('id', tripId);
-  if (updateError) throw new Error(updateError.message);
+  // join_token_hash is not column-writable. set_join_token checks the planner again and stores only the hash.
+  const { error: setError } = await supabase.rpc('set_join_token', { p_trip_id: tripId, p_token: token, p_expires_at: expiresAt });
+  if (setError) throw new Error(setError.message);
   // The trip page shows the link; re-render it.
   revalidatePath(`/trips/${tripId}`);
   return `${appUrl()}/join/${token}`;
@@ -425,7 +787,7 @@ export async function currentJoinLink(tripId: string): Promise<string | null> {
   return `${appUrl()}/join/${joinToken(requireEnv('JOIN_LINK_SECRET'), tripId, trip.join_token_expires_at)}`;
 }
 ```
-Merge the new imports into the file's existing import block. Don't duplicate `requireUser`, `createClient`, or `appUrl`.
+Merge the new imports into the file's existing import block: `requireEnv` joins C1's `import { appUrl } from '@/lib/env';`. Don't duplicate `requireUser`, `createClient`, or `appUrl`.
 
 `apps/web/app/login/actions.ts`. Replace the whole file:
 ```ts
@@ -435,6 +797,7 @@ import { redirect } from 'next/navigation';
 import { parseEmail, parseOtpCode } from '@/lib/auth/otp';
 import { parsePhone, smsEnabled } from '@/lib/auth/phone';
 import { safeNext } from '@/lib/auth/safe-next';
+import { RATE_LIMIT_RULES, rateLimited } from '@/lib/rate-limit';
 import { createClient } from '@/lib/supabase/server';
 
 export interface LoginState {
@@ -447,22 +810,28 @@ export interface LoginState {
 export async function loginAction(prev: LoginState, form: FormData): Promise<LoginState> {
   const supabase = await createClient();
   const channel = form.get('channel') === 'phone' && smsEnabled() ? 'phone' : 'email';
+  const parseContact = (value: FormDataEntryValue | null) => (channel === 'phone' ? parsePhone(value) : parseEmail(value));
 
   if (form.get('intent') === 'verify') {
-    const contact = String(form.get('contact') ?? prev.contact);
+    // Normalized like the send step, falling back to the address the code went to (as in C1).
+    const contact = parseContact(form.get('contact')) ?? prev.contact;
     const code = parseOtpCode(form.get('code'));
-    if (!code) return { ...prev, step: 'verify', error: 'Enter the code we sent you.' };
+    if (!contact || !code) return { step: 'verify', channel, contact, error: 'Enter the code we sent you.' };
     const { error } =
       channel === 'phone'
         ? await supabase.auth.verifyOtp({ phone: contact, token: code, type: 'sms' })
         : await supabase.auth.verifyOtp({ email: contact, token: code, type: 'email' });
-    if (error) return { ...prev, step: 'verify', error: 'That code did not work. Check it, or go back and request a new one.' };
+    if (error) return { step: 'verify', channel, contact, error: 'That code did not work. Check it, or go back and request a new one.' };
     redirect(safeNext(String(form.get('next') ?? '')));
   }
 
-  const contact = channel === 'phone' ? parsePhone(form.get('contact')) : parseEmail(form.get('contact'));
+  const contact = parseContact(form.get('contact'));
   if (!contact) {
     return { step: 'contact', channel, contact: '', error: channel === 'phone' ? 'Enter a valid mobile number.' : 'Enter a valid email address.' };
+  }
+  // Every send costs an email or a text; an unthrottled form is an SMS-pumping target.
+  if (await rateLimited(RATE_LIMIT_RULES.codeSend)) {
+    return { step: 'contact', channel, contact, error: 'Too many codes requested. Wait a minute, then try again.' };
   }
   const { error } =
     channel === 'phone'
@@ -565,7 +934,7 @@ In `apps/web/app/login/page.tsx`:
    ```
 3. Change the sub-copy to: `We send you a one-time code. No password.`
 
-- [ ] **Step 7: Write the join page, form, action, and link preview**
+- [ ] **Step 9: Write the join page, form, action, and link preview**
 
 `apps/web/app/join/[token]/actions.ts`:
 ```ts
@@ -576,7 +945,7 @@ import { z } from 'zod';
 import { smsEnabled } from '@/lib/auth/phone';
 import { requireUser } from '@/lib/auth/user';
 import { createClient } from '@/lib/supabase/server';
-import { hashJoinToken, isJoinTokenShape } from '@/lib/trips/join-token';
+import { isJoinTokenShape } from '@/lib/trips/join-token';
 
 export interface JoinState {
   error: string | null;
@@ -607,7 +976,8 @@ export async function joinTripAction(token: string, _prev: JoinState, form: Form
   if (!parsed.success) return { error: parsed.error.issues[0].message };
 
   const supabase = await createClient();
-  const { data: tripId, error } = await supabase.rpc('join_trip', { p_token_hash: hashJoinToken(token), p_display_name: parsed.data.displayName });
+  // join_trip takes the raw token and hashes it itself, so the stored hash is never a usable credential.
+  const { data: tripId, error } = await supabase.rpc('join_trip', { p_token: token, p_display_name: parsed.data.displayName });
   if (error || typeof tripId !== 'string') return { error: 'This invite link has expired. Ask the planner for a new one.' };
 
   const smsOptIn = parsed.data.smsOptIn && smsEnabled() && Boolean(user.phone);
@@ -787,16 +1157,16 @@ export default async function Image({ params }: { params: Promise<{ token: strin
 }
 ```
 
-- [ ] **Step 8: Let the planner create and copy the invite link**
+- [ ] **Step 10: Let the planner create and copy the invite link**
 
-In `apps/web/app/trips/[id]/page.tsx` (C1's page; Task 15 replaces it), add an invite section after the forwarding address.
+In `apps/web/app/trips/[id]/page.tsx` (C1's page; Task 15 turns its content into the feed and keeps this section), add an invite section after the forwarding address.
 
-Add the imports:
+Change C1's actions import to:
 ```tsx
-import { createJoinLink, currentJoinLink } from './actions';
+import { createJoinLink, currentJoinLink, startPassCheckout } from './actions';
 ```
 
-Inside `TripContent`, after the forwarding `</section>`, add:
+Inside `TripContent`, C1 renders the forwarding address as one `{address ? (…) : addressFailed ? (…) : null}` expression, followed by `<PassSection … />`. Add the invite section between the two:
 ```tsx
       <InviteSection tripId={trip.id} />
 ```
@@ -831,7 +1201,7 @@ async function InviteSection({ tripId }: { tripId: string }) {
   );
 }
 ```
-Add `import { Button } from '@/components/ui/button';` if it isn't already imported.
+C1's page already imports `Button` and `createClient`.
 
 Append to `.env.example`:
 ```bash
@@ -841,25 +1211,27 @@ JOIN_LINK_SECRET=
 SMS_ENABLED=false
 ```
 
-- [ ] **Step 9: Run the tests, typecheck, and build**
+- [ ] **Step 11: Run the tests, typecheck, and build**
 
 ```bash
 cd apps/web && npx vitest run && npm run typecheck && npm run build; cd ../..
 ```
-Expected: all tests pass, typecheck is clean, and the build succeeds. `/join/[token]` and its OG image are dynamic routes.
+Expected: all tests pass, including C1's rewritten login test, the trip-creation limit, and both DB test files. Typecheck is clean, and the build succeeds. `/join/[token]` and its OG image are dynamic routes.
 
-- [ ] **Step 10: Commit**
+- [ ] **Step 12: Commit**
 
 ```bash
-git add apps/web .env.example
+git add apps/web .env.example package-lock.json supabase/migrations/00012_group_trip_assist.sql
 git commit -F - <<'EOF'
 Let the group join from one link, with phone codes behind a flag
 
 The planner drops one link in the group chat. Tokens are derived from a
-server secret, so only their hash is stored, and resetting the link
-rotates them. The join page and its link preview reveal only the trip
-name, dates, and traveler count. Members add pay handles and opt in to
-texts, and consent is recorded. Phone sign-in waits for SMS_ENABLED.
+server secret, and set_join_token stores only their hash, so resetting
+the link rotates them. The join page and its link preview reveal only
+the trip name, dates, and traveler count. Members add pay handles and
+opt in to texts, and consent is recorded. Phone sign-in waits for
+SMS_ENABLED. Code sends and new trips are rate-limited per visitor
+through named Vercel Firewall rules.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01CZeaGyqM4LkMDPkaein2Sc
@@ -871,7 +1243,7 @@ EOF
 ### Task 2: Notifications — quiet hours, email, SMS, and the outbox seam
 
 **Files:**
-- Create: `apps/web/lib/notify/quiet-hours.ts`, `apps/web/lib/notify/templates.ts`, `apps/web/lib/notify/plan.ts`, `apps/web/lib/notify/deliver.ts`, `apps/web/lib/notify/queue.ts`, `apps/web/app/api/webhooks/twilio/route.ts`, `apps/web/app/api/cron/notifications/route.ts`, `apps/web/vercel.json`, `apps/web/test/notify/quiet-hours.test.ts`, `apps/web/test/notify/templates.test.ts`, `apps/web/test/notify/plan.test.ts`, `apps/web/test/notify/deliver.test.ts`, `apps/web/test/notify/twilio-route.test.ts`
+- Create: `apps/web/lib/notify/quiet-hours.ts`, `apps/web/lib/notify/templates.ts`, `apps/web/lib/notify/plan.ts`, `apps/web/lib/notify/deliver.ts`, `apps/web/lib/notify/queue.ts`, `apps/web/app/api/webhooks/twilio/route.ts`, `apps/web/app/api/cron/notifications/route.ts`, `apps/web/vercel.json`, `apps/web/test/notify/quiet-hours.test.ts`, `apps/web/test/notify/templates.test.ts`, `apps/web/test/notify/plan.test.ts`, `apps/web/test/notify/deliver.test.ts`, `apps/web/test/notify/twilio-route.test.ts`, `apps/web/test/notify/cron-route.test.ts`
 - Modify: `apps/web/package.json` (dependencies `resend`, `twilio`), `.env.example`
 
 **Interfaces:**
@@ -894,7 +1266,7 @@ EOF
     - `deliver({ channel, to, subject, body }): Promise<{ providerMessageId: string }>`
     - `queueNotifications(input, now?): Promise<void>`
     - `flushDue(now?): Promise<number>`
-  - **Routes:** `POST /api/webhooks/twilio` and `GET /api/cron/notifications` (Bearer `CRON_SECRET`).
+  - **Routes:** `POST /api/webhooks/twilio` and `GET /api/cron/notifications` (Bearer `CRON_SECRET`; refused for everyone while the secret is unset, so `Bearer undefined` never passes).
 
 - [ ] **Step 1: Add the provider SDKs**
 
@@ -1075,6 +1447,44 @@ describe('POST /api/webhooks/twilio', () => {
     await POST(signedRequest({ From: '+15550000001', OptOutType: 'STOP', Body: 'STOP' }));
     expect(updates).toContainEqual({ table: 'profiles', values: { sms_opt_in: false } });
     expect(updates.some((u) => u.table === 'consents')).toBe(true);
+  });
+});
+```
+
+`apps/web/test/notify/cron-route.test.ts`:
+```ts
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+const { flushDue } = vi.hoisted(() => ({ flushDue: vi.fn() }));
+vi.mock('@/lib/notify/queue', () => ({ flushDue }));
+
+beforeEach(() => {
+  flushDue.mockReset().mockResolvedValue(3);
+  process.env.CRON_SECRET = 'cron-test';
+});
+
+async function get(authorization?: string) {
+  const { GET } = await import('@/app/api/cron/notifications/route');
+  return GET(new Request('https://x.test/api/cron/notifications', authorization ? { headers: { authorization } } : {}));
+}
+
+describe('GET /api/cron/notifications', () => {
+  it('flushes due notifications for Vercel Cron', async () => {
+    const res = await get('Bearer cron-test');
+    expect(await res.json()).toEqual({ sent: 3 });
+  });
+
+  it('refuses a wrong or missing secret', async () => {
+    expect((await get('Bearer nope')).status).toBe(401);
+    expect((await get()).status).toBe(401);
+    expect(flushDue).not.toHaveBeenCalled();
+  });
+
+  it('refuses everyone while CRON_SECRET is unset, including "Bearer undefined"', async () => {
+    delete process.env.CRON_SECRET;
+    expect((await get('Bearer undefined')).status).toBe(401);
+    expect((await get('Bearer ')).status).toBe(401);
+    expect(flushDue).not.toHaveBeenCalled();
   });
 });
 ```
@@ -1293,7 +1703,7 @@ export async function queueNotifications(input: NotifyInput, now: Date = new Dat
   await flushDue(now);
 }
 
-/** Sends everything due. Undelivered SMS fall back on the email that was queued alongside it. */
+/** Sends every queued notification that is due, oldest first, 50 a call. A failed send is marked failed, not retried. */
 export async function flushDue(now: Date = new Date()): Promise<number> {
   const admin = createAdminClient();
   const { data: due, error } = await admin
@@ -1369,7 +1779,9 @@ export async function POST(request: Request): Promise<Response> {
 import { flushDue } from '@/lib/notify/queue';
 
 export async function GET(request: Request): Promise<Response> {
-  if (request.headers.get('authorization') !== `Bearer ${process.env.CRON_SECRET}`) {
+  const secret = process.env.CRON_SECRET;
+  // An unset secret must never turn "Bearer undefined" into a valid token.
+  if (!secret || request.headers.get('authorization') !== `Bearer ${secret}`) {
     return new Response('unauthorized', { status: 401 });
   }
   return Response.json({ sent: await flushDue() });
@@ -1380,9 +1792,10 @@ export async function GET(request: Request): Promise<Response> {
 ```json
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "crons": [{ "path": "/api/cron/notifications", "schedule": "*/15 * * * *" }]
+  "crons": [{ "path": "/api/cron/notifications", "schedule": "0 13 * * *" }]
 }
 ```
+The cron starts daily, at 13:00 UTC (8 or 9am on the US East Coast). The team is still on Hobby, which fails any deploy with a cron that runs more than once a day. Urgent alerts never wait for this cron, because `queueNotifications` flushes at once; the cron only sends what quiet hours held back. Task 18 Step 2 moves the team to Pro and switches the cron to every 15 minutes.
 
 Append to `.env.example`:
 ```bash
@@ -1444,7 +1857,7 @@ EOF
     - `ExtractionInput = { text: string | null; html: string | null; images: { data: Uint8Array; mediaType: string }[]; pdfs: { data: Uint8Array; mediaType: string }[] }`
     - `extractBookings(input, opts?: { model?: LanguageModel }): Promise<NormalizedBooking[]>`
   - **Normalization:**
-    - `NormalizedBooking = { kind; provider; confirmationCode: string | null; bookedVia: string | null; passengerNames: string[]; segments: NormalizedSegment[]; confidence: number; dedupeKey: string; problems: string[] }`
+    - `NormalizedBooking = { kind; provider; confirmationCode: string | null; bookedVia: string | null; bookedAt: string | null; passengerNames: string[]; segments: NormalizedSegment[]; confidence: number; dedupeKey: string; problems: string[] }`. `bookedAt` is when the booking was made, as printed: `YYYY-MM-DD`, or `YYYY-MM-DDTHH:mm` when a time is shown. It is optional information, so an unreadable value becomes `null` without touching the confidence. Task 10 turns it into `trip.hours_booked_before_departure`.
     - `NormalizedSegment = { carrierIata; flightNumber; originIata; destinationIata; departureLocal; arrivalLocal: string | null }`
     - `normalizeBooking(raw): NormalizedBooking`
     - `CONFIDENCE_THRESHOLD = 0.9`
@@ -1495,6 +1908,7 @@ const raw = {
   provider: 'TAP Air Portugal',
   confirmation_code: ' abc123 ',
   booked_via: null,
+  booked_at: '2026-10-01',
   passenger_names: ['DOE/PAT MR', 'JONES/SAMANTHA MS'],
   segments: [{ carrier_iata: 'tp', flight_number: '0204', origin_iata: 'ewr', destination_iata: 'lis', departure_local: '2026-11-03T18:15', arrival_local: '2026-11-04T06:35' }],
   confidence: { confirmation_code: 0.98, passengers: 0.95, segments: 0.97 },
@@ -1506,8 +1920,16 @@ describe('normalizeBooking', () => {
     expect(booking.confirmationCode).toBe('ABC123');
     expect(booking.segments[0]).toEqual({ carrierIata: 'TP', flightNumber: '204', originIata: 'EWR', destinationIata: 'LIS', departureLocal: '2026-11-03T18:15', arrivalLocal: '2026-11-04T06:35' });
     expect(booking.dedupeKey).toBe('ABC123|TP204@2026-11-03');
+    expect(booking.bookedAt).toBe('2026-10-01');
     expect(booking.confidence).toBe(0.95);
     expect(booking.confidence >= CONFIDENCE_THRESHOLD).toBe(true);
+  });
+
+  it('keeps a booking time only when it is a date or a local date-time, and never lowers confidence for it', () => {
+    expect(normalizeBooking({ ...raw, booked_at: '2026-10-01T09:30' }).bookedAt).toBe('2026-10-01T09:30');
+    const unreadable = normalizeBooking({ ...raw, booked_at: 'last Tuesday' });
+    expect(unreadable.bookedAt).toBeNull();
+    expect(unreadable.confidence).toBe(0.95);
   });
 
   it('zeroes confidence for fields that fail validation', () => {
@@ -1566,6 +1988,7 @@ describe('extractBookings', () => {
           provider: 'TAP Air Portugal',
           confirmation_code: 'ABC123',
           booked_via: 'Expedia',
+          booked_at: null,
           passenger_names: ['DOE/PAT MR'],
           segments: [{ carrier_iata: 'TP', flight_number: '204', origin_iata: 'EWR', destination_iata: 'LIS', departure_local: '2026-11-03T18:15', arrival_local: null }],
           confidence: { confirmation_code: 0.99, passengers: 0.97, segments: 0.96 },
@@ -1655,6 +2078,8 @@ export interface NormalizedBooking {
   provider: string;
   confirmationCode: string | null;
   bookedVia: string | null;
+  /** When the booking was made, as printed: "YYYY-MM-DD" or "YYYY-MM-DDTHH:mm". */
+  bookedAt: string | null;
   passengerNames: string[];
   segments: NormalizedSegment[];
   confidence: number;
@@ -1663,6 +2088,7 @@ export interface NormalizedBooking {
 }
 
 const LOCAL_DATETIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
+const LOCAL_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 export function normalizeBooking(raw: z.infer<typeof ExtractedBookingSchema>): NormalizedBooking {
   const problems: string[] = [];
@@ -1704,6 +2130,7 @@ export function normalizeBooking(raw: z.infer<typeof ExtractedBookingSchema>): N
     provider: raw.provider.trim(),
     confirmationCode,
     bookedVia: raw.booked_via?.trim() || null,
+    bookedAt: raw.booked_at && (LOCAL_DATE.test(raw.booked_at) || LOCAL_DATETIME.test(raw.booked_at)) ? raw.booked_at : null,
     passengerNames: raw.passenger_names.map((name) => name.trim()).filter(Boolean),
     segments,
     confidence: segmentsOk ? confidence : 0,
@@ -1735,6 +2162,10 @@ export const ExtractedBookingSchema = z.object({
   provider: z.string().describe('Airline, hotel, or company providing the service'),
   confirmation_code: z.string().nullable().describe('Booking reference or record locator; null if not shown'),
   booked_via: z.string().nullable().describe('Travel agency or booking site name if booked through one (e.g. "Expedia"); null if booked directly'),
+  booked_at: z
+    .string()
+    .nullable()
+    .describe('When the booking was made, if printed (a booking or issue date): "YYYY-MM-DD", or "YYYY-MM-DDTHH:mm" when a time is shown; null if not shown'),
   passenger_names: z.array(z.string()).describe('Traveler names exactly as printed'),
   segments: z.array(ExtractedSegmentSchema).describe('Flight legs; empty for non-flight bookings'),
   confidence: z
@@ -1758,6 +2189,7 @@ export interface ExtractionInput {
 const INSTRUCTIONS = `You extract travel bookings from a forwarded confirmation email, its attachments, or a screenshot.
 Only extract what is explicitly printed. Never guess a flight number, airport, date, time, or name.
 Write local times exactly as printed, as YYYY-MM-DDTHH:mm. Use IATA codes.
+If the confirmation shows when the booking was made, give that as booked_at; otherwise null.
 If something is unclear, still extract it but lower that group's confidence below 0.9.
 If the content is not a booking confirmation, return {"bookings": []}.`;
 
@@ -1845,7 +2277,8 @@ git commit -F - <<'EOF'
 Extract bookings with confidence, and match passengers to members
 
 AI SDK 7 structured output on Claude Haiku through AI Gateway reads
-emails, PDFs, and screenshots. Normalization validates every code and
+emails, PDFs, and screenshots, including when the booking was made if
+the confirmation prints it. Normalization validates every code and
 time and zeroes confidence on anything malformed. Legal ticket names
 match members' informal names only when exactly one member fits, and
 everything else goes to the planner. Every model call asks AI Gateway
@@ -1876,7 +2309,7 @@ EOF
   - **Geography:** `haversineKm(a, b): number` and `localDateTime(utcIso, timeZone): string` (`YYYY-MM-DDTHH:mm`)
   - **Segment resolution:**
     - `resolveSegment(segment, api): Promise<Resolution>`
-    - `Resolution = { kind: 'resolved'; scheduledOut; scheduledIn; originCountry; destinationCountry; distanceKm; durationMinutes } | { kind: 'not_found' }`
+    - `Resolution = { kind: 'resolved'; scheduledOut; scheduledIn; originCountry; destinationCountry; distanceKm } | { kind: 'not_found' }`
   - **After confirmation:** `onBookingsConfirmed(tripId, bookingIds): Promise<{ monitorSegmentIds: string[] }>`. This version resolves segments and raises "flight not found." Task 7 adds document checks, and Task 9 fills `monitorSegmentIds`.
 
 - [ ] **Step 1: Write the failing tests**
@@ -1888,8 +2321,8 @@ import { haversineKm, localDateTime } from '@/lib/flights/geo';
 
 describe('geo', () => {
   it('measures great-circle distance', () => {
-    // EWR (40.6925, -74.1687) to LIS (38.7813, -9.13592): about 5,450 km
-    expect(Math.round(haversineKm({ latitude: 40.6925, longitude: -74.1687 }, { latitude: 38.7813, longitude: -9.13592 }) / 10) * 10).toBe(5450);
+    // EWR (40.6925, -74.1687) to LIS (38.7813, -9.13592): 5,433 km, so 5,430 to the nearest 10
+    expect(Math.round(haversineKm({ latitude: 40.6925, longitude: -74.1687 }, { latitude: 38.7813, longitude: -9.13592 }) / 10) * 10).toBe(5430);
   });
 
   it('renders a UTC instant as local wall-clock time', () => {
@@ -1982,8 +2415,7 @@ describe('resolveSegment', () => {
       scheduledIn: '2026-11-04T06:35:00Z',
       originCountry: 'US',
       destinationCountry: 'PT',
-      distanceKm: 5450,
-      durationMinutes: 440,
+      distanceKm: 5430,
     });
   });
 
@@ -2182,7 +2614,6 @@ export type Resolution =
       originCountry: string | null;
       destinationCountry: string | null;
       distanceKm: number | null;
-      durationMinutes: number;
     }
   | { kind: 'not_found' };
 
@@ -2198,7 +2629,7 @@ function minutesBetweenLocal(a: string, b: string): number {
   return Math.abs(new Date(`${a}:00Z`).getTime() - new Date(`${b}:00Z`).getTime()) / 60000;
 }
 
-/** Turns "TP 204, Nov 3 18:15 local" into scheduled UTC times, countries, distance, and duration. */
+/** Turns "TP 204, Nov 3 18:15 local" into scheduled UTC times, countries, and distance. */
 export async function resolveSegment(segment: SegmentToResolve, api: AeroApi): Promise<Resolution> {
   const date = segment.departureLocal.slice(0, 10);
   const [scheduled, origin, destination] = await Promise.all([
@@ -2225,7 +2656,6 @@ export async function resolveSegment(segment: SegmentToResolve, api: AeroApi): P
     originCountry: origin?.country_code ?? null,
     destinationCountry: destination?.country_code ?? null,
     distanceKm: distance,
-    durationMinutes: Math.round((new Date(match.scheduled_in).getTime() - new Date(match.scheduled_out).getTime()) / 60000),
   };
 }
 ```
@@ -2288,7 +2718,7 @@ export async function onBookingsConfirmed(tripId: string, bookingIds: string[]):
 }
 ```
 
-The segment's scheduled duration is derived when it is needed, from `scheduled_in - scheduled_out`, so it needs no column.
+A segment's scheduled duration is derived where it is needed (Task 10's `trip.us_foreign_nonstop_minutes`), from `scheduled_in - scheduled_out`, so it needs no column and no field here.
 
 Append to `.env.example`:
 ```bash
@@ -2314,7 +2744,7 @@ git commit -F - <<'EOF'
 Resolve confirmed flights against FlightAware schedules
 
 A confirmed "TP 204, Nov 3 18:15" becomes scheduled UTC times, origin
-and destination countries, distance, and duration. AeroAPI's schedules
+and destination countries, and distance. AeroAPI's schedules
 cover dates beyond the two-day /flights window. A flight missing from the
 schedule asks the planner to check the number. Tests and e2e read canned
 AeroAPI responses through a guarded fixture seam.
@@ -2329,15 +2759,16 @@ EOF
 ### Task 5: Intake — processing forwarded messages durably
 
 **Files:**
-- Create: `apps/web/lib/intake/inbound-source.ts`, `apps/web/lib/intake/storage.ts`, `apps/web/lib/intake/process.ts`, `apps/web/lib/intake/live-deps.ts`, `apps/web/workflows/intake.ts`, `apps/web/workflows/segment-monitor.ts` (stub, filled in by Task 9; see Step 4), `apps/web/test/intake/process.test.ts`
-- Modify: `apps/web/next.config.ts` (`withWorkflow`), `apps/web/package.json` (dependency `workflow`)
+- Create: `apps/web/lib/intake/inbound-source.ts`, `apps/web/lib/intake/storage.ts`, `apps/web/lib/intake/process.ts`, `apps/web/lib/intake/live-deps.ts`, `apps/web/workflows/intake.ts`, `apps/web/workflows/segment-monitor.ts` (stub, filled in by Task 9; see Step 5), `apps/web/test/intake/process.test.ts`, `apps/web/test/funnel/record-event.test.ts`
+- Modify: `supabase/migrations/00012_group_trip_assist.sql` (`bookings.booked_at`, `funnel_forwarded_trip_idx`), `apps/web/test/db/group-trip.test.ts`, `apps/web/lib/funnel/events.ts` (C1's `recordEvent`: the new index's 23505 is a no-op), `apps/web/next.config.ts` (`withWorkflow`), `apps/web/package.json` (dependency `workflow`)
 
 **Interfaces:**
 - Consumes:
-  - Task 3: `extractBookings`, `CONFIDENCE_THRESHOLD`, `matchPassengers`
+  - Task 3: `extractBookings`, `CONFIDENCE_THRESHOLD`, `matchPassengers`, and `NormalizedBooking.bookedAt`
   - Task 4: `onBookingsConfirmed`
   - C1: `recordEvent`, `createAdminClient`
 - Produces:
+  - **SQL:** `bookings.booked_at` (the printed booking date or local date-time), and the unique index `funnel_forwarded_trip_idx`, so a trip records `booking_forwarded` once, like C1's `funnel_paid_trip_idx`
   - **Inbound email:**
     - `InboundEmail = { id; from; subject; text: string | null; html: string | null; attachments: { filename: string | null; contentType: string; data: Uint8Array }[] }`
     - `fetchInboundEmail(emailId): Promise<InboundEmail>`, which honours `ELSEWHERE_INBOUND_FIXTURE_DIR`
@@ -2356,7 +2787,108 @@ npm install workflow@5.0.1 -w @elsewhere/web
 ```
 In `apps/web/next.config.ts`, add `import { withWorkflow } from 'workflow/next';` and change the last line to `export default withWorkflow(nextConfig);`.
 
-- [ ] **Step 2: Write the failing test**
+- [ ] **Step 2: Keep the booking time, and count one forwarded booking per trip**
+
+Every email that adds a booking calls `recordForwarded`, and the payment test reads `booking_forwarded` as "this trip forwarded a booking." A unique index keeps it to one row per trip, the same guard C1 put on `paid`.
+
+Ask the controller whether 00012 has been applied anywhere (Global Constraints). Then append to `apps/web/test/db/group-trip.test.ts`:
+```ts
+describe('intake (Task 5)', () => {
+  it('counts one booking_forwarded event per trip', async () => {
+    const forwarded = () =>
+      asService(db, () =>
+        db.query("insert into public.funnel_telemetry_events (anonymous_id, event_name, trip_id) values ($1, 'booking_forwarded', $2)", ['aid000000000000000000000000000c5', tripId]),
+      );
+    await forwarded();
+    await expect(forwarded()).rejects.toThrow(/funnel_forwarded_trip_idx/);
+  });
+
+  it('keeps a printed booking date or local date-time in bookings.booked_at, and nothing else', async () => {
+    const insert = (key: string, bookedAt: string) =>
+      asService(db, () =>
+        db.query(
+          `insert into public.bookings (trip_id, kind, provider, booked_at, extraction_confidence, dedupe_key) values ($1, 'flight', 'TAP Air Portugal', $2, 0.95, $3)`,
+          [tripId, bookedAt, key],
+        ),
+      );
+    await insert('booked-at-date', '2026-10-01');
+    await insert('booked-at-time', '2026-10-01T09:30');
+    await expect(insert('booked-at-bad', 'Oct 1, 2026')).rejects.toThrow(/violates check constraint/);
+  });
+});
+```
+
+`apps/web/test/funnel/record-event.test.ts`:
+```ts
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+const insert = vi.fn();
+vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: () => ({ from: () => ({ insert }) }) }));
+
+import { recordEvent } from '@/lib/funnel/events';
+
+const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+beforeEach(() => {
+  insert.mockReset();
+  error.mockClear();
+});
+
+describe('recordEvent', () => {
+  it('treats a second booking_forwarded for the trip (23505) as a quiet no-op', async () => {
+    insert.mockResolvedValue({ error: { code: '23505', message: 'duplicate key value violates unique constraint "funnel_forwarded_trip_idx"' } });
+    await recordEvent({ anonymousId: 'a'.repeat(32), event: 'booking_forwarded', tripId: 'trip-1' });
+    expect(error).not.toHaveBeenCalled();
+  });
+
+  it('still logs any other failure', async () => {
+    insert.mockResolvedValue({ error: { code: '42501', message: 'denied' } });
+    await recordEvent({ anonymousId: 'a'.repeat(32), event: 'booking_forwarded', tripId: 'trip-1' });
+    expect(error).toHaveBeenCalledWith('funnel event failed', 'denied');
+  });
+});
+```
+
+```bash
+cd apps/web && npx vitest run test/db test/funnel/record-event.test.ts; cd ../..
+```
+Expected: FAIL. The index and the column don't exist, and `recordEvent` logs the 23505.
+
+In `supabase/migrations/00012_group_trip_assist.sql`:
+1. In `create table public.bookings`, directly after `booked_via text,`, add:
+   ```sql
+     -- When the booking was made, as the confirmation printed it: a date, or a local date and time.
+     booked_at text check (booked_at is null or booked_at ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}(T[0-9]{2}:[0-9]{2})?$'),
+   ```
+   It is not in the `authenticated` column grants: only the service role reads it, for the incident's facts.
+2. Directly after C1's `funnel_paid_trip_idx`, add:
+   ```sql
+
+   -- Same guard for booking_forwarded: the trip's first forwarded booking counts once, however many
+   -- emails follow. recordEvent treats the 23505 as a no-op.
+   create unique index funnel_forwarded_trip_idx on public.funnel_telemetry_events (trip_id)
+     where event_name = 'booking_forwarded';
+   ```
+
+In `apps/web/lib/funnel/events.ts` (C1's `recordEvent`), replace:
+```ts
+    // 23505 on a page view or offer click is the daily dedupe index doing its job, not a failure.
+    const deduped = error?.code === '23505' && (input.event === 'rule_page_view' || input.event === 'offer_click');
+```
+with:
+```ts
+    // 23505 is a dedupe index doing its job, not a failure: daily for page views and offer clicks,
+    // once per trip for booking_forwarded (funnel_forwarded_trip_idx).
+    const deduped =
+      error?.code === '23505' && (input.event === 'rule_page_view' || input.event === 'offer_click' || input.event === 'booking_forwarded');
+```
+
+```bash
+cd apps/web && npx vitest run test/db test/funnel; cd ../..
+```
+Expected: PASS, including C1's funnel tests and its `schema.test.ts`.
+
+- [ ] **Step 3: Write the failing test**
 
 `apps/web/test/intake/process.test.ts`:
 ```ts
@@ -2369,6 +2901,7 @@ const booking = (overrides: Partial<NormalizedBooking> = {}): NormalizedBooking 
   provider: 'TAP Air Portugal',
   confirmationCode: 'ABC123',
   bookedVia: null,
+  bookedAt: null,
   passengerNames: ['DOE/PAT MR', 'JONES/SAMANTHA MS'],
   segments: [{ carrierIata: 'TP', flightNumber: '204', originIata: 'EWR', destinationIata: 'LIS', departureLocal: '2026-11-03T18:15', arrivalLocal: null }],
   confidence: 0.97,
@@ -2473,14 +3006,14 @@ describe('processInboundMessage', () => {
 });
 ```
 
-- [ ] **Step 3: Run the test to verify it fails**
+- [ ] **Step 4: Run the test to verify it fails**
 
 ```bash
 cd apps/web && npx vitest run test/intake/process.test.ts; cd ../..
 ```
 Expected: FAIL, with module not found.
 
-- [ ] **Step 4: Implement**
+- [ ] **Step 5: Implement**
 
 `apps/web/lib/intake/inbound-source.ts`:
 ```ts
@@ -2706,16 +3239,25 @@ import { fetchInboundEmail } from './inbound-source';
 import type { IntakeDeps } from './process';
 import { getInbound, putInbound } from './storage';
 
-function must<T>(result: { data: T; error: { message: string } | null }): T {
+/** Throws on a PostgREST error. For writes that return no rows. */
+function check(result: { error: { message: string } | null }): void {
   if (result.error) throw new Error(result.error.message);
-  return result.data;
+}
+
+/** Throws on a PostgREST error or a missing row, so callers always get data. */
+function must<T>(result: { data: T; error: { message: string } | null }): NonNullable<T> {
+  check(result);
+  if (result.data === null || result.data === undefined) throw new Error('expected a row, got none');
+  return result.data as NonNullable<T>;
 }
 
 export function liveIntakeDeps(): IntakeDeps {
   const admin = createAdminClient();
   return {
     async loadMessage(id) {
-      const row = must(await admin.from('inbound_messages').select('id, trip_id, source, provider_message_id, storage_path, subject').eq('id', id).maybeSingle());
+      // A missing message is a normal outcome ({ status: 'missing' }), so this read does not use must().
+      const { data: row, error } = await admin.from('inbound_messages').select('id, trip_id, source, provider_message_id, storage_path, subject').eq('id', id).maybeSingle();
+      if (error) throw new Error(error.message);
       return row
         ? { id: row.id, tripId: row.trip_id, source: row.source, providerMessageId: row.provider_message_id, storagePath: row.storage_path, subject: row.subject }
         : null;
@@ -2749,6 +3291,7 @@ export function liveIntakeDeps(): IntakeDeps {
               provider: booking.provider,
               confirmation_code: booking.confirmationCode,
               booked_via: booking.bookedVia,
+              booked_at: booking.bookedAt,
               passenger_names: booking.passengerNames,
               extraction_confidence: Math.round(booking.confidence * 100) / 100,
               dedupe_key: booking.dedupeKey,
@@ -2764,7 +3307,7 @@ export function liveIntakeDeps(): IntakeDeps {
       }
       const bookingId = inserted[0].id as string;
       if (booking.segments.length > 0) {
-        must(
+        check(
           await admin.from('booking_segments').insert(
             booking.segments.map((segment, index) => ({
               booking_id: bookingId,
@@ -2783,21 +3326,23 @@ export function liveIntakeDeps(): IntakeDeps {
       return { bookingId, created: true };
     },
     async assignMembers(tripId, bookingId, memberIds) {
-      must(
+      check(
         await admin
           .from('booking_members')
           .upsert(memberIds.map((memberId) => ({ booking_id: bookingId, member_id: memberId, trip_id: tripId })), { ignoreDuplicates: true }),
       );
     },
     async addActionItem(item) {
-      must(await admin.from('action_items').upsert(item, { onConflict: 'trip_id,source_kind,related_entity_id,title', ignoreDuplicates: true }));
+      check(await admin.from('action_items').upsert(item, { onConflict: 'trip_id,source_kind,related_entity_id,title', ignoreDuplicates: true }));
     },
     async setStatus(messageId, status, error, storagePath) {
-      must(await admin.from('inbound_messages').update({ status, error, storage_path: storagePath }).eq('id', messageId));
+      check(await admin.from('inbound_messages').update({ status, error, storage_path: storagePath }).eq('id', messageId));
     },
     async recordForwarded(tripId) {
       const trip = must(await admin.from('trips').select('created_anonymous_id, created_utm').eq('id', tripId).single());
       if (!trip.created_anonymous_id) return;
+      // Every email that adds a booking lands here. funnel_forwarded_trip_idx keeps the first, and recordEvent
+      // treats the duplicate as a no-op, so the funnel counts trips, not emails.
       await recordEvent({ anonymousId: trip.created_anonymous_id, event: 'booking_forwarded', tripId, utm: trip.created_utm as Record<string, string> });
     },
     afterConfirmed: onBookingsConfirmed,
@@ -2836,26 +3381,27 @@ export async function segmentMonitorWorkflow(segmentId: string) {
 ```
 This is the only stub in C2, and Task 9 Step 5 replaces it in full. No caller reaches it before then, because `monitorSegmentIds` stays empty until Task 9.
 
-- [ ] **Step 5: Run the tests, typecheck, and build**
+- [ ] **Step 6: Run the tests, typecheck, and build**
 
 ```bash
-cd apps/web && npx vitest run test/intake && npm run typecheck && npm run build; cd ../..
+cd apps/web && npx vitest run test/intake test/funnel test/db && npm run typecheck && npm run build; cd ../..
 ```
-Expected: PASS, and the build succeeds with the workflow plugin.
+Expected: PASS, typecheck is clean (`must` returns non-null data, and writes go through `check`), and the build succeeds with the workflow plugin.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add apps/web package-lock.json
+git add apps/web package-lock.json supabase/migrations/00012_group_trip_assist.sql
 git commit -F - <<'EOF'
 Process forwarded bookings in a durable intake workflow
 
 Each forwarded email or screenshot is fetched, archived, read by the
-model, and saved idempotently on a per-trip dedupe key. Clear bookings
-whose passengers all match the group are confirmed automatically;
-everything else becomes one specific question for the planner. The
-first forwarded booking is recorded for the payment test with the trip's
-original UTM tags.
+model, and saved idempotently on a per-trip dedupe key, with the
+booking time when the confirmation prints it. Clear bookings whose
+passengers all match the group are confirmed automatically; everything
+else becomes one specific question for the planner. The trip's first
+forwarded booking is recorded once for the payment test, with the
+trip's original UTM tags: a unique index drops the rest.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01CZeaGyqM4LkMDPkaein2Sc
@@ -2878,6 +3424,10 @@ EOF
   - **Route:** `POST /api/webhooks/inbound-email`
 
 Resend's `webhooks.verify()` takes `{ payload, headers: { id, timestamp, signature }, webhookSecret }`. Note that `headers` is Resend's own type, not DOM `Headers`. It verifies with `standardwebhooks`. Read the three values from the `svix-*` request headers, falling back to `webhook-*`.
+
+Two things the route has to get right:
+- **Intake must start, even after a failure.** The message row is stored before `start(intakeWorkflow)`. If `start` throws, the route answers 500 so Resend retries. The retry hits the unique `provider_message_id` (23505), finds the row still `received`, and starts intake then. Intake is idempotent, so a rare double start is harmless.
+- **The sender allow list trusts the `From` header.** Resend's webhook gives no SPF or DKIM verdict, so a forged `From` that names a member gets through. The forger also needs the trip's unguessable address, and intake only drafts bookings: anything unclear waits for the planner, and nothing is booked, filed, or paid from it.
 
 - [ ] **Step 1: Add the signing library for tests**
 
@@ -2932,9 +3482,15 @@ import { signStandardWebhook, TEST_WEBHOOK_SECRET } from '../helpers/webhooks';
 
 const started: unknown[] = [];
 const inserted: { table: string; row: Record<string, unknown> }[] = [];
+const state: { insertError: { code: string; message: string } | null; existing: { id: string; status: string } | null; startFails: boolean } = {
+  insertError: null,
+  existing: null,
+  startFails: false,
+};
 
 vi.mock('workflow/api', () => ({
   start: async (_workflow: unknown, args: unknown[]) => {
+    if (state.startFails) throw new Error('queue unavailable');
     started.push(args);
     return { runId: 'wrun_test' };
   },
@@ -2947,11 +3503,16 @@ vi.mock('@/lib/supabase/admin', () => ({
         eq: () =>
           table === 'trip_members'
             ? Promise.resolve({ data: [{ user_id: 'planner-1', role: 'planner', profiles: { email: 'pat@example.test' } }], error: null })
-            : { maybeSingle: async () => ({ data: table === 'trips' ? { id: 'trip-1', name: 'Lisbon 2026' } : null, error: null }) },
+            : {
+                maybeSingle: async () => ({
+                  data: table === 'trips' ? { id: 'trip-1', name: 'Lisbon 2026' } : table === 'inbound_messages' ? state.existing : null,
+                  error: null,
+                }),
+              },
       }),
       insert: (row: Record<string, unknown>) => {
         inserted.push({ table, row });
-        const result = { data: { id: 'msg-1' }, error: null };
+        const result = table === 'inbound_messages' && state.insertError ? { data: null, error: state.insertError } : { data: { id: 'msg-1' }, error: null };
         return { select: () => ({ single: async () => result }), then: (resolve: (v: unknown) => unknown) => resolve({ error: null }) };
       },
     }),
@@ -2966,6 +3527,10 @@ beforeAll(() => {
 beforeEach(() => {
   started.length = 0;
   inserted.length = 0;
+  state.insertError = null;
+  state.existing = null;
+  state.startFails = false;
+  vi.spyOn(console, 'error').mockImplementation(() => {});
 });
 
 function event(from: string) {
@@ -3012,6 +3577,30 @@ describe('POST /api/webhooks/inbound-email', () => {
     expect(started).toEqual([]);
     expect(inserted.find((i) => i.table === 'inbound_messages')?.row).toMatchObject({ status: 'quarantined' });
     expect(inserted.find((i) => i.table === 'action_items')?.row).toMatchObject({ source_kind: 'inbound_quarantine', assigned_user_ids: ['planner-1'] });
+  });
+
+  it('answers 500 when intake cannot start, so Resend retries', async () => {
+    state.startFails = true;
+    const payload = event('Pat <pat@example.test>');
+    expect((await post(payload, signStandardWebhook(payload, TEST_WEBHOOK_SECRET))).status).toBe(500);
+  });
+
+  it('starts intake on a retry whose message never left received', async () => {
+    state.insertError = { code: '23505', message: 'duplicate key value' };
+    state.existing = { id: 'msg-1', status: 'received' };
+    const payload = event('Pat <pat@example.test>');
+    const res = await post(payload, signStandardWebhook(payload, TEST_WEBHOOK_SECRET));
+    expect(res.status).toBe(200);
+    expect(started).toEqual([['msg-1']]);
+  });
+
+  it('ignores a retry that intake already handled', async () => {
+    state.insertError = { code: '23505', message: 'duplicate key value' };
+    state.existing = { id: 'msg-1', status: 'parsed' };
+    const payload = event('Pat <pat@example.test>');
+    const res = await post(payload, signStandardWebhook(payload, TEST_WEBHOOK_SECRET));
+    expect(await res.json()).toEqual({ duplicate: 'em_1' });
+    expect(started).toEqual([]);
   });
 });
 ```
@@ -3074,7 +3663,10 @@ export async function POST(request: Request): Promise<Response> {
   const { data: trip } = await admin.from('trips').select('id, name').eq('inbound_code', code).maybeSingle();
   if (!trip) return Response.json({ ignored: 'unknown trip' });
 
-  // Service role reads members' own emails. Only those may forward bookings in, which blocks booking injection.
+  // Service role reads members' own emails. Only those may forward bookings in, which blocks casual booking
+  // injection. This trusts the From header: Resend gives no SPF or DKIM verdict here, so a forged From naming
+  // a member gets through. The forger also needs the trip's unguessable address, and intake only drafts
+  // bookings: anything unclear waits for the planner, and nothing is booked, filed, or paid from it.
   const { data: rows } = await admin.from('trip_members').select('user_id, role, profiles!inner(email)').eq('trip_id', trip.id);
   const members = (rows ?? []).map((row) => {
     const profile = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles;
@@ -3083,39 +3675,49 @@ export async function POST(request: Request): Promise<Response> {
   const sender = parseSender(data.from);
   const permitted = sender !== null && senderAllowed(sender, members.flatMap((m) => (m.email ? [m.email] : [])));
 
-  const { data: message, error } = await admin
+  const { data: inserted, error } = await admin
     .from('inbound_messages')
     .insert({ trip_id: trip.id, source: 'email', provider_message_id: data.email_id, sender, subject: data.subject, status: permitted ? 'received' : 'quarantined' })
     .select('id')
     .single();
+  let messageId: string;
   if (error) {
-    // provider_message_id is unique: Resend retried a delivery we already stored.
-    if (error.code === '23505') return Response.json({ duplicate: data.email_id });
-    return new Response('could not store message', { status: 500 });
-  }
-
-  if (!permitted) {
-    const planner = members.find((member) => member.role === 'planner');
-    if (planner) {
-      await admin.from('action_items').insert({
-        trip_id: trip.id,
-        kind: 'approval',
-        title: 'Approve a forwarded email',
-        detail: `${sender ?? 'An unknown sender'} forwarded “${data.subject}” to the trip. Approve it only if you know them.`,
-        assigned_user_ids: [planner.userId],
-        source_kind: 'inbound_quarantine',
-        related_entity_id: message.id,
-      });
+    if (error.code !== '23505') return new Response('could not store message', { status: 500 });
+    // provider_message_id is unique: Resend retried a delivery we already stored. A row still `received`
+    // means intake never started (the last start threw, and we answered 500 so Resend would retry).
+    const { data: existing } = await admin.from('inbound_messages').select('id, status').eq('provider_message_id', data.email_id).maybeSingle();
+    if (existing?.status !== 'received') return Response.json({ duplicate: data.email_id });
+    messageId = existing.id;
+  } else {
+    messageId = inserted.id;
+    if (!permitted) {
+      const planner = members.find((member) => member.role === 'planner');
+      if (planner) {
+        await admin.from('action_items').insert({
+          trip_id: trip.id,
+          kind: 'approval',
+          title: 'Approve a forwarded email',
+          detail: `${sender ?? 'An unknown sender'} forwarded “${data.subject}” to the trip. Approve it only if you know them.`,
+          assigned_user_ids: [planner.userId],
+          source_kind: 'inbound_quarantine',
+          related_entity_id: messageId,
+        });
+      }
+      return Response.json({ quarantined: messageId });
     }
-    return Response.json({ quarantined: message.id });
   }
 
-  await start(intakeWorkflow, [message.id]);
-  return Response.json({ accepted: message.id });
+  try {
+    await start(intakeWorkflow, [messageId]);
+  } catch (startError) {
+    console.error('intake did not start', messageId, startError);
+    return new Response('could not start intake', { status: 500 });
+  }
+  return Response.json({ accepted: messageId });
 }
 ```
 
-Task 16 (`/admin`) and Task 15 (the trip feed) give the planner an "Approve" button for a quarantined message. It sets the status to `received` and calls `start(intakeWorkflow, [messageId])`.
+Task 15 (the trip feed) and Task 16 (`/admin`) give an "Approve" button for a quarantined message. Both call one shared function, Task 15's `approveQuarantined`, which sets the status to `received`, and then call `start(intakeWorkflow, [messageId])`.
 
 - [ ] **Step 5: Run the tests**
 
@@ -3132,9 +3734,10 @@ git commit -F - <<'EOF'
 Accept forwarded booking emails, and quarantine strangers
 
 The Resend webhook is signature-checked with Standard Webhooks and
-idempotent on the email id. Mail to a trip's address starts intake only
-when it comes from a member's own email; anything else waits for the
-planner's approval, which blocks booking injection.
+idempotent on the email id. If intake fails to start, the route answers
+500, and Resend's retry starts it. Mail to a trip's address starts
+intake only when its From header is a member's own email; anything
+else waits for the planner's approval.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01CZeaGyqM4LkMDPkaein2Sc
@@ -3146,7 +3749,7 @@ EOF
 ### Task 7: Document checks for everyone, with official renewal routes and deadline math
 
 **Files:**
-- Create: `apps/web/lib/documents/facts.ts`, `apps/web/lib/documents/check.ts`, `apps/web/lib/documents/deadlines.ts`, `apps/web/lib/documents/service.ts`, `apps/web/app/trips/[id]/documents/page.tsx`, `apps/web/app/trips/[id]/documents/actions.ts`, `apps/web/app/trips/[id]/documents/documents-form.tsx`, `apps/web/test/documents/facts.test.ts`, `apps/web/test/documents/check.test.ts`, `apps/web/test/documents/deadlines.test.ts`
+- Create: `apps/web/lib/flights/regions.ts`, `apps/web/lib/documents/facts.ts`, `apps/web/lib/documents/check.ts`, `apps/web/lib/documents/deadlines.ts`, `apps/web/lib/documents/service.ts`, `apps/web/app/trips/[id]/documents/page.tsx`, `apps/web/app/trips/[id]/documents/actions.ts`, `apps/web/app/trips/[id]/documents/documents-form.tsx`, `apps/web/test/documents/facts.test.ts`, `apps/web/test/documents/check.test.ts`, `apps/web/test/documents/deadlines.test.ts`
 - Modify: `apps/web/lib/bookings/confirm.ts`, `apps/web/app/join/[token]/actions.ts`
 
 **Interfaces:**
@@ -3156,7 +3759,9 @@ EOF
   - `queueNotifications` and `documentNotice` (Task 2)
   - `Character`
   - C1's `travel_admin_partner_routes`
+  - Track A's `passport` tag (see Depends on): the official renewal route shows only on checks whose rule carries it
 - Produces:
+  - **Regions** (`lib/flights/regions.ts`): `US_JURISDICTION`, the U.S. and its territories. Task 10 imports the same set and adds `EU_MEMBER_STATES`, `ICELAND_NORWAY_SWITZERLAND`, and `UK` to the file.
   - **Facts:**
     - `monthsBetween(fromIso, toIso): number`
     - `documentSituation(input): Situation`
@@ -3273,6 +3878,12 @@ cd apps/web && npx vitest run test/documents; cd ../..
 Expected: FAIL, with modules not found.
 
 - [ ] **Step 3: Implement the pure modules**
+
+`apps/web/lib/flights/regions.ts`:
+```ts
+/** U.S. airports for the rules, including territories and possessions: Puerto Rico, the U.S. Virgin Islands, Guam, American Samoa, and the Northern Mariana Islands. */
+export const US_JURISDICTION = new Set(['US', 'PR', 'VI', 'GU', 'AS', 'MP']);
+```
 
 `apps/web/lib/documents/facts.ts`:
 ```ts
@@ -3424,11 +4035,10 @@ import { appUrl } from '@/lib/env';
 import { documentNotice } from '@/lib/notify/templates';
 import { queueNotifications } from '@/lib/notify/queue';
 import { getLibrary } from '@/lib/rules/library';
+import { US_JURISDICTION } from '@/lib/flights/regions';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { checkMember } from './check';
 import { documentSituation } from './facts';
-
-const US = new Set(['US', 'PR', 'VI', 'GU', 'AS', 'MP']);
 
 /** Replaces every member's checks for the trip. Runs on join, on document save, on booking confirmation, at T-30 days (Task 16's daily cron), and at T-72h. */
 export async function runDocumentChecks(tripId: string): Promise<void> {
@@ -3438,7 +4048,7 @@ export async function runDocumentChecks(tripId: string): Promise<void> {
   const { data: members } = await admin.from('trip_members').select('id, user_id').eq('trip_id', tripId);
   const { data: segments } = await admin.from('booking_segments').select('origin_country, destination_country').eq('trip_id', tripId);
   const resolved = (segments ?? []).filter((s) => s.origin_country && s.destination_country);
-  const domesticFlight = resolved.length === 0 ? null : resolved.some((s) => US.has(s.origin_country!) && US.has(s.destination_country!));
+  const domesticFlight = resolved.length === 0 ? null : resolved.some((s) => US_JURISDICTION.has(s.origin_country!) && US_JURISDICTION.has(s.destination_country!));
   const userIds = (members ?? []).map((m) => m.user_id);
   const { data: documents } = await admin.from('member_documents').select('user_id, kind, issuing_country, expires_on, real_id_compliant').in('user_id', userIds);
 
@@ -3757,21 +4367,121 @@ No characters on this page. It is a dense working list.
 
 **Files:**
 - Create: `apps/web/lib/bookings/manual.ts`, `apps/web/lib/bookings/screenshot.ts`, `apps/web/app/trips/[id]/bookings/page.tsx`, `apps/web/app/trips/[id]/bookings/actions.ts`, `apps/web/app/trips/[id]/bookings/forms.tsx`, `apps/web/test/bookings/manual.test.ts`, `apps/web/test/bookings/screenshot.test.ts`
-- Modify: `apps/web/next.config.ts` (server-action body limit)
+- Modify: `supabase/migrations/00012_group_trip_assist.sql` (`claim_booking_seat`), `apps/web/test/db/group-trip.test.ts`, `apps/web/next.config.ts` (server-action body limit)
 
 **Interfaces:**
-- Consumes: `onBookingsConfirmed` (Task 4), `putInbound` and `intakeWorkflow` (Task 5), `segmentMonitorWorkflow` (Task 5's stub, made real by Task 9), and C1's RLS.
+- Consumes:
+  - `onBookingsConfirmed` (Task 4), `putInbound` and `intakeWorkflow` (Task 5), and `segmentMonitorWorkflow` (Task 5's stub, made real by Task 9)
+  - C1's RLS on `booking_members`: only the planner (or the service role) inserts rows, and C1's tests assert a member cannot; the planner, or the member themselves, deletes them
 - Produces:
+  - **SQL:** `claim_booking_seat(p_booking_id uuid) returns uuid`. A trip member puts only themselves on a booking of their own trip, idempotently, and gets their member id back. It is revoked from anon and granted to authenticated.
   - **Validators:**
     - `parseManualFlight(form): { success: true; data: ManualFlight } | { success: false; error }`
-    - `validateScreenshot(file: File): { ok: true; ext: 'png' | 'jpg' | 'webp' } | { ok: false; error }`
+    - `validateScreenshot(file: File): { ok: true; ext: 'png' | 'jpg' | 'webp' } | { ok: false; error }`, at most 4 MB, under Vercel's 4.5 MB request cap
   - **Server actions:**
     - `confirmBooking(tripId, bookingId)`
-    - `toggleAssignment(tripId, bookingId, memberId, on)`
-    - `addManualFlight(tripId, prev, form)`
+    - `toggleAssignment(tripId, bookingId, memberId, on)`: the planner assigns or removes anyone; a member adds only themselves (through `claim_booking_seat`) and removes only themselves
+    - `addManualFlight(tripId, prev, form)`: needs at least one traveler (`travelers` checkboxes, the planner ticked by default), because alerts go only to the people on a booking
     - `uploadScreenshot(tripId, prev, form)`
 
-- [ ] **Step 1: Write the failing tests**
+- [ ] **Step 1: Let a member claim only their own seat**
+
+Ask the controller whether 00012 has been applied anywhere (Global Constraints). Then append to `apps/web/test/db/group-trip.test.ts`:
+```ts
+describe('booking seats (Task 8)', () => {
+  let bookingId: string;
+  let otherTripBookingId: string;
+
+  beforeAll(async () => {
+    bookingId = await asService(db, async () =>
+      (await one<{ id: string }>(
+        `insert into public.bookings (trip_id, kind, provider, confirmation_code, extraction_confidence, dedupe_key)
+         values ($1, 'flight', 'TAP Air Portugal', 'C2SEAT', 0.97, 'seat-test') returning id`,
+        [tripId],
+      )).id,
+    );
+    const otherTrip = await asUser(db, OUTSIDER, async () =>
+      (await one<{ id: string }>(
+        `select public.create_trip('Elsewhere', 'FR', '2026-12-01', '2026-12-08', 'trip-c2otherc2oth', 'Olly', null, '{}'::jsonb) as id`,
+      )).id,
+    );
+    otherTripBookingId = await asService(db, async () =>
+      (await one<{ id: string }>(
+        `insert into public.bookings (trip_id, kind, provider, extraction_confidence, dedupe_key) values ($1, 'flight', 'Air France', 0.97, 'other-trip') returning id`,
+        [otherTrip],
+      )).id,
+    );
+  });
+
+  it('a member claims their own seat, and claiming again changes nothing', async () => {
+    const claimed = await asUser(db, MEMBER, () => one<{ member: string }>('select public.claim_booking_seat($1) as member', [bookingId]));
+    expect(claimed.member).toBe(memberMemberId);
+    await asUser(db, MEMBER, () => db.query('select public.claim_booking_seat($1)', [bookingId]));
+    const rows = await asService(db, () => db.query<{ member_id: string }>('select member_id from public.booking_members where booking_id = $1', [bookingId]));
+    expect(rows.rows).toEqual([{ member_id: memberMemberId }]);
+    const code = await asUser(db, MEMBER, () => one<{ code: string | null }>('select public.booking_confirmation_code($1) as code', [bookingId]));
+    expect(code.code).toBe('C2SEAT');
+  });
+
+  it('a member cannot put anyone else on a booking', async () => {
+    await rejects(() =>
+      asUser(db, MEMBER, () => db.query('insert into public.booking_members (booking_id, member_id, trip_id) values ($1, $2, $3)', [bookingId, plannerMemberId, tripId])),
+    );
+    const planner = await asService(db, () => db.query('select 1 from public.booking_members where booking_id = $1 and member_id = $2', [bookingId, plannerMemberId]));
+    expect(planner.rows).toHaveLength(0);
+  });
+
+  it('a non-member cannot claim a seat, here or on another trip', async () => {
+    await rejects(() => asUser(db, OUTSIDER, () => db.query('select public.claim_booking_seat($1)', [bookingId])), /not a member of this trip/);
+    await rejects(() => asUser(db, MEMBER, () => db.query('select public.claim_booking_seat($1)', [otherTripBookingId])), /not a member of this trip/);
+  });
+
+  it('a member takes themselves off; the planner assigns anyone; anon cannot call it', async () => {
+    const off = await asUser(db, MEMBER, () => db.query('delete from public.booking_members where booking_id = $1 and member_id = $2', [bookingId, memberMemberId]));
+    expect(off.affectedRows).toBe(1);
+    await asUser(db, PLANNER, () => db.query('insert into public.booking_members (booking_id, member_id, trip_id) values ($1, $2, $3)', [bookingId, memberMemberId, tripId]));
+    const anon = await asService(db, () => one<{ ok: boolean }>("select has_function_privilege('anon', 'public.claim_booking_seat(uuid)', 'execute') as ok"));
+    expect(anon.ok).toBe(false);
+  });
+});
+```
+
+```bash
+cd apps/web && npx vitest run test/db; cd ../..
+```
+Expected: FAIL, with `function public.claim_booking_seat(uuid) does not exist`.
+
+In `supabase/migrations/00012_group_trip_assist.sql`, directly after the `booking_confirmation_code` function in section 5, add:
+```sql
+
+-- A member puts only themselves on a booking of a trip they belong to. Assignment decides who reads
+-- a confirmation code, so members never insert booking_members rows directly ("Planners assign
+-- bookings" in section 12). They take themselves off under "Planner or self unassigns bookings".
+create or replace function public.claim_booking_seat(p_booking_id uuid)
+returns uuid language plpgsql security definer set search_path = public as $$
+declare v_trip uuid; v_member uuid;
+begin
+  select b.trip_id into v_trip from public.bookings b where b.id = p_booking_id;
+  select m.id into v_member from public.trip_members m where m.trip_id = v_trip and m.user_id = auth.uid();
+  if v_member is null then
+    raise exception 'not a member of this trip' using errcode = '42501';
+  end if;
+  insert into public.booking_members (booking_id, member_id, trip_id)
+  values (p_booking_id, v_member, v_trip)
+  on conflict (booking_id, member_id) do nothing;
+  return v_member;
+end;
+$$;
+revoke execute on function public.claim_booking_seat(uuid) from public, anon;
+grant execute on function public.claim_booking_seat(uuid) to authenticated;
+```
+
+```bash
+cd apps/web && npx vitest run test/db; cd ../..
+```
+Expected: PASS. C1's "a member cannot assign themselves to a booking" still passes: the direct insert stays planner-only.
+
+- [ ] **Step 2: Write the failing tests**
 
 `apps/web/test/bookings/manual.test.ts`:
 ```ts
@@ -3807,26 +4517,26 @@ import { describe, expect, it } from 'vitest';
 import { validateScreenshot } from '@/lib/bookings/screenshot';
 
 describe('validateScreenshot', () => {
-  it('accepts common image types under 8 MB', () => {
+  it('accepts common image types under 4 MB', () => {
     expect(validateScreenshot(new File([new Uint8Array(10)], 'a.png', { type: 'image/png' }))).toEqual({ ok: true, ext: 'png' });
     expect(validateScreenshot(new File([new Uint8Array(10)], 'a.jpg', { type: 'image/jpeg' }))).toEqual({ ok: true, ext: 'jpg' });
   });
 
   it('rejects other files and big uploads', () => {
     expect(validateScreenshot(new File(['x'], 'a.pdf', { type: 'application/pdf' })).ok).toBe(false);
-    expect(validateScreenshot(new File([new Uint8Array(9 * 1024 * 1024)], 'a.png', { type: 'image/png' })).ok).toBe(false);
+    expect(validateScreenshot(new File([new Uint8Array(5 * 1024 * 1024)], 'a.png', { type: 'image/png' })).ok).toBe(false);
   });
 });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [ ] **Step 3: Run the tests to verify they fail**
 
 ```bash
 cd apps/web && npx vitest run test/bookings; cd ../..
 ```
 Expected: FAIL, with modules not found.
 
-- [ ] **Step 3: Implement the validators**
+- [ ] **Step 4: Implement the validators**
 
 `apps/web/lib/bookings/manual.ts`:
 ```ts
@@ -3860,17 +4570,18 @@ export function parseManualFlight(form: FormData): { success: true; data: Manual
 `apps/web/lib/bookings/screenshot.ts`:
 ```ts
 const TYPES = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' } as const;
-const MAX_BYTES = 8 * 1024 * 1024;
+// Vercel caps a function request body at 4.5 MB; 4 MB leaves room for the rest of the form.
+const MAX_BYTES = 4 * 1024 * 1024;
 
 export function validateScreenshot(file: File): { ok: true; ext: 'png' | 'jpg' | 'webp' } | { ok: false; error: string } {
   const ext = TYPES[file.type as keyof typeof TYPES];
   if (!ext) return { ok: false, error: 'Upload a PNG, JPEG, or WebP screenshot.' };
-  if (file.size > MAX_BYTES) return { ok: false, error: 'That screenshot is over 8 MB.' };
+  if (file.size > MAX_BYTES) return { ok: false, error: 'That screenshot is over 4 MB. Crop it, or save it as a JPEG.' };
   return { ok: true, ext };
 }
 ```
 
-- [ ] **Step 4: Write the actions and page**
+- [ ] **Step 5: Write the actions and page**
 
 `apps/web/app/trips/[id]/bookings/actions.ts`:
 ```ts
@@ -3911,13 +4622,23 @@ export async function confirmBooking(tripId: string, bookingId: string): Promise
 }
 
 export async function toggleAssignment(tripId: string, bookingId: string, memberId: string, on: boolean): Promise<void> {
-  await requireUser(`/trips/${tripId}/bookings`);
+  const user = await requireUser(`/trips/${tripId}/bookings`);
   const supabase = await createClient();
-  // RLS allows the planner, or the member themselves.
-  const { error } = on
-    ? await supabase.from('booking_members').insert({ booking_id: bookingId, member_id: memberId, trip_id: tripId })
-    : await supabase.from('booking_members').delete().eq('booking_id', bookingId).eq('member_id', memberId);
-  if (error && error.code !== '23505') throw new Error(error.message);
+  const { data: isPlanner } = await supabase.rpc('is_trip_planner', { p_trip_id: tripId });
+  if (on && isPlanner !== true) {
+    // A member can put only themselves on. C1's RLS keeps booking_members inserts planner-only, so this goes
+    // through claim_booking_seat, which adds the caller's own member row on a trip they belong to.
+    const { data: me } = await supabase.from('trip_members').select('id').eq('trip_id', tripId).eq('user_id', user.id).maybeSingle();
+    if (me?.id !== memberId) throw new Error('You can only add yourself to a booking.');
+    const { error } = await supabase.rpc('claim_booking_seat', { p_booking_id: bookingId });
+    if (error) throw new Error(error.message);
+  } else {
+    // RLS lets the planner add or remove anyone, and a member remove only themselves.
+    const { error } = on
+      ? await supabase.from('booking_members').insert({ booking_id: bookingId, member_id: memberId, trip_id: tripId })
+      : await supabase.from('booking_members').delete().eq('booking_id', bookingId).eq('member_id', memberId);
+    if (error && error.code !== '23505') throw new Error(error.message);
+  }
   revalidatePath(`/trips/${tripId}/bookings`);
 }
 
@@ -3927,10 +4648,15 @@ export interface FormState {
 }
 
 export async function addManualFlight(tripId: string, _prev: FormState, form: FormData): Promise<FormState> {
-  await plannerClient(tripId);
+  const supabase = await plannerClient(tripId);
   const parsed = parseManualFlight(form);
   if (!parsed.success) return { error: parsed.error, done: false };
   const f = parsed.data;
+  // Alerts go only to the people on a booking, so a hand-added flight needs at least one traveler.
+  const { data: members } = await supabase.from('trip_members').select('id').eq('trip_id', tripId);
+  const memberIds = new Set((members ?? []).map((m) => m.id as string));
+  const travelers = [...new Set(form.getAll('travelers').map(String))].filter((memberId) => memberIds.has(memberId));
+  if (travelers.length === 0) return { error: 'Pick who is on this flight.', done: false };
   const admin = createAdminClient();
   const { data: booking, error } = await admin
     .from('bookings')
@@ -3946,7 +4672,7 @@ export async function addManualFlight(tripId: string, _prev: FormState, form: Fo
     .select('id')
     .single();
   if (error) return { error: error.code === '23505' ? 'That flight is already on the trip.' : 'We could not add that flight.', done: false };
-  await admin.from('booking_segments').insert({
+  const { error: segmentError } = await admin.from('booking_segments').insert({
     booking_id: booking.id,
     trip_id: tripId,
     position: 1,
@@ -3956,6 +4682,14 @@ export async function addManualFlight(tripId: string, _prev: FormState, form: Fo
     destination_iata: f.destinationIata,
     departure_local: f.departureLocal,
   });
+  const { error: assignError } = segmentError
+    ? { error: segmentError }
+    : await admin.from('booking_members').insert(travelers.map((memberId) => ({ booking_id: booking.id, member_id: memberId, trip_id: tripId })));
+  if (assignError) {
+    // Leave nothing half-added: the segment and the travelers cascade with the booking.
+    await admin.from('bookings').delete().eq('id', booking.id);
+    return { error: 'We could not add that flight.', done: false };
+  }
   await afterConfirm(tripId, [booking.id]);
   revalidatePath(`/trips/${tripId}/bookings`);
   return { error: null, done: true };
@@ -3982,9 +4716,9 @@ export async function uploadScreenshot(tripId: string, _prev: FormState, form: F
 }
 ```
 
-Raise the server-action body limit for screenshots. In `apps/web/next.config.ts`, add this to `nextConfig`:
+Raise the server-action body limit for screenshots. Next's default is 1 MB; Vercel rejects any request over 4.5 MB before it reaches the function, so the limit matches that cap and `validateScreenshot` stops at 4 MB. In `apps/web/next.config.ts`, add this to `nextConfig`:
 ```ts
-  experimental: { serverActions: { bodySizeLimit: '10mb' } },
+  experimental: { serverActions: { bodySizeLimit: '4.5mb' } },
 ```
 
 `apps/web/app/trips/[id]/bookings/page.tsx`:
@@ -4087,7 +4821,7 @@ async function BookingsContent({ params }: { params: Params }) {
         })}
       </ul>
       {me ? <ScreenshotForm tripId={id} /> : null}
-      {isPlanner === true ? <ManualFlightForm tripId={id} /> : null}
+      {isPlanner === true ? <ManualFlightForm tripId={id} members={directory ?? []} meId={me?.member_id ?? null} /> : null}
     </>
   );
 }
@@ -4118,7 +4852,15 @@ export function ScreenshotForm({ tripId }: { tripId: string }) {
   );
 }
 
-export function ManualFlightForm({ tripId }: { tripId: string }) {
+export function ManualFlightForm({
+  tripId,
+  members,
+  meId,
+}: {
+  tripId: string;
+  members: { member_id: string; display_name: string }[];
+  meId: string | null;
+}) {
   const [state, action, pending] = useActionState<FormState, FormData>(addManualFlight.bind(null, tripId), { error: null, done: false });
   return (
     <form action={action} className="mt-6 grid gap-3 rounded-xl border border-[#e4dfd0] bg-white p-6 sm:grid-cols-2">
@@ -4129,6 +4871,16 @@ export function ManualFlightForm({ tripId }: { tripId: string }) {
       <label className="text-sm font-medium">Local departure time<input name="time" type="time" required className={inputClass} /></label>
       <label className="text-sm font-medium">From<input name="from" maxLength={3} placeholder="EWR" required className={`${inputClass} uppercase`} /></label>
       <label className="text-sm font-medium">To<input name="to" maxLength={3} placeholder="LIS" required className={`${inputClass} uppercase`} /></label>
+      <fieldset className="text-sm sm:col-span-2">
+        <legend className="font-medium">Who’s on this flight?</legend>
+        <div className="mt-2 flex flex-wrap gap-4">
+          {members.map((member) => (
+            <label key={member.member_id} className="flex items-center gap-2">
+              <input type="checkbox" name="travelers" value={member.member_id} defaultChecked={member.member_id === meId} /> {member.display_name}
+            </label>
+          ))}
+        </div>
+      </fieldset>
       {state.error ? <p role="alert" className="text-sm text-[#b42318] sm:col-span-2">{state.error}</p> : null}
       <Button type="submit" disabled={pending} className="sm:col-span-2">
         {pending ? 'Adding…' : 'Add flight'}
@@ -4138,24 +4890,27 @@ export function ManualFlightForm({ tripId }: { tripId: string }) {
 }
 ```
 
-- [ ] **Step 5: Run the tests, typecheck, and build**
+- [ ] **Step 6: Run the tests, typecheck, and build**
 
 ```bash
 cd apps/web && npx vitest run && npm run typecheck && npm run build; cd ../..
 ```
 Expected: all tests pass, typecheck is clean, and the build succeeds.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add apps/web
+git add apps/web supabase/migrations/00012_group_trip_assist.sql
 git commit -F - <<'EOF'
 Add the bookings page: confirm, assign, add by hand, upload screenshots
 
 The planner confirms what intake couldn't, and assigns travelers to
-each booking; members can mark themselves on or off. Confirmation codes
-show only to the planner and the people on that booking. Screenshots go
-through the same intake workflow as email.
+each booking. A member puts only themselves on a booking, through
+claim_booking_seat, and can take themselves off; direct inserts stay
+planner-only. Confirmation codes show only to the planner and the
+people on that booking. A flight added by hand needs at least one
+traveler, so its alerts reach someone. Screenshots of up to 4 MB, under
+Vercel's request cap, go through the same intake workflow as email.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01CZeaGyqM4LkMDPkaein2Sc
@@ -4167,8 +4922,8 @@ EOF
 ### Task 9: Monitoring — classification, flight alerts, polling, and durable monitor workflows
 
 **Files:**
-- Create: `apps/web/lib/monitor/snapshot.ts`, `apps/web/lib/monitor/record.ts`, `apps/web/lib/workflows/tokens.ts`, `apps/web/lib/workflows/ports.ts`, `apps/web/lib/workflows/live-ports.ts`, `apps/web/lib/workflows/memory-ports.ts`, `apps/web/workflows/trip-monitor.ts`, `apps/web/app/api/webhooks/aeroapi/[secret]/route.ts`, `apps/web/vitest.integration.config.ts`, `apps/web/test/monitor/snapshot.test.ts`, `apps/web/test/workflows/segment-monitor.integration.test.ts`
-- Modify: `apps/web/workflows/segment-monitor.ts` (replace the stub), `apps/web/lib/bookings/confirm.ts` (fill `monitorSegmentIds`), `apps/web/app/api/webhooks/stripe/route.ts` (start trip monitoring), `apps/web/package.json` (devDependency `@workflow/vitest`, script `test:integration`)
+- Create: `apps/web/lib/monitor/snapshot.ts`, `apps/web/lib/monitor/record.ts`, `apps/web/lib/workflows/tokens.ts`, `apps/web/lib/workflows/ports.ts`, `apps/web/lib/workflows/live-ports.ts`, `apps/web/lib/workflows/memory-ports.ts`, `apps/web/workflows/trip-monitor.ts`, `apps/web/app/api/webhooks/aeroapi/[secret]/route.ts`, `apps/web/vitest.integration.config.ts`, `apps/web/test/monitor/snapshot.test.ts`, `apps/web/test/workflows/segment-monitor.integration.test.ts`, `apps/web/test/workflows/trip-monitor.integration.test.ts`
+- Modify: `apps/web/workflows/segment-monitor.ts` (replace the stub), `apps/web/lib/bookings/confirm.ts` (fill `monitorSegmentIds`), `apps/web/app/api/webhooks/stripe/route.ts` (start trip monitoring), `apps/web/test/payments/webhook-route.test.ts` (C1's, rewritten), `apps/web/package.json` (devDependency `@workflow/vitest`, script `test:integration`), `.gitignore`
 
 **Interfaces:**
 - Consumes: Task 4 (`aeroApi`, `AeroFlight`), Task 7 (`runDocumentChecks`), Task 2 (`queueNotifications`, `briefingNotice`), and C1 Task 9 (`handleStripeEvent`).
@@ -4177,18 +4932,19 @@ EOF
     - `FlightSnapshot`
     - `snapshotFromAero(f): FlightSnapshot`
     - `FlightEvent = { type: 'cancellation' | 'delay' | 'schedule_change'; delayMinutes: number | null; dedupeSuffix: string }`
-    - `classify(prev, next): FlightEvent | null`
+    - `classify(prev, next, bookedOut?): FlightEvent | null`. Its types follow the contract's `event.type` (1bc652c): AeroAPI's `cancelled` is a cancellation; the same flight scheduled at least an hour from its booked departure is a schedule change; a diversion is a delay of unknown length.
     - `flightEnded(s): boolean`
-    - `DELAY_BANDS = [120, 180, 360]`
-  - **Recording:** `recordFlightSnapshot(segmentId, snapshot, source: 'alert' | 'poll'): Promise<{ incidentId: string | null }>`
-  - **Hook tokens:** `segmentMonitorToken(id)`, `incidentAnswerToken(id)`, `incidentReleaseToken(id)`
+    - `DELAY_BANDS = [120, 180, 360]` and `RETIME_MINUTES = 60`
+  - **Recording:** `recordFlightSnapshot(segmentId, snapshot, source: 'alert' | 'poll'): Promise<{ incidentId: string | null }>`. It checks every write and saves `last_status` last, after the incident is recorded, so a failure leaves the change to be classified again.
+  - **Hook tokens:** `tripMonitorToken(id)`, `segmentMonitorToken(id)`, `incidentAnswerToken(id)`, `incidentReleaseToken(id)`
   - **Ports:**
     - `MonitoredSegment = { id; tripId; ident; departureDate; originIata; destinationIata; scheduledOut: string | null; scheduledIn: string | null; alertId: string | null }`
     - `WorkflowPorts`, with the monitor operations listed below, including `flagMonitorTrouble(segmentId)`. Task 12 adds the incident operations.
     - `pollAndRecord` returns `{ incidentId; ended; failed? }`. `failed: true` means AeroAPI could not be reached.
     - `workflowPorts(): Promise<WorkflowPorts>`
-  - **Workflows:** `tripMonitorWorkflow(tripId)` and `segmentMonitorWorkflow(segmentId)`
+  - **Workflows:** `tripMonitorWorkflow(tripId)` and `segmentMonitorWorkflow(segmentId)`. Both claim a hook token, so a second run for the same trip or segment exits with `status: 'duplicate'`. That makes `/admin`'s "Start monitoring" (Task 16) safe to press again.
   - **Route:** `POST /api/webhooks/aeroapi/[secret]`
+  - **Stripe webhook:** an activated pass starts `tripMonitorWorkflow`. C1's `handleStripeEvent` has already marked the event processed by then, so Stripe never retries it: a failed `start` is logged and answered 200, and `/admin` restarts monitoring.
 
 How monitoring works:
 - **Alerts** go straight to the webhook route, which records the snapshot. Task 12 adds starting the incident workflow from the route.
@@ -4202,6 +4958,13 @@ How monitoring works:
 npm install -D @workflow/vitest@5.0.1 -w @elsewhere/web
 ```
 In `apps/web/package.json` `scripts`, add `"test:integration": "vitest run --config vitest.integration.config.ts"`.
+
+The plugin writes generated bundles to `.workflow-vitest/` and run data to `.workflow-data/`, both in `apps/web`. Append to `.gitignore`:
+```
+# Workflow SDK output: @workflow/vitest bundles, and Local World run data
+apps/web/.workflow-vitest/
+apps/web/.workflow-data/
+```
 
 `apps/web/vitest.integration.config.ts`:
 ```ts
@@ -4264,8 +5027,18 @@ describe('classify', () => {
     expect(classify(base, { ...base, arrivalDelayMinutes: null, estimatedIn: '2026-11-04T09:45:00Z' })).toMatchObject({ type: 'delay', delayMinutes: 190 });
   });
 
-  it('treats a diversion as a schedule change', () => {
-    expect(classify(base, { ...base, diverted: true })).toEqual({ type: 'schedule_change', delayMinutes: null, dedupeSuffix: 'diversion' });
+  it('treats a diversion as a delay of unknown length, not a schedule change', () => {
+    expect(classify(base, { ...base, diverted: true })).toEqual({ type: 'delay', delayMinutes: null, dedupeSuffix: 'diversion' });
+  });
+
+  it('reports the same flight moved to another time as a schedule change, once per new time', () => {
+    const booked = base.scheduledOut;
+    const earlier = { ...base, scheduledOut: '2026-11-03T21:45:00Z' };
+    expect(classify(base, earlier, booked)).toEqual({ type: 'schedule_change', delayMinutes: null, dedupeSuffix: 'retime-2026-11-03T21:45:00.000Z' });
+    expect(classify(null, earlier, booked)).toMatchObject({ type: 'schedule_change' });
+    expect(classify(earlier, earlier, booked)).toBeNull();
+    // Under an hour from the booked time is schedule-data noise.
+    expect(classify(base, { ...base, scheduledOut: '2026-11-03T23:45:00Z' }, booked)).toBeNull();
   });
 });
 
@@ -4351,6 +5124,31 @@ describe('segmentMonitorWorkflow', () => {
 });
 ```
 
+`apps/web/test/workflows/trip-monitor.integration.test.ts`:
+```ts
+import { getRun, start } from 'workflow/api';
+import { waitForSleep } from '@workflow/vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
+import { memoryState, resetMemoryPorts } from '@/lib/workflows/memory-ports';
+import { tripMonitorWorkflow } from '@/workflows/trip-monitor';
+
+beforeEach(() => resetMemoryPorts());
+
+describe('tripMonitorWorkflow', () => {
+  it('exits when another run already watches the trip, so a restart never briefs the group twice', async () => {
+    const state = memoryState();
+    const departs = new Date(Date.now() + 10 * 24 * 60 * 60 * 1000).toISOString();
+    state.segments.set('seg-t', { id: 'seg-t', tripId: 'trip-t', ident: 'TP204', departureDate: departs.slice(0, 10), originIata: 'EWR', destinationIata: 'LIS', scheduledOut: departs, scheduledIn: departs, alertId: 'a1' });
+    const first = await start(tripMonitorWorkflow, ['trip-t']);
+    await waitForSleep(first);
+    const second = await start(tripMonitorWorkflow, ['trip-t']);
+    expect(await second.returnValue).toEqual({ tripId: 'trip-t', status: 'duplicate', segments: 0 });
+    expect(state.preTrip).toEqual([]);
+    await getRun(first.runId).cancel();
+  });
+});
+```
+
 - [ ] **Step 3: Run the tests to verify they fail**
 
 ```bash
@@ -4365,6 +5163,8 @@ Expected: FAIL, with modules not found and the stub workflow lacking behaviour.
 import type { AeroFlight } from '@/lib/flights/aeroapi';
 
 export const DELAY_BANDS = [120, 180, 360] as const;
+/** A move in the scheduled departure smaller than this is schedule-data noise, not a schedule change. */
+export const RETIME_MINUTES = 60;
 
 export interface FlightSnapshot {
   faFlightId: string | null;
@@ -4411,10 +5211,23 @@ function band(minutes: number): number {
   return [...DELAY_BANDS].reverse().find((b) => minutes >= b) ?? 0;
 }
 
-/** One event per new fact: cancellation, diversion, or a delay crossing a new band. */
-export function classify(prev: FlightSnapshot | null, next: FlightSnapshot): FlightEvent | null {
+/**
+ * One event per new fact, typed as the facts contract defines `event.type`:
+ * - AeroAPI's `cancelled`: the booked flight is not operated, so a cancellation.
+ * - A diversion: the flight operated and its travelers arrive late, so a delay whose length is not known yet.
+ *   AeroAPI does not say whether the aircraft came back without continuing, which would be a cancellation.
+ * - The same flight now scheduled to leave at least an hour from `bookedOut`: a schedule change, once per new time.
+ * - A delay crossing a new band.
+ */
+export function classify(prev: FlightSnapshot | null, next: FlightSnapshot, bookedOut: string | null = null): FlightEvent | null {
   if (next.cancelled && !prev?.cancelled) return { type: 'cancellation', delayMinutes: null, dedupeSuffix: 'cancellation' };
-  if (next.diverted && !prev?.diverted) return { type: 'schedule_change', delayMinutes: null, dedupeSuffix: 'diversion' };
+  if (next.diverted && !prev?.diverted) return { type: 'delay', delayMinutes: null, dedupeSuffix: 'diversion' };
+  const booked = bookedOut ? Date.parse(bookedOut) : null;
+  const scheduled = next.scheduledOut ? Date.parse(next.scheduledOut) : null;
+  const before = prev?.scheduledOut ? Date.parse(prev.scheduledOut) : null;
+  if (booked !== null && scheduled !== null && scheduled !== before && Math.abs(scheduled - booked) >= RETIME_MINUTES * 60000) {
+    return { type: 'schedule_change', delayMinutes: null, dedupeSuffix: `retime-${new Date(scheduled).toISOString()}` };
+  }
   const delay = delayOf(next);
   const newBand = band(delay);
   if (newBand > 0 && newBand > band(prev ? delayOf(prev) : 0)) return { type: 'delay', delayMinutes: delay, dedupeSuffix: `delay-${newBand}` };
@@ -4432,37 +5245,55 @@ import 'server-only';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { classify, type FlightSnapshot } from './snapshot';
 
-/** Saves the latest snapshot and opens an incident when it reveals a new event. Safe to call twice with the same data. */
+function check(result: { error: { message: string } | null }): void {
+  if (result.error) throw new Error(result.error.message);
+}
+
+/**
+ * Opens an incident when the snapshot reveals a new event, then saves the snapshot. Safe to call twice with the
+ * same data. `last_status` is written last and every write is checked: if anything fails first, the error
+ * propagates and the next alert or poll classifies the same change again, so an event is never hidden behind a
+ * snapshot that was already saved.
+ */
 export async function recordFlightSnapshot(segmentId: string, snapshot: FlightSnapshot, source: 'alert' | 'poll'): Promise<{ incidentId: string | null }> {
   const admin = createAdminClient();
-  const { data: segment } = await admin.from('booking_segments').select('id, trip_id, booking_id, last_status').eq('id', segmentId).single();
+  const { data: segment, error } = await admin.from('booking_segments').select('id, trip_id, booking_id, scheduled_out, last_status').eq('id', segmentId).maybeSingle();
+  if (error) throw new Error(error.message);
   if (!segment) return { incidentId: null };
-  const event = classify((segment.last_status as FlightSnapshot | null) ?? null, snapshot);
-  await admin.from('booking_segments').update({ last_status: snapshot, fa_flight_id: snapshot.faFlightId }).eq('id', segmentId);
-  if (!event) return { incidentId: null };
+  // scheduled_out is the departure as booked; a snapshot that moves it is a schedule change.
+  const event = classify((segment.last_status as FlightSnapshot | null) ?? null, snapshot, segment.scheduled_out);
 
-  const { data: affected } = await admin.from('booking_members').select('trip_members!inner(user_id)').eq('booking_id', segment.booking_id);
-  const affectedUserIds = (affected ?? []).map((row) => {
-    const member = Array.isArray(row.trip_members) ? row.trip_members[0] : row.trip_members;
-    return member.user_id as string;
-  });
-  const { data: inserted } = await admin
-    .from('incidents')
-    .upsert(
-      {
-        trip_id: segment.trip_id,
-        segment_id: segmentId,
-        event_type: event.type,
-        delay_minutes: event.delayMinutes,
-        dedupe_key: `${segmentId}:${event.dedupeSuffix}`,
-        raw_payload: { ...snapshot, source },
-        affected_user_ids: affectedUserIds,
-      },
-      { onConflict: 'dedupe_key', ignoreDuplicates: true },
-    )
-    .select('id');
-  const incidentId = inserted?.[0]?.id ?? null;
-  if (incidentId) await admin.from('incident_events').insert({ incident_id: incidentId, kind: 'detected', detail: { source, type: event.type, delay_minutes: event.delayMinutes } });
+  let incidentId: string | null = null;
+  if (event) {
+    const { data: affected, error: affectedError } = await admin.from('booking_members').select('trip_members!inner(user_id)').eq('booking_id', segment.booking_id);
+    if (affectedError) throw new Error(affectedError.message);
+    const affectedUserIds = (affected ?? []).map((row) => {
+      const member = Array.isArray(row.trip_members) ? row.trip_members[0] : row.trip_members;
+      return member.user_id as string;
+    });
+    const { data: inserted, error: incidentError } = await admin
+      .from('incidents')
+      .upsert(
+        {
+          trip_id: segment.trip_id,
+          segment_id: segmentId,
+          event_type: event.type,
+          delay_minutes: event.delayMinutes,
+          dedupe_key: `${segmentId}:${event.dedupeSuffix}`,
+          raw_payload: { ...snapshot, source },
+          affected_user_ids: affectedUserIds,
+        },
+        { onConflict: 'dedupe_key', ignoreDuplicates: true },
+      )
+      .select('id');
+    if (incidentError) throw new Error(incidentError.message);
+    // Null when an earlier alert or poll already recorded this incident.
+    incidentId = (inserted?.[0]?.id as string | undefined) ?? null;
+    if (incidentId) {
+      check(await admin.from('incident_events').insert({ incident_id: incidentId, kind: 'detected', detail: { source, type: event.type, delay_minutes: event.delayMinutes } }));
+    }
+  }
+  check(await admin.from('booking_segments').update({ last_status: snapshot, fa_flight_id: snapshot.faFlightId }).eq('id', segmentId));
   return { incidentId };
 }
 ```
@@ -4471,6 +5302,7 @@ export async function recordFlightSnapshot(segmentId: string, snapshot: FlightSn
 
 `apps/web/lib/workflows/tokens.ts`:
 ```ts
+export const tripMonitorToken = (tripId: string) => `trip-monitor:${tripId}`;
 export const segmentMonitorToken = (segmentId: string) => `segment-monitor:${segmentId}`;
 export const incidentAnswerToken = (incidentId: string) => `incident-answer:${incidentId}`;
 export const incidentReleaseToken = (incidentId: string) => `incident-release:${incidentId}`;
@@ -4779,9 +5611,10 @@ async function flagTroubleStep(segmentId: string) {
 
 `apps/web/workflows/trip-monitor.ts`:
 ```ts
-import { sleep } from 'workflow';
+import { createHook, sleep } from 'workflow';
 import { start } from 'workflow/api';
 import { workflowPorts } from '@/lib/workflows/ports';
+import { tripMonitorToken } from '@/lib/workflows/tokens';
 import { segmentMonitorWorkflow } from './segment-monitor';
 
 const DAY = 24 * 3600_000;
@@ -4789,20 +5622,28 @@ const DAY = 24 * 3600_000;
 /** Started when a trip pass activates. Fans out one monitor per confirmed segment, briefs the group at T-72h, then ends after the trip. */
 export async function tripMonitorWorkflow(tripId: string) {
   'use workflow';
-  const segmentIds = await listSegmentsStep(tripId);
-  for (const segmentId of segmentIds) await start(segmentMonitorWorkflow, [segmentId]);
+  // The token makes a restart from /admin safe: while a run watches the trip, a second one exits, so the group is never briefed twice.
+  const claim = createHook({ token: tripMonitorToken(tripId) });
+  if (await claim.getConflict()) return { tripId, status: 'duplicate' as const, segments: 0 };
 
-  const timing = await timingStep(tripId);
-  if (timing.firstDeparture) {
-    const briefingAt = new Date(new Date(timing.firstDeparture).getTime() - 3 * DAY);
-    if (briefingAt.getTime() > Date.now()) await sleep(briefingAt);
-    await preTripStep(tripId);
+  try {
+    const segmentIds = await listSegmentsStep(tripId);
+    for (const segmentId of segmentIds) await start(segmentMonitorWorkflow, [segmentId]);
+
+    const timing = await timingStep(tripId);
+    if (timing.firstDeparture) {
+      const briefingAt = new Date(new Date(timing.firstDeparture).getTime() - 3 * DAY);
+      if (briefingAt.getTime() > Date.now()) await sleep(briefingAt);
+      await preTripStep(tripId);
+    }
+    if (timing.tripEnd) {
+      const endAt = new Date(new Date(timing.tripEnd).getTime() + 7 * DAY);
+      if (endAt.getTime() > Date.now()) await sleep(endAt);
+    }
+    return { tripId, status: 'done' as const, segments: segmentIds.length };
+  } finally {
+    claim.dispose();
   }
-  if (timing.tripEnd) {
-    const endAt = new Date(new Date(timing.tripEnd).getTime() + 7 * DAY);
-    if (endAt.getTime() > Date.now()) await sleep(endAt);
-  }
-  return { tripId, segments: segmentIds.length };
 }
 
 async function listSegmentsStep(tripId: string) {
@@ -4858,11 +5699,120 @@ Turn monitoring on:
    const monitorSegmentIds = trip && trip.pass_status !== 'none' ? (ready ?? []).map((s) => s.id as string) : [];
    ```
    Then `return { monitorSegmentIds };`.
-2. In `apps/web/app/api/webhooks/stripe/route.ts`, add `import { start } from 'workflow/api';` and `import { tripMonitorWorkflow } from '@/workflows/trip-monitor';`. After `handleStripeEvent`:
+2. `apps/web/app/api/webhooks/stripe/route.ts` is C1's. Replace the whole file:
    ```ts
-   if (outcome.kind === 'activated') await start(tripMonitorWorkflow, [outcome.tripId]);
+   import type Stripe from 'stripe';
+   import { start } from 'workflow/api';
+   import { requireEnv } from '@/lib/env';
+   import { supabasePassStore } from '@/lib/payments/pass-store';
+   import { handleStripeEvent } from '@/lib/payments/passes';
+   import { stripe } from '@/lib/payments/stripe';
+   import { tripMonitorWorkflow } from '@/workflows/trip-monitor';
+
+   export async function POST(request: Request): Promise<Response> {
+     const body = await request.text();
+     // Resolved outside the try: a missing env var is a 500 we must see, not a 400 that looks like a bad signature.
+     const client = stripe();
+     const secret = requireEnv('STRIPE_WEBHOOK_SECRET');
+     let event: Stripe.Event;
+     try {
+       event = client.webhooks.constructEvent(body, request.headers.get('stripe-signature') ?? '', secret);
+     } catch {
+       return new Response('invalid signature', { status: 400 });
+     }
+     const outcome = await handleStripeEvent(event, supabasePassStore());
+     if (outcome.kind === 'activated') {
+       // handleStripeEvent has marked the event processed, so Stripe will not retry it. A failed start is logged
+       // and answered 200: /admin's "Start monitoring" restarts it (Task 16), and a second run exits at once.
+       try {
+         await start(tripMonitorWorkflow, [outcome.tripId]);
+       } catch (error) {
+         console.error('trip monitor did not start', outcome.tripId, error);
+       }
+     }
+     return Response.json(outcome);
+   }
    ```
-   In C1's `test/payments/webhook-route.test.ts`, add `vi.mock('workflow/api', () => ({ start: async () => ({ runId: 'wrun_test' }) }));` and `vi.mock('@/workflows/trip-monitor', () => ({ tripMonitorWorkflow: async () => undefined }));`.
+3. `apps/web/test/payments/webhook-route.test.ts` is C1's. Replace the whole file, so it also proves activation starts monitoring:
+   ```ts
+   import Stripe from 'stripe';
+   import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+
+   const store = {
+     alreadyProcessed: vi.fn(async () => false),
+     markProcessed: vi.fn(async () => undefined),
+     completePass: vi.fn(async () => ({ anonymousId: null, variant: 'p19', utm: {} })),
+     hasOtherActivePass: vi.fn(async () => false),
+     activateTrip: vi.fn(async () => undefined),
+     recordPaid: vi.fn(async () => undefined),
+   };
+   vi.mock('@/lib/payments/pass-store', () => ({ supabasePassStore: () => store }));
+   const { start } = vi.hoisted(() => ({ start: vi.fn() }));
+   vi.mock('workflow/api', () => ({ start }));
+   vi.mock('@/workflows/trip-monitor', () => ({ tripMonitorWorkflow: 'tripMonitorWorkflow' }));
+
+   beforeAll(() => {
+     process.env.STRIPE_SECRET_KEY = 'sk_test_123';
+     process.env.STRIPE_WEBHOOK_SECRET = 'whsec_test_secret';
+   });
+   beforeEach(() => {
+     start.mockReset().mockResolvedValue({ runId: 'wrun_test' });
+   });
+
+   const payload = JSON.stringify({
+     id: 'evt_route_1',
+     object: 'event',
+     type: 'checkout.session.completed',
+     created: 1_790_000_000,
+     data: { object: { id: 'cs_test_9', object: 'checkout.session', client_reference_id: 'trip-9', payment_status: 'paid', amount_total: 1900 } },
+   });
+
+   function signedRequest() {
+     const signature = new Stripe('sk_test_123').webhooks.generateTestHeaderString({ payload, secret: 'whsec_test_secret' });
+     return new Request('http://test/api/webhooks/stripe', { method: 'POST', body: payload, headers: { 'stripe-signature': signature } });
+   }
+
+   describe('POST /api/webhooks/stripe', () => {
+     it('rejects a bad signature', async () => {
+       const { POST } = await import('@/app/api/webhooks/stripe/route');
+       const res = await POST(new Request('http://test/api/webhooks/stripe', { method: 'POST', body: payload, headers: { 'stripe-signature': 't=1,v1=bad' } }));
+       expect(res.status).toBe(400);
+       for (const fn of Object.values(store)) expect(fn).not.toHaveBeenCalled();
+       expect(start).not.toHaveBeenCalled();
+     });
+
+     it('activates the trip for a correctly signed event, and starts watching it', async () => {
+       const { POST } = await import('@/app/api/webhooks/stripe/route');
+       const res = await POST(signedRequest());
+       expect(res.status).toBe(200);
+       expect(await res.json()).toEqual({ kind: 'activated', tripId: 'trip-9', status: 'paid' });
+       expect(start).toHaveBeenCalledWith('tripMonitorWorkflow', ['trip-9']);
+     });
+
+     it('still answers 200 when monitoring cannot start, and logs it for /admin', async () => {
+       const { POST } = await import('@/app/api/webhooks/stripe/route');
+       start.mockRejectedValueOnce(new Error('queue unavailable'));
+       const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+       const res = await POST(signedRequest());
+       expect(res.status).toBe(200);
+       expect(error).toHaveBeenCalledWith('trip monitor did not start', 'trip-9', expect.any(Error));
+       error.mockRestore();
+     });
+
+     it('answers 500, not 400, when the webhook secret is missing', async () => {
+       const { POST } = await import('@/app/api/webhooks/stripe/route');
+       const saved = process.env.STRIPE_WEBHOOK_SECRET;
+       delete process.env.STRIPE_WEBHOOK_SECRET;
+       try {
+         await expect(POST(new Request('http://test/api/webhooks/stripe', { method: 'POST', body: payload, headers: { 'stripe-signature': 't=1,v1=x' } }))).rejects.toThrow(
+           'STRIPE_WEBHOOK_SECRET',
+         );
+       } finally {
+         process.env.STRIPE_WEBHOOK_SECRET = saved;
+       }
+     });
+   });
+   ```
 
 - [ ] **Step 6: Run the unit and integration tests, typecheck, and build**
 
@@ -4876,17 +5826,22 @@ The plugin bundles steps with `apps/web/tsconfig.json`'s `paths`, so `@/` resolv
 - [ ] **Step 7: Commit**
 
 ```bash
-git add apps/web package-lock.json
+git add apps/web package-lock.json .gitignore
 git commit -F - <<'EOF'
 Watch every confirmed flight with alerts and durable polling
 
-A trip pass starts one monitor run per confirmed segment, idempotent by
-hook token. AeroAPI alerts are recorded directly. Polling is the safety
-net: frequent when no alert could be registered, sparse when one was.
+A trip pass starts one monitor run per trip and per confirmed segment,
+each idempotent by hook token, so monitoring can be restarted safely.
+A failed start never fails the Stripe webhook; it is logged for /admin.
+AeroAPI alerts are recorded directly. Polling is the safety net:
+frequent when no alert could be registered, sparse when one was.
 AeroAPI errors back off and, after three in a row, flag the flight for
 /admin instead of ending its monitoring.
-Snapshots open an incident only for a new cancellation, a diversion, or
-a delay crossing a new band. The group gets a briefing three days out.
+Snapshots open an incident only for a new cancellation, a diversion
+(a delay of unknown length), a departure moved an hour or more, or a
+delay crossing a new band, typed as the facts contract defines them.
+The snapshot is saved only after the incident is. The group gets a
+briefing three days out.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01CZeaGyqM4LkMDPkaein2Sc
@@ -4897,77 +5852,154 @@ EOF
 
 ### Task 10: From a flight event to rule facts, and the one question to ask
 
-> **Controller note (2026-10-02), contract 30b549f.** 14 CFR 260 sets its significant-change and
-> delayed-bag thresholds per itinerary, so `flight.scheduled_duration_minutes` is gone. Change the
-> code below as follows, and add tests for each bullet:
-> - `SituationInput.booking` gains `segments: { originCountry: string | null; destinationCountry: string | null; scheduledOut: string | null; scheduledIn: string | null }[]`, covering every segment on the same booking (ticket).
-> - Set `trip.itinerary_domestic_us` to `false` when any segment has a known country outside `US_JURISDICTION`. Set it to `true` only when every segment's countries are known and all are in `US_JURISDICTION`. Otherwise leave it unset.
-> - Set `trip.us_foreign_nonstop_minutes` to the scheduled minutes of the segment with exactly one end in `US_JURISDICTION` on the same journey as the event's segment. When the booking has both an outbound and a return US–foreign segment, use the one nearest in time to the event's segment. Leave it unset when no such segment has both scheduled times.
-> - Delete the `flight.scheduled_duration_minutes` line.
-> - Tests must cover:
->   - a domestic connection on an international ticket gives `itinerary_domestic_us: false` while `flight.is_domestic_us: true`
->   - a US-only ticket gives `true`
->   - an unknown country leaves the fact unset
->   - a round trip picks the same-direction US–foreign segment
+A flight event becomes the `Situation` the rules match on. The facts come from the disrupted flight, from AeroAPI's snapshots of it, from the whole booking it is on, and from any rebooking the airline sent. Contract 30b549f made the Part 260 thresholds itinerary-level, contract bd7e847 made the 24-hour rule booking-level, and contract 1bc652c added EU261's facts: the disrupted flight's own departure delay and distance, the EU scope of its journey, and the re-routing the airline offered. Every fact is set only when it is known, so `matchRules` says "may apply, needs X" instead of guessing:
+
+| Fact | Derived from | Unset when |
+|---|---|---|
+| `event.at_us_airport` | Where the travelers are stranded: the departure airport, for a cancellation, a delay, or a schedule change | the flight was diverted (Task 9 records a diversion as a delay), or the origin country is unknown |
+| `event.departure_delay_minutes` | For a delay: the latest departure AeroAPI expected or recorded (`estimatedOut` or `actualOut`, over the snapshot that raised the incident and the latest one) minus the booked departure. The longer of the expected and the actual delay counts, as the contract says. | the event is not a delay, or AeroAPI has shown no estimate or actual time |
+| `event.departure_moved_earlier_minutes` | For a schedule change: the booked departure minus AeroAPI's new one, or 0 if it is not earlier | the event is not a schedule change, or no snapshot shows the new departure |
+| `event.reroute_departs_early_minutes` and `event.reroute_arrival_delay_minutes` | For a cancellation or a schedule change: the offered re-routing, from a forwarded rebooking (Task 12 loads it) or, for a schedule change, the changed flight itself. The first measures how far before the booked departure it leaves, and the second how far after the booked arrival it reaches the journey's final destination; each is 0 if not earlier or later. Of several offers, the one reported is the soonest to arrive among those that leave within 1 hour (notice under 7 days) or 2 hours (notice under 14 days) of the booked departure. | no offer is known, so the planner is asked. The arrival alone is also unset while the offer's connections don't hold up to the final destination. |
+| `flight.leg_distance_km` | Task 4's great-circle distance of the disrupted flight (`distance_km`) | Task 4 has not resolved the flight, or found no coordinates for its airports |
+| `flight.distance_km` | Great-circle distance from the journey's first airport to its final destination, from AeroAPI coordinates, to the nearest 10 km | the journey, or the coordinates of either end, is unknown |
+| `flight.departs_eu` and `flight.arrives_eu` | `EU_MEMBER_STATES`: the 27 states with their outermost regions; not the Faroe Islands, Greenland, Iceland, Norway, or Switzerland | the country is unknown |
+| `flight.departs_iceland_norway_switzerland` | The origin is in `ICELAND_NORWAY_SWITZERLAND` | the origin country is unknown |
+| `flight.single_ticket` | The booking holds more than one flight | the booking holds one flight |
+| `trip.journey_departs_eu` and `trip.journey_arrives_eu` | The journey's first origin, or its final destination, is in `EU_MEMBER_STATES` | the journey, or that end's country, is unknown |
+| `trip.touches_us` | Any flight on the booking starts or ends in `US_JURISDICTION` | no known U.S. end, and some country is unknown |
+| `trip.itinerary_domestic_us` | `false` if any flight has a known end outside `US_JURISDICTION`; `true` only if every end is known and in it | otherwise |
+| `trip.us_foreign_nonstop_minutes` | Scheduled minutes of the journey's one flight with exactly one U.S. end | the journey is unknown, a country on it is unknown, it has no such flight or more than one, or that flight's times are unknown |
+| `trip.booked_with_us_carrier` | Every flight on the booking is a U.S. airline's (`true`) or none is (`false`) | the airlines are mixed |
+| `trip.hours_booked_before_departure` | From the latest moment the printed booking time can mean (the end of that day or minute, at UTC−12) to the first flight's scheduled departure, rounded down. A lower bound, so an "at least N hours ahead" rule applies only when it certainly does. | no booking time was extracted, or a flight's departure is unknown |
+| `passenger.volunteered` | Never derived. It is a planner question: "Did anyone give up their seat when the airline asked for volunteers?" | until the planner answers |
+
+**The journey** is the set of flights on the booking that take the passenger to the final destination in the disrupted flight's direction. `journeyOf` builds it: a flight joins the one before it when it leaves the airport that flight reached, within 24 hours. A longer gap is a stopover, so outbound and return are separate journeys. `trip.us_foreign_nonstop_minutes` uses the same helper, which replaces its old "crossing nearest in time" rule, so the two facts can never disagree about which way the passenger is going. While a connection's times are unknown, the journey is unknown, and so is every fact built on it.
+
+**Offers.** A forwarded rebooking often repeats the flights that did not change, so a re-routing starts at its first flight that is not on the booking. Its arrival counts only if every flight from there lands before the next one leaves, up to one that reaches the journey's final destination. A changed feeder flight that still makes its connection leaves the booked arrival as it was.
+
+`flight.scheduled_duration_minutes` and `trip.days_until_departure` are gone from the contract, and nothing here sets them. C2's monitoring raises only `cancellation`, `delay`, and `schedule_change`, so `denied_boarding` (an oversold flight, per bd7e847) and its replacement-arrival delay never come from AeroAPI. Task 9 types those three as contract 1bc652c defines `event.type`:
+- A flight AeroAPI marks cancelled is a cancellation.
+- The same flight moved to another time is a schedule change.
+- A diversion is a delay of unknown length.
 
 **Files:**
-- Create: `apps/web/lib/assist/regions.ts`, `apps/web/lib/assist/carriers.ts`, `apps/web/lib/assist/situation.ts`, `apps/web/lib/assist/questions.ts`, `apps/web/test/assist/situation.test.ts`, `apps/web/test/assist/scenarios.test.ts`, `apps/web/test/assist/questions.test.ts`
+- Create: `apps/web/lib/assist/carriers.ts`, `apps/web/lib/assist/situation.ts`, `apps/web/lib/assist/questions.ts`, `apps/web/test/assist/situation.test.ts`, `apps/web/test/assist/scenarios.test.ts`, `apps/web/test/assist/questions.test.ts`
+- Modify: `apps/web/lib/flights/regions.ts` (Task 7's; add `EU_MEMBER_STATES`, `ICELAND_NORWAY_SWITZERLAND`, and `UK`)
 
 **Interfaces:**
-- Consumes: from `@elsewhere/rules`, `matchRules`, `MatchResult`, `Situation`, `Primitive`, and `Rule`, including the facts `flight.departs_us` and `flight.scheduled_duration_minutes` from Track A's Task 18 amendment. C1's fixture library.
+- Consumes:
+  - From `@elsewhere/rules/core`: `matchRules`, `MatchResult`, `Situation`, `Primitive`, `Rule`, `FactName`, `FACTS`, and `isFactName`, with every fact above in `FACTS` (Track A after contracts 30b549f, bd7e847, and 1bc652c). `matchRules` validates the situation and throws `FactValueError` on a fact it doesn't know.
+  - Task 4: `haversineKm`, and the per-flight `distance_km` it computes in `resolveSegment`
+  - Task 7: `US_JURISDICTION`
+  - Task 9: the `FlightSnapshot` fields `ObservedFlight` reads, and its event types
+  - Task 3: the `YYYY-MM-DD` or `YYYY-MM-DDTHH:mm` shape of `bookedAt`
+  - C1's fixture library
 - Produces:
-  - **Region sets:** `US_JURISDICTION`, `EU261_SCOPE`, `UK`
+  - **Region sets** (`lib/flights/regions.ts`): `US_JURISDICTION` (Task 7), `EU_MEMBER_STATES`, `ICELAND_NORWAY_SWITZERLAND`, `UK`
   - **Carrier sets:** `US_CARRIERS`, `EU_CARRIERS`
   - **Situation:**
-    - `SituationInput = { event: { type: 'cancellation' | 'delay' | 'schedule_change'; delayMinutes: number | null; detectedAt: string }; segment: { carrierIata; originCountry: string | null; destinationCountry: string | null; distanceKm: number | null; scheduledOut: string | null; scheduledIn: string | null }; booking: { bookedVia: string | null; segmentCount: number }; answers: Record<string, Primitive> }`
+    - `ItinerarySegment = { carrierIata: string; originIata: string; destinationIata: string; originCountry: string | null; destinationCountry: string | null; scheduledOut: string | null; scheduledIn: string | null }`
+    - `ObservedFlight = { diverted: boolean; scheduledOut: string | null; estimatedOut: string | null; actualOut: string | null; scheduledIn: string | null }`. Task 9's `FlightSnapshot` satisfies it.
+    - `SituationInput = { event: { type: 'cancellation' | 'delay' | 'schedule_change'; delayMinutes: number | null; detectedAt: string; observed: ObservedFlight[]; offers: ItinerarySegment[][] }; segment: ItinerarySegment & { distanceKm: number | null }; booking: { bookedVia: string | null; bookedAt: string | null; segments: ItinerarySegment[] }; airports: Record<string, { latitude: number; longitude: number }>; answers: Record<string, Primitive> }`
+      - `booking.segments` holds every flight on the booking, the disrupted one included, in the order flown.
+      - `observed` holds AeroAPI's snapshots of the disrupted flight, oldest first.
+      - `offers` holds the forwarded rebookings, each with its flights in order.
+      - `airports` holds coordinates by IATA code.
     - `buildSituation(input): Situation`
   - **Questions:**
     - `PlannerQuestion = { fact: string; prompt: string; options: { value: string; label: string }[] }`
     - `PlannerAnswer = { fact: string; value: string }`
-    - `ASK_ORDER`
+    - `ASK_ORDER = ['passenger.accepted_alternative', 'event.reroute_arrival_delay_minutes', 'event.reroute_departs_early_minutes', 'passenger.volunteered', 'event.cause']`
     - `nextQuestion(results, alreadyAsked): PlannerQuestion | null`
-    - `answerValue(answer): Primitive`
+    - `answerValue(answer): Primitive`, which returns a number for a number fact
 
-- [ ] **Step 1: Write the failing tests**
+- [ ] **Step 1: Check that Track A's facts are on this branch**
+
+The controller merges Track A into `restart/track-c` before this task. Confirm it landed:
+```bash
+for fact in flight.departs_us event.at_us_airport passenger.volunteered trip.hours_booked_before_departure \
+            trip.touches_us trip.booked_with_us_carrier trip.itinerary_domestic_us trip.us_foreign_nonstop_minutes \
+            event.departure_delay_minutes event.departure_moved_earlier_minutes event.reroute_departs_early_minutes \
+            event.reroute_arrival_delay_minutes flight.leg_distance_km flight.departs_iceland_norway_switzerland \
+            trip.journey_departs_eu trip.journey_arrives_eu; do
+  grep -q "'$fact'" packages/rules/src/facts.ts && echo "ok $fact" || echo "MISSING $fact"
+done
+grep -c "'trip.days_until_departure'\|'flight.scheduled_duration_minutes'" packages/rules/src/facts.ts
+```
+Expected: sixteen `ok` lines, then `0`. If any fact is missing, stop and ask the controller to merge Track A. Without those facts, the scenario tests throw `FactValueError`, and typecheck fails on the fact names.
+
+- [ ] **Step 2: Write the failing tests**
 
 `apps/web/test/assist/situation.test.ts`:
 ```ts
 import { describe, expect, it } from 'vitest';
-import { buildSituation } from '@/lib/assist/situation';
+import { buildSituation, type ItinerarySegment, type ObservedFlight, type SituationInput } from '@/lib/assist/situation';
+
+const AIRPORTS = {
+  ORD: { latitude: 41.9786, longitude: -87.9048 },
+  EWR: { latitude: 40.6925, longitude: -74.1687 },
+  LIS: { latitude: 38.7813, longitude: -9.13592 },
+};
 
 describe('buildSituation', () => {
-  it('fills every flight fact it can, including departs_us and scheduled duration', () => {
+  it('fills every flight and trip fact it can', () => {
     expect(
       buildSituation({
-        event: { type: 'cancellation', delayMinutes: null, detectedAt: '2026-11-01T12:00:00Z' },
-        segment: { carrierIata: 'TP', originCountry: 'US', destinationCountry: 'PT', distanceKm: 5450, scheduledOut: '2026-11-03T23:15:00Z', scheduledIn: '2026-11-04T06:35:00Z' },
-        booking: { bookedVia: 'Expedia', segmentCount: 1 },
+        event: {
+          type: 'cancellation',
+          delayMinutes: null,
+          detectedAt: '2026-11-01T12:00:00Z',
+          observed: [],
+          // The rebooking the airline sent: the same flight a day later.
+          offers: [[{ carrierIata: 'TP', originIata: 'EWR', destinationIata: 'LIS', originCountry: 'US', destinationCountry: 'PT', scheduledOut: '2026-11-04T23:15:00Z', scheduledIn: '2026-11-05T06:35:00Z' }]],
+        },
+        segment: { carrierIata: 'TP', originIata: 'EWR', destinationIata: 'LIS', originCountry: 'US', destinationCountry: 'PT', distanceKm: 5430, scheduledOut: '2026-11-03T23:15:00Z', scheduledIn: '2026-11-04T06:35:00Z' },
+        booking: {
+          bookedVia: 'Expedia',
+          bookedAt: '2026-10-01',
+          segments: [{ carrierIata: 'TP', originIata: 'EWR', destinationIata: 'LIS', originCountry: 'US', destinationCountry: 'PT', scheduledOut: '2026-11-03T23:15:00Z', scheduledIn: '2026-11-04T06:35:00Z' }],
+        },
+        airports: AIRPORTS,
         answers: { 'passenger.accepted_alternative': false },
       }),
     ).toEqual({
       'event.type': 'cancellation',
       'event.notice_days': 2,
+      'event.at_us_airport': true,
+      'event.reroute_departs_early_minutes': 0,
+      'event.reroute_arrival_delay_minutes': 1440,
       'flight.carrier_iata': 'TP',
       'flight.carrier_is_us': false,
       'flight.carrier_is_eu': true,
       'flight.departs_us': true,
       'flight.departs_eu': false,
+      'flight.departs_iceland_norway_switzerland': false,
       'flight.departs_uk': false,
       'flight.arrives_eu': true,
       'flight.touches_us': true,
       'flight.is_domestic_us': false,
-      'flight.distance_km': 5450,
-      'flight.scheduled_duration_minutes': 440,
+      'flight.leg_distance_km': 5430,
+      'flight.distance_km': 5430,
       'trip.booked_via': 'ota',
+      'trip.touches_us': true,
+      'trip.itinerary_domestic_us': false,
+      'trip.booked_with_us_carrier': false,
+      'trip.us_foreign_nonstop_minutes': 440,
+      'trip.hours_booked_before_departure': 779,
+      'trip.journey_departs_eu': false,
+      'trip.journey_arrives_eu': true,
       'passenger.accepted_alternative': false,
     });
   });
 
   it('leaves unknown facts out instead of guessing', () => {
+    const unresolved = { carrierIata: 'UA', originCountry: null, destinationCountry: null, scheduledOut: null, scheduledIn: null };
+    const feeder = { ...unresolved, originIata: 'ORD', destinationIata: 'EWR' };
     const situation = buildSituation({
-      event: { type: 'delay', delayMinutes: 200, detectedAt: '2026-11-03T20:00:00Z' },
-      segment: { carrierIata: 'UA', originCountry: null, destinationCountry: null, distanceKm: null, scheduledOut: null, scheduledIn: null },
-      booking: { bookedVia: null, segmentCount: 2 },
+      event: { type: 'delay', delayMinutes: 200, detectedAt: '2026-11-03T20:00:00Z', observed: [], offers: [] },
+      segment: { ...feeder, distanceKm: null },
+      booking: { bookedVia: null, bookedAt: '2026-10-01', segments: [feeder, { ...unresolved, originIata: 'EWR', destinationIata: 'LIS' }] },
+      airports: {},
       answers: {},
     });
     expect(situation).toEqual({
@@ -4978,29 +6010,250 @@ describe('buildSituation', () => {
       'flight.carrier_is_eu': false,
       'flight.single_ticket': true,
       'trip.booked_via': 'direct',
+      'trip.booked_with_us_carrier': true,
     });
   });
 });
+
+const COUNTRY: Record<string, string> = { ORD: 'US', EWR: 'US', SJU: 'PR', LIS: 'PT', CDG: 'FR', PTP: 'GP', KEF: 'IS', ZRH: 'CH', FAE: 'FO', GOH: 'GL' };
+const leg = (carrierIata: string, originIata: string, destinationIata: string, scheduledOut: string | null, scheduledIn: string | null): ItinerarySegment => ({
+  carrierIata,
+  originIata,
+  destinationIata,
+  originCountry: COUNTRY[originIata] ?? null,
+  destinationCountry: COUNTRY[destinationIata] ?? null,
+  scheduledOut,
+  scheduledIn,
+});
+// ORD → EWR → LIS and back, all on one ticket.
+const roundTrip = [
+  leg('UA', 'ORD', 'EWR', '2026-11-03T18:00:00Z', '2026-11-03T20:30:00Z'),
+  leg('TP', 'EWR', 'LIS', '2026-11-03T23:15:00Z', '2026-11-04T06:35:00Z'),
+  leg('TP', 'LIS', 'EWR', '2026-11-10T12:00:00Z', '2026-11-10T20:20:00Z'),
+  leg('UA', 'EWR', 'ORD', '2026-11-10T23:00:00Z', '2026-11-11T01:45:00Z'),
+];
+const situation = (
+  flight: ItinerarySegment,
+  segments: ItinerarySegment[],
+  extra: {
+    bookedAt?: string;
+    type?: SituationInput['event']['type'];
+    observed?: ObservedFlight[];
+    offers?: ItinerarySegment[][];
+    distanceKm?: number;
+    airports?: SituationInput['airports'];
+  } = {},
+) =>
+  buildSituation({
+    event: { type: extra.type ?? 'delay', delayMinutes: null, detectedAt: '2026-11-01T12:00:00Z', observed: extra.observed ?? [], offers: extra.offers ?? [] },
+    segment: { ...flight, distanceKm: extra.distanceKm ?? null },
+    booking: { bookedVia: null, bookedAt: extra.bookedAt ?? null, segments },
+    airports: extra.airports ?? {},
+    answers: {},
+  });
+/** What AeroAPI shows for a flight: its schedule, the airline's estimate, and when it actually left. */
+const seen = (flight: ItinerarySegment, change: Partial<ObservedFlight> = {}): ObservedFlight => ({
+  diverted: false,
+  scheduledOut: flight.scheduledOut,
+  estimatedOut: flight.scheduledOut,
+  actualOut: null,
+  scheduledIn: flight.scheduledIn,
+  ...change,
+});
+
+describe('itinerary facts', () => {
+  it('treats a domestic connection on an international ticket as part of an international itinerary', () => {
+    const s = situation(roundTrip[0], roundTrip);
+    expect(s['flight.is_domestic_us']).toBe(true);
+    expect(s['trip.itinerary_domestic_us']).toBe(false);
+    expect(s['trip.touches_us']).toBe(true);
+  });
+
+  it('calls a U.S.-only ticket, territories included, a domestic itinerary', () => {
+    const domestic = [roundTrip[0], leg('UA', 'EWR', 'SJU', '2026-11-04T01:00:00Z', '2026-11-04T05:10:00Z')];
+    expect(situation(domestic[0], domestic)['trip.itinerary_domestic_us']).toBe(true);
+  });
+
+  it('leaves the itinerary facts unset while a country is unknown', () => {
+    const partial = [roundTrip[0], { ...leg('UA', 'EWR', 'SJU', '2026-11-04T01:00:00Z', null), destinationCountry: null }];
+    const s = situation(partial[0], partial);
+    expect(s).not.toHaveProperty('trip.itinerary_domestic_us');
+    expect(s).not.toHaveProperty('trip.us_foreign_nonstop_minutes');
+    expect(s['trip.touches_us']).toBe(true);
+  });
+
+  it('times the U.S.–foreign nonstop on the same journey as the disrupted flight', () => {
+    expect(situation(roundTrip[0], roundTrip)['trip.us_foreign_nonstop_minutes']).toBe(440);
+    expect(situation(roundTrip[3], roundTrip)['trip.us_foreign_nonstop_minutes']).toBe(500);
+  });
+
+  it('counts hours booked ahead from the latest moment the printed booking time can mean', () => {
+    expect(situation(roundTrip[1], roundTrip, { bookedAt: '2026-10-01' })['trip.hours_booked_before_departure']).toBe(774);
+    expect(situation(roundTrip[1], roundTrip, { bookedAt: '2026-10-27T09:30' })['trip.hours_booked_before_departure']).toBe(164);
+    expect(situation(roundTrip[1], roundTrip)).not.toHaveProperty('trip.hours_booked_before_departure');
+  });
+
+  it('knows the booking airline only when every flight on the booking agrees', () => {
+    expect(situation(roundTrip[0], [roundTrip[0], roundTrip[3]])['trip.booked_with_us_carrier']).toBe(true);
+    expect(situation(roundTrip[1], [roundTrip[1], roundTrip[2]])['trip.booked_with_us_carrier']).toBe(false);
+    expect(situation(roundTrip[0], roundTrip)).not.toHaveProperty('trip.booked_with_us_carrier');
+  });
+
+  it('places a cancellation, a delay, or a schedule change at the departure airport, and leaves a diversion unplaced', () => {
+    expect(situation(roundTrip[1], roundTrip, { type: 'cancellation' })['event.at_us_airport']).toBe(true);
+    expect(situation(roundTrip[2], roundTrip, { type: 'delay' })['event.at_us_airport']).toBe(false);
+    expect(situation(roundTrip[1], roundTrip, { type: 'schedule_change' })['event.at_us_airport']).toBe(true);
+    // Task 9 records a diversion as a delay; the travelers are wherever the aircraft landed.
+    expect(situation(roundTrip[1], roundTrip, { observed: [seen(roundTrip[1], { diverted: true })] })).not.toHaveProperty('event.at_us_airport');
+  });
+
+  it('never sets passenger.volunteered itself; only the planner’s answer does', () => {
+    expect(situation(roundTrip[1], roundTrip)).not.toHaveProperty('passenger.volunteered');
+  });
+});
+
+describe('EU261 facts', () => {
+  it('reports the longer of the airline’s expected departure delay and the actual one, for that flight only', () => {
+    const flight = roundTrip[1]; // scheduled to leave EWR at 23:15
+    // AeroAPI expected 03:15 (4 hours late), then the flight left at 02:45: the 4 hours the airline expected count.
+    const shrank = [seen(flight, { estimatedOut: '2026-11-04T03:15:00Z' }), seen(flight, { estimatedOut: '2026-11-04T02:45:00Z', actualOut: '2026-11-04T02:45:00Z' })];
+    expect(situation(flight, roundTrip, { observed: shrank })['event.departure_delay_minutes']).toBe(240);
+    // Expected 1 hour late, then it left 3 h 05 min late: the actual delay counts.
+    const grew = [seen(flight, { estimatedOut: '2026-11-04T00:15:00Z' }), seen(flight, { estimatedOut: '2026-11-04T02:20:00Z', actualOut: '2026-11-04T02:20:00Z' })];
+    expect(situation(flight, roundTrip, { observed: grew })['event.departure_delay_minutes']).toBe(185);
+    expect(situation(flight, roundTrip)).not.toHaveProperty('event.departure_delay_minutes');
+    expect(situation(flight, roundTrip, { type: 'cancellation', observed: shrank })).not.toHaveProperty('event.departure_delay_minutes');
+  });
+
+  it('measures the disrupted flight and its whole journey separately', () => {
+    const outbound = situation(roundTrip[1], roundTrip, { distanceKm: 5430, airports: AIRPORTS });
+    expect(outbound['flight.leg_distance_km']).toBe(5430);
+    // ORD to LIS, the journey's first departure to its final destination.
+    expect(outbound['flight.distance_km']).toBe(6440);
+    expect(situation(roundTrip[3], roundTrip, { airports: AIRPORTS })['flight.distance_km']).toBe(6440);
+    expect(situation(roundTrip[1], roundTrip, { airports: { EWR: AIRPORTS.EWR, LIS: AIRPORTS.LIS } })).not.toHaveProperty('flight.distance_km');
+    expect(situation(roundTrip[1], roundTrip)).not.toHaveProperty('flight.leg_distance_km');
+  });
+
+  it('scopes EU departure and arrival to the journey in the disrupted flight’s direction', () => {
+    expect(situation(roundTrip[0], roundTrip)).toMatchObject({
+      'flight.departs_eu': false,
+      'flight.arrives_eu': false,
+      'trip.journey_departs_eu': false,
+      'trip.journey_arrives_eu': true,
+    });
+    expect(situation(roundTrip[3], roundTrip)).toMatchObject({ 'trip.journey_departs_eu': true, 'trip.journey_arrives_eu': false });
+    // While a connection's times are unknown, so is where the journey ends.
+    const unresolved = [roundTrip[0], { ...roundTrip[1], scheduledOut: null, scheduledIn: null }];
+    expect(situation(roundTrip[0], unresolved)).not.toHaveProperty('trip.journey_arrives_eu');
+  });
+
+  it('counts EU states with their outermost regions, and Iceland, Norway, and Switzerland apart', () => {
+    const departing = (originIata: string) => {
+      const flight = leg('FI', originIata, 'EWR', '2026-11-03T08:00:00Z', '2026-11-03T16:00:00Z');
+      return situation(flight, [flight]);
+    };
+    expect(departing('CDG')).toMatchObject({ 'flight.departs_eu': true, 'flight.departs_iceland_norway_switzerland': false });
+    expect(departing('PTP')).toMatchObject({ 'flight.departs_eu': true, 'flight.departs_iceland_norway_switzerland': false });
+    expect(departing('KEF')).toMatchObject({ 'flight.departs_eu': false, 'flight.departs_iceland_norway_switzerland': true });
+    expect(departing('ZRH')).toMatchObject({ 'flight.departs_eu': false, 'flight.departs_iceland_norway_switzerland': true });
+    expect(departing('FAE')).toMatchObject({ 'flight.departs_eu': false, 'flight.departs_iceland_norway_switzerland': false });
+    expect(departing('GOH')).toMatchObject({ 'flight.departs_eu': false, 'flight.departs_iceland_norway_switzerland': false });
+  });
+
+  it('measures how far a schedule change moved the departure earlier, and 0 when it moved later', () => {
+    const flight = roundTrip[1];
+    const moved = (scheduledOut: string, scheduledIn: string) => [seen(flight, { scheduledOut, estimatedOut: scheduledOut, scheduledIn })];
+    expect(situation(flight, roundTrip, { type: 'schedule_change', observed: moved('2026-11-03T21:45:00Z', '2026-11-04T05:05:00Z') })['event.departure_moved_earlier_minutes']).toBe(90);
+    expect(situation(flight, roundTrip, { type: 'schedule_change', observed: moved('2026-11-04T01:15:00Z', '2026-11-04T08:35:00Z') })['event.departure_moved_earlier_minutes']).toBe(0);
+    expect(situation(flight, roundTrip, { type: 'schedule_change' })).not.toHaveProperty('event.departure_moved_earlier_minutes');
+    expect(situation(flight, roundTrip, { observed: moved('2026-11-03T21:45:00Z', '2026-11-04T05:05:00Z') })).not.toHaveProperty('event.departure_moved_earlier_minutes');
+  });
+
+  it('treats the changed flight as the re-routing offer for a schedule change', () => {
+    const change = (flight: ItinerarySegment, scheduledOut: string, scheduledIn: string) =>
+      situation(flight, roundTrip, { type: 'schedule_change', observed: [seen(flight, { scheduledOut, estimatedOut: scheduledOut, scheduledIn })] });
+    expect(change(roundTrip[1], '2026-11-03T21:45:00Z', '2026-11-04T05:05:00Z')).toMatchObject({
+      'event.reroute_departs_early_minutes': 90,
+      'event.reroute_arrival_delay_minutes': 0,
+    });
+    expect(change(roundTrip[1], '2026-11-04T01:15:00Z', '2026-11-04T08:35:00Z')).toMatchObject({
+      'event.reroute_departs_early_minutes': 0,
+      'event.reroute_arrival_delay_minutes': 120,
+    });
+    // A changed feeder that still makes its connection leaves the arrival in LIS as booked.
+    expect(change(roundTrip[0], '2026-11-03T19:00:00Z', '2026-11-03T21:30:00Z')).toMatchObject({
+      'event.reroute_departs_early_minutes': 0,
+      'event.reroute_arrival_delay_minutes': 0,
+    });
+    // One that lands after the connection leaves makes the arrival unknown.
+    const missed = change(roundTrip[0], '2026-11-03T22:30:00Z', '2026-11-04T01:00:00Z');
+    expect(missed['event.reroute_departs_early_minutes']).toBe(0);
+    expect(missed).not.toHaveProperty('event.reroute_arrival_delay_minutes');
+  });
+
+  it('reads a cancellation’s re-routing from a forwarded rebooking, and leaves it unset until one is known', () => {
+    // The rebooking repeats the unchanged feeder, then the new flight a day later.
+    const rebooking = [roundTrip[0], leg('TP', 'EWR', 'LIS', '2026-11-04T23:15:00Z', '2026-11-05T06:35:00Z')];
+    expect(situation(roundTrip[1], roundTrip, { type: 'cancellation', offers: [rebooking] })).toMatchObject({
+      'event.reroute_departs_early_minutes': 0,
+      'event.reroute_arrival_delay_minutes': 1440,
+    });
+    const unknown = situation(roundTrip[1], roundTrip, { type: 'cancellation' });
+    expect(unknown).not.toHaveProperty('event.reroute_departs_early_minutes');
+    expect(unknown).not.toHaveProperty('event.reroute_arrival_delay_minutes');
+    expect(situation(roundTrip[1], roundTrip, { type: 'delay', offers: [rebooking] })).not.toHaveProperty('event.reroute_departs_early_minutes');
+  });
+
+  it('reports, of several offers, the soonest arrival among those leaving within the notice limit', () => {
+    const offer = (scheduledOut: string, scheduledIn: string) => [leg('TP', 'EWR', 'LIS', scheduledOut, scheduledIn)];
+    // Told 2 days ahead, so the limit is 1 hour early. The 2-hours-early flight arrives soonest, but is outside it.
+    const offers = [offer('2026-11-03T21:15:00Z', '2026-11-04T04:35:00Z'), offer('2026-11-04T10:00:00Z', '2026-11-04T17:20:00Z'), offer('2026-11-03T22:45:00Z', '2026-11-04T06:05:00Z')];
+    expect(situation(roundTrip[1], roundTrip, { type: 'cancellation', offers })).toMatchObject({
+      'event.reroute_departs_early_minutes': 30,
+      'event.reroute_arrival_delay_minutes': 0,
+    });
+    // With no offer inside the limit, any is reported.
+    expect(situation(roundTrip[1], roundTrip, { type: 'cancellation', offers: [offers[0]] })['event.reroute_departs_early_minutes']).toBe(120);
+  });
+});
 ```
+The first departure in `roundTrip` is Nov 3 at 18:00 UTC. A booking dated Oct 1 could have been made as late as Oct 2, 12:00 UTC (the end of Oct 1 at UTC−12): 774 hours ahead. One printed as Oct 27, 09:30 could be as late as Oct 27, 21:31 UTC: 164 hours, just under a week. EWR to LIS is 5,433 km, and ORD to LIS is 6,435 km, so 5,430 and 6,440 to the nearest 10.
 
 `apps/web/test/assist/scenarios.test.ts`. These are the old mock trip guides, ported as situation-to-expected-rules cases. The source is `git show archive/mobile-expo-2026-10:apps/api/lib/assist/mock-trip-guides.ts`.
 ```ts
 import { matchRules, type Rule, type RulesLibrary } from '@elsewhere/rules/core';
 import { describe, expect, it } from 'vitest';
 import fixture from '../fixtures/rules-library.json';
-import { buildSituation, type SituationInput } from '@/lib/assist/situation';
+import { buildSituation, type ItinerarySegment, type SituationInput } from '@/lib/assist/situation';
 
 // Incidents match flight and money rules only, the same filter assess() applies.
 const rules = ((fixture as unknown as RulesLibrary).rules as Rule[]).filter((r) => r.domain === 'flights' || r.domain === 'money');
 const at = '2026-11-01T12:00:00Z';
 
+/** A one-flight booking: the disrupted flight is the whole ticket. */
+function nonstop(flight: SituationInput['segment']): ItinerarySegment[] {
+  const { distanceKm: _distance, ...segment } = flight;
+  return [segment];
+}
+
+/** An event as monitoring raises it, before any AeroAPI times or rebooking are attached. */
+const event = (type: SituationInput['event']['type'], delayMinutes: number | null): SituationInput['event'] => ({ type, delayMinutes, detectedAt: at, observed: [], offers: [] });
+
+const tokyo = { carrierIata: 'UA', originIata: 'SFO', destinationIata: 'HND', originCountry: 'US', destinationCountry: 'JP', distanceKm: 8280, scheduledOut: '2026-11-21T18:00:00Z', scheduledIn: '2026-11-22T05:00:00Z' };
+const paris = { carrierIata: 'DL', originIata: 'JFK', destinationIata: 'CDG', originCountry: 'US', destinationCountry: 'FR', distanceKm: 5840, scheduledOut: '2026-11-10T23:00:00Z', scheduledIn: '2026-11-11T06:30:00Z' };
+const santorini = { carrierIata: 'A3', originIata: 'ATH', destinationIata: 'JTR', originCountry: 'GR', destinationCountry: 'GR', distanceKm: 230, scheduledOut: '2026-11-05T09:00:00Z', scheduledIn: '2026-11-05T09:50:00Z' };
+const lisbon = { carrierIata: 'TP', originIata: 'EWR', destinationIata: 'LIS', originCountry: 'US', destinationCountry: 'PT', distanceKm: 5430, scheduledOut: '2026-11-03T23:15:00Z', scheduledIn: '2026-11-04T06:35:00Z' };
+const bali = { carrierIata: 'SQ', originIata: 'SIN', destinationIata: 'SFO', originCountry: 'SG', destinationCountry: 'US', distanceKm: 13590, scheduledOut: '2026-11-12T01:00:00Z', scheduledIn: '2026-11-12T16:00:00Z' };
+
 const scenarios: { name: string; input: SituationInput; applies: string[]; mayApply: string[] }[] = [
   {
     name: 'Tokyo: UA 875 SFO→HND cancelled, nobody took the rebooking',
     input: {
-      event: { type: 'cancellation', delayMinutes: null, detectedAt: at },
-      segment: { carrierIata: 'UA', originCountry: 'US', destinationCountry: 'JP', distanceKm: 8280, scheduledOut: '2026-11-21T18:00:00Z', scheduledIn: '2026-11-22T05:00:00Z' },
-      booking: { bookedVia: null, segmentCount: 1 },
+      event: event('cancellation', null),
+      segment: tokyo,
+      booking: { bookedVia: null, bookedAt: null, segments: nonstop(tokyo) },
+      airports: {},
       answers: { 'passenger.accepted_alternative': false },
     },
     applies: ['fixture-us-refund-cancelled-flight'],
@@ -5010,9 +6263,10 @@ const scenarios: { name: string; input: SituationInput; applies: string[]; mayAp
   {
     name: 'Paris: DL 8606 JFK→CDG four hours late on a US carrier',
     input: {
-      event: { type: 'delay', delayMinutes: 240, detectedAt: at },
-      segment: { carrierIata: 'DL', originCountry: 'US', destinationCountry: 'FR', distanceKm: 5840, scheduledOut: '2026-11-10T23:00:00Z', scheduledIn: '2026-11-11T06:30:00Z' },
-      booking: { bookedVia: null, segmentCount: 1 },
+      event: event('delay', 240),
+      segment: paris,
+      booking: { bookedVia: null, bookedAt: null, segments: nonstop(paris) },
+      airports: {},
       answers: {},
     },
     applies: [],
@@ -5021,9 +6275,10 @@ const scenarios: { name: string; input: SituationInput; applies: string[]; mayAp
   {
     name: 'Santorini: A3 349 ATH→JTR over three hours late',
     input: {
-      event: { type: 'delay', delayMinutes: 200, detectedAt: at },
-      segment: { carrierIata: 'A3', originCountry: 'GR', destinationCountry: 'GR', distanceKm: 230, scheduledOut: '2026-11-05T09:00:00Z', scheduledIn: '2026-11-05T09:50:00Z' },
-      booking: { bookedVia: null, segmentCount: 1 },
+      event: event('delay', 200),
+      segment: santorini,
+      booking: { bookedVia: null, bookedAt: null, segments: nonstop(santorini) },
+      airports: {},
       answers: {},
     },
     applies: ['fixture-eu261-delay-compensation'],
@@ -5032,9 +6287,10 @@ const scenarios: { name: string; input: SituationInput; applies: string[]; mayAp
   {
     name: 'Lisbon: TP 204 EWR→LIS cancelled, rebooking answer unknown',
     input: {
-      event: { type: 'cancellation', delayMinutes: null, detectedAt: at },
-      segment: { carrierIata: 'TP', originCountry: 'US', destinationCountry: 'PT', distanceKm: 5450, scheduledOut: '2026-11-03T23:15:00Z', scheduledIn: '2026-11-04T06:35:00Z' },
-      booking: { bookedVia: null, segmentCount: 1 },
+      event: event('cancellation', null),
+      segment: lisbon,
+      booking: { bookedVia: null, bookedAt: null, segments: nonstop(lisbon) },
+      airports: {},
       answers: {},
     },
     applies: [],
@@ -5043,9 +6299,17 @@ const scenarios: { name: string; input: SituationInput; applies: string[]; mayAp
   {
     name: 'Bali: SQ 32 SIN→SFO nearly seven hours late on a two-leg ticket',
     input: {
-      event: { type: 'delay', delayMinutes: 410, detectedAt: at },
-      segment: { carrierIata: 'SQ', originCountry: 'SG', destinationCountry: 'US', distanceKm: 13590, scheduledOut: '2026-11-12T01:00:00Z', scheduledIn: '2026-11-12T16:00:00Z' },
-      booking: { bookedVia: null, segmentCount: 2 },
+      event: event('delay', 410),
+      segment: bali,
+      booking: {
+        bookedVia: null,
+        bookedAt: null,
+        segments: [
+          { carrierIata: 'SQ', originIata: 'DPS', destinationIata: 'SIN', originCountry: 'ID', destinationCountry: 'SG', scheduledOut: '2026-11-11T13:00:00Z', scheduledIn: '2026-11-11T15:40:00Z' },
+          ...nonstop(bali),
+        ],
+      },
+      airports: {},
       answers: {},
     },
     applies: ['fixture-card-trip-delay'],
@@ -5081,38 +6345,70 @@ describe('nextQuestion', () => {
     expect(nextQuestion(results, ['passenger.accepted_alternative', 'event.cause'])).toBeNull();
   });
 
+  it('asks whether anyone volunteered their seat when a rule turns on it', () => {
+    expect(nextQuestion([mayApply('bumping', ['passenger.volunteered'])], [])).toMatchObject({
+      fact: 'passenger.volunteered',
+      options: [{ value: 'false' }, { value: 'true' }],
+    });
+  });
+
+  it('asks about the airline’s new flight, arrival first, right after the rebooking question', () => {
+    const results = [
+      mayApply('eu261-cancellation', ['event.reroute_departs_early_minutes', 'event.reroute_arrival_delay_minutes', 'event.cause']),
+      mayApply('refund', ['passenger.accepted_alternative']),
+    ];
+    expect(nextQuestion(results, [])?.fact).toBe('passenger.accepted_alternative');
+    expect(nextQuestion(results, ['passenger.accepted_alternative'])?.fact).toBe('event.reroute_arrival_delay_minutes');
+    expect(nextQuestion(results, ['passenger.accepted_alternative', 'event.reroute_arrival_delay_minutes'])?.fact).toBe('event.reroute_departs_early_minutes');
+  });
+
+  it('answers each re-routing band with its smallest value, and "no offer" as the contract says', () => {
+    const arrival = nextQuestion([mayApply('x', ['event.reroute_arrival_delay_minutes'])], []);
+    expect(arrival?.options.map((o) => o.value)).toEqual(['0', '1', '120', '180', '240', '1440']);
+    const departure = nextQuestion([mayApply('x', ['event.reroute_departs_early_minutes'])], []);
+    expect(departure?.options.map((o) => o.value)).toEqual(['0', '1', '61', '121']);
+  });
+
   it('asks nothing when nothing is uncertain', () => {
     expect(nextQuestion([{ rule_id: 'x', rule_version: 1, outcome: 'applies', missing_facts: [] } as MatchResult], [])).toBeNull();
   });
 });
 
 describe('answerValue', () => {
-  it('turns yes/no answers into booleans', () => {
+  it('turns yes/no answers into booleans, and number facts into numbers', () => {
     expect(answerValue({ fact: 'passenger.accepted_alternative', value: 'false' })).toBe(false);
     expect(answerValue({ fact: 'event.cause', value: 'controllable' })).toBe('controllable');
+    expect(answerValue({ fact: 'event.reroute_arrival_delay_minutes', value: '120' })).toBe(120);
   });
 });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [ ] **Step 3: Run the tests to verify they fail**
 
 ```bash
 cd apps/web && npx vitest run test/assist; cd ../..
 ```
 Expected: FAIL, with modules not found.
 
-- [ ] **Step 3: Implement**
+- [ ] **Step 4: Implement**
 
-`apps/web/lib/assist/regions.ts`:
+Append to `apps/web/lib/flights/regions.ts` (Task 7 created it with `US_JURISDICTION`):
 ```ts
-/** U.S. DOT rules cover flights to and from the U.S. and its territories. */
-export const US_JURISDICTION = new Set(['US', 'PR', 'VI', 'GU', 'AS', 'MP']);
 
-/** EU261's territorial scope: the 27 EU states plus Iceland, Norway, Liechtenstein, and Switzerland. */
-export const EU261_SCOPE = new Set([
+/**
+ * EU member states, as the Commission's EU261 guidance defines the EU: the 27 states with their outermost
+ * regions. The Canary Islands (ES), the Azores and Madeira (PT) share their state's code; Guadeloupe,
+ * Martinique, French Guiana, Réunion, Mayotte, and Saint-Martin have codes of their own. Not the Faroe
+ * Islands (FO) or Greenland (GL), and not Iceland, Norway, or Switzerland, which have their own fact.
+ */
+export const EU_MEMBER_STATES = new Set([
   'AT', 'BE', 'BG', 'HR', 'CY', 'CZ', 'DK', 'EE', 'FI', 'FR', 'DE', 'GR', 'HU', 'IE', 'IT', 'LV', 'LT', 'LU',
-  'MT', 'NL', 'PL', 'PT', 'RO', 'SK', 'SI', 'ES', 'SE', 'IS', 'NO', 'LI', 'CH',
+  'MT', 'NL', 'PL', 'PT', 'RO', 'SK', 'SI', 'ES', 'SE',
+  'GP', 'MQ', 'GF', 'RE', 'YT', 'MF',
 ]);
+
+/** EU261 also covers departures from these three (`flight.departs_iceland_norway_switzerland`). */
+export const ICELAND_NORWAY_SWITZERLAND = new Set(['IS', 'NO', 'CH']);
 
 export const UK = new Set(['GB']);
 ```
@@ -5134,63 +6430,282 @@ export const EU_CARRIERS = new Set([
 
 `apps/web/lib/assist/situation.ts`:
 ```ts
-import type { Primitive, Situation } from '@elsewhere/rules/core';
+import type { FactName, Primitive, Situation } from '@elsewhere/rules/core';
+import { haversineKm } from '@/lib/flights/geo';
+import { EU_MEMBER_STATES, ICELAND_NORWAY_SWITZERLAND, UK, US_JURISDICTION } from '@/lib/flights/regions';
 import { EU_CARRIERS, US_CARRIERS } from './carriers';
-import { EU261_SCOPE, UK, US_JURISDICTION } from './regions';
+
+/** One flight on the booking. The itinerary and journey facts are computed over all of them. */
+export interface ItinerarySegment {
+  carrierIata: string;
+  originIata: string;
+  destinationIata: string;
+  originCountry: string | null;
+  destinationCountry: string | null;
+  scheduledOut: string | null;
+  scheduledIn: string | null;
+}
+
+/** What AeroAPI reported about the disrupted flight: the fields of Task 9's `FlightSnapshot` read here. */
+export interface ObservedFlight {
+  diverted: boolean;
+  scheduledOut: string | null;
+  estimatedOut: string | null;
+  actualOut: string | null;
+  scheduledIn: string | null;
+}
 
 export interface SituationInput {
-  event: { type: 'cancellation' | 'delay' | 'schedule_change'; delayMinutes: number | null; detectedAt: string };
-  segment: {
-    carrierIata: string;
-    originCountry: string | null;
-    destinationCountry: string | null;
-    distanceKm: number | null;
-    scheduledOut: string | null;
-    scheduledIn: string | null;
+  event: {
+    type: 'cancellation' | 'delay' | 'schedule_change';
+    delayMinutes: number | null;
+    detectedAt: string;
+    /** AeroAPI's snapshots of the disrupted flight, oldest first: the one that raised the incident, then the latest. */
+    observed: ObservedFlight[];
+    /**
+     * Re-routings the airline offered, each a forwarded rebooking's flights in the order flown. Empty while none
+     * is known. A schedule change's changed flight comes from `observed`, so it is not listed here.
+     */
+    offers: ItinerarySegment[][];
   };
-  booking: { bookedVia: string | null; segmentCount: number };
+  /** The disrupted flight, as booked. `distanceKm` is Task 4's great-circle distance of this flight alone. */
+  segment: ItinerarySegment & { distanceKm: number | null };
+  /**
+   * The booking (one ticket) the flight is on. `bookedAt` is when it was made, as the confirmation printed
+   * it ("YYYY-MM-DD" or "YYYY-MM-DDTHH:mm"), or null. `segments` holds every flight on the booking, the
+   * disrupted one included, in the order flown.
+   */
+  booking: { bookedVia: string | null; bookedAt: string | null; segments: ItinerarySegment[] };
+  /** Airport coordinates by IATA code, for the journey's distance. A missing airport leaves `flight.distance_km` unset. */
+  airports: Record<string, { latitude: number; longitude: number }>;
   answers: Record<string, Primitive>;
 }
 
-const DAY = 24 * 60 * 60 * 1000;
+const MINUTE = 60_000;
+const HOUR = 60 * MINUTE;
+const DAY = 24 * HOUR;
+/** A longer gap between two flights is a stopover, not a connection: it ends the journey, as between outbound and return. */
+const STOPOVER = 24 * HOUR;
+
+const isUs = (country: string | null): boolean | null => (country ? US_JURISDICTION.has(country) : null);
+/** Three-valued: true if any is true, false if every one is false, otherwise unknown. */
+const anyTrue = (values: (boolean | null)[]): boolean | null => (values.some((v) => v === true) ? true : values.every((v) => v === false) ? false : null);
+/** Three-valued: false if any is false, true if every one is true, otherwise unknown. */
+const allTrue = (values: (boolean | null)[]): boolean | null => (values.some((v) => v === false) ? false : values.every((v) => v === true) ? true : null);
+const time = (iso: string | null): number | null => (iso ? Date.parse(iso) : null);
+const sameFlight = (a: ItinerarySegment, b: ItinerarySegment): boolean =>
+  a.carrierIata === b.carrierIata && a.originIata === b.originIata && a.destinationIata === b.destinationIata && time(a.scheduledOut) === time(b.scheduledOut);
+
+/**
+ * The latest moment a printed booking date or local time can mean: the end of that day or minute, in the
+ * furthest-west time zone (UTC−12). Hours measured from it are a lower bound, so a rule that needs the
+ * booking made at least N hours ahead applies only when it certainly does.
+ */
+function latestBookingMoment(bookedAt: string): number {
+  const dateOnly = bookedAt.length === 10;
+  const start = Date.parse(dateOnly ? `${bookedAt}T00:00:00Z` : `${bookedAt}:00Z`);
+  return start + (dateOnly ? DAY : MINUTE) + 12 * HOUR;
+}
+
+/**
+ * The disrupted flight's journey: the flights on the booking that take the passenger, in its direction, to the
+ * final destination. A flight joins the one before it when it leaves from the airport that one reached, within
+ * 24 hours, so outbound and return are separate journeys. Null when a connection's times are unknown, or the
+ * flight is not on the booking.
+ */
+function journeyOf(segments: ItinerarySegment[], flight: ItinerarySegment): ItinerarySegment[] | null {
+  const at = segments.findIndex((s) => sameFlight(s, flight));
+  if (at < 0) return null;
+  const connects = (a: ItinerarySegment, b: ItinerarySegment): boolean | null => {
+    if (a.destinationIata !== b.originIata) return false;
+    const landed = time(a.scheduledIn);
+    const leaves = time(b.scheduledOut);
+    return landed === null || leaves === null ? null : leaves - landed <= STOPOVER;
+  };
+  let first = at;
+  while (first > 0) {
+    const joined = connects(segments[first - 1], segments[first]);
+    if (joined === null) return null;
+    if (!joined) break;
+    first -= 1;
+  }
+  let last = at;
+  while (last < segments.length - 1) {
+    const joined = connects(segments[last], segments[last + 1]);
+    if (joined === null) return null;
+    if (!joined) break;
+    last += 1;
+  }
+  return segments.slice(first, last + 1);
+}
+
+/**
+ * Scheduled minutes of the journey's nonstop flight between the U.S. and a foreign point. Unknown while any
+ * flight on the journey has an unknown country, when the journey has no such flight or more than one, or when
+ * its times are unknown.
+ */
+function usForeignNonstopMinutes(journey: ItinerarySegment[]): number | null {
+  if (journey.some((s) => !s.originCountry || !s.destinationCountry)) return null;
+  const crossings = journey.filter((s) => US_JURISDICTION.has(s.originCountry!) !== US_JURISDICTION.has(s.destinationCountry!));
+  const crossing = crossings.length === 1 ? crossings[0] : null;
+  return crossing?.scheduledOut && crossing.scheduledIn ? Math.round((Date.parse(crossing.scheduledIn) - Date.parse(crossing.scheduledOut)) / MINUTE) : null;
+}
+
+/**
+ * How long after its scheduled departure the disrupted flight left, or AeroAPI expected it to leave: the
+ * longest of every estimate and the actual time kept, so an announced delay that later shrank still counts.
+ */
+function departureDelayMinutes(scheduledOut: string | null, observed: ObservedFlight[]): number | null {
+  const scheduled = time(scheduledOut);
+  const seen = observed.flatMap((o) => [time(o.estimatedOut), time(o.actualOut)]).filter((t): t is number => t !== null);
+  return scheduled === null || seen.length === 0 ? null : Math.max(0, Math.floor((Math.max(...seen) - scheduled) / MINUTE));
+}
+
+interface OfferTimes {
+  leaves: number;
+  arrives: number | null;
+}
+
+/**
+ * When a re-routing leaves, and when it reaches the journey's final destination. A rebooking often repeats the
+ * flights that did not change, so the re-routing starts at its first flight that is not on the booking. Its
+ * arrival counts only if every flight from there connects (lands before the next one leaves) up to one that
+ * reaches the final destination.
+ */
+function offerTimes(offer: ItinerarySegment[], booked: ItinerarySegment[], finalDestination: string | null): OfferTimes | null {
+  const start = offer.findIndex((f) => !booked.some((b) => sameFlight(b, f)));
+  const leaves = start < 0 ? null : time(offer[start].scheduledOut);
+  if (leaves === null) return null;
+  for (let i = start; i < offer.length; i += 1) {
+    const landed = time(offer[i].scheduledIn);
+    if (landed === null) break;
+    if (offer[i].destinationIata === finalDestination) return { leaves, arrives: landed };
+    const next = time(offer[i + 1]?.scheduledOut ?? null);
+    if (next === null || next < landed) break;
+  }
+  return { leaves, arrives: null };
+}
+
+/**
+ * The offer the contract says to report: of those leaving no more than 1 hour (notice under 7 days) or 2 hours
+ * (notice under 14 days) early, the one that arrives soonest; if none does, any of them. Its arrival is unknown
+ * while any offer in the running hides its own, since that one might arrive sooner.
+ */
+function chooseOffer(offers: OfferTimes[], bookedOut: number, noticeDays: number): OfferTimes | null {
+  const limit = noticeDays < 7 ? HOUR : noticeDays < 14 ? 2 * HOUR : Infinity;
+  const inLimit = offers.filter((o) => bookedOut - o.leaves <= limit);
+  const running = inLimit.length > 0 ? inLimit : offers;
+  const soonest = [...running].sort((a, b) => (a.arrives ?? Infinity) - (b.arrives ?? Infinity))[0];
+  if (!soonest) return null;
+  return running.some((o) => o.arrives === null) ? { leaves: soonest.leaves, arrives: null } : soonest;
+}
 
 /** A fact is set only when we know it, so matchRules reports "may apply, needs X" rather than a wrong answer. */
 export function buildSituation(input: SituationInput): Situation {
-  const s: Record<string, Primitive> = {
-    'event.type': input.event.type,
+  const { type, observed } = input.event;
+  const s: Situation = {
+    'event.type': type,
     'flight.carrier_iata': input.segment.carrierIata,
     'flight.carrier_is_us': US_CARRIERS.has(input.segment.carrierIata),
     'flight.carrier_is_eu': EU_CARRIERS.has(input.segment.carrierIata),
     'trip.booked_via': input.booking.bookedVia ? 'ota' : 'direct',
   };
   if (input.event.delayMinutes !== null) s['event.delay_minutes'] = input.event.delayMinutes;
-  if (input.segment.scheduledOut) {
-    s['event.notice_days'] = Math.max(0, Math.floor((new Date(input.segment.scheduledOut).getTime() - new Date(input.event.detectedAt).getTime()) / DAY));
-  }
+  const bookedOut = time(input.segment.scheduledOut);
+  const noticeDays = bookedOut === null ? null : Math.max(0, Math.floor((bookedOut - Date.parse(input.event.detectedAt)) / DAY));
+  if (noticeDays !== null) s['event.notice_days'] = noticeDays;
+
   const { originCountry: origin, destinationCountry: destination } = input.segment;
+  // Task 9 records a diversion as a delay. Where its travelers are stranded is not known.
+  const diverted = observed.some((o) => o.diverted);
   if (origin) {
     s['flight.departs_us'] = US_JURISDICTION.has(origin);
-    s['flight.departs_eu'] = EU261_SCOPE.has(origin);
+    s['flight.departs_eu'] = EU_MEMBER_STATES.has(origin);
+    s['flight.departs_iceland_norway_switzerland'] = ICELAND_NORWAY_SWITZERLAND.has(origin);
     s['flight.departs_uk'] = UK.has(origin);
+    if (!diverted) s['event.at_us_airport'] = US_JURISDICTION.has(origin);
   }
-  if (destination) s['flight.arrives_eu'] = EU261_SCOPE.has(destination);
+  if (destination) s['flight.arrives_eu'] = EU_MEMBER_STATES.has(destination);
   if (origin && destination) {
     s['flight.touches_us'] = US_JURISDICTION.has(origin) || US_JURISDICTION.has(destination);
     s['flight.is_domestic_us'] = US_JURISDICTION.has(origin) && US_JURISDICTION.has(destination);
   }
-  if (input.segment.distanceKm !== null) s['flight.distance_km'] = input.segment.distanceKm;
-  if (input.segment.scheduledOut && input.segment.scheduledIn) {
-    s['flight.scheduled_duration_minutes'] = Math.round((new Date(input.segment.scheduledIn).getTime() - new Date(input.segment.scheduledOut).getTime()) / 60000);
+  if (input.segment.distanceKm !== null) s['flight.leg_distance_km'] = input.segment.distanceKm;
+
+  if (type === 'delay') {
+    const departureDelay = departureDelayMinutes(input.segment.scheduledOut, observed);
+    if (departureDelay !== null) s['event.departure_delay_minutes'] = departureDelay;
   }
-  if (input.booking.segmentCount > 1) s['flight.single_ticket'] = true;
-  for (const [fact, value] of Object.entries(input.answers)) s[fact] = value;
-  return s as Situation;
+  // A schedule change is the same flight at a new time: AeroAPI's latest scheduled departure.
+  const latest = observed.at(-1);
+  const newOut = time(latest?.scheduledOut ?? null);
+  if (type === 'schedule_change' && bookedOut !== null && newOut !== null) {
+    s['event.departure_moved_earlier_minutes'] = Math.max(0, Math.floor((bookedOut - newOut) / MINUTE));
+  }
+
+  const segments = input.booking.segments;
+  if (segments.length > 1) s['flight.single_ticket'] = true;
+  if (segments.length > 0) {
+    const touches = anyTrue(segments.map((seg) => anyTrue([isUs(seg.originCountry), isUs(seg.destinationCountry)])));
+    if (touches !== null) s['trip.touches_us'] = touches;
+    const domestic = allTrue(segments.map((seg) => allTrue([isUs(seg.originCountry), isUs(seg.destinationCountry)])));
+    if (domestic !== null) s['trip.itinerary_domestic_us'] = domestic;
+    // The airline the booking was made with: known when every flight on it is a U.S. airline's, or none is.
+    const usCarrier = segments.map((seg) => US_CARRIERS.has(seg.carrierIata));
+    if (usCarrier.every(Boolean)) s['trip.booked_with_us_carrier'] = true;
+    else if (usCarrier.every((v) => !v)) s['trip.booked_with_us_carrier'] = false;
+    if (input.booking.bookedAt && segments.every((seg) => seg.scheduledOut)) {
+      const firstDeparture = Math.min(...segments.map((seg) => Date.parse(seg.scheduledOut!)));
+      s['trip.hours_booked_before_departure'] = Math.max(0, Math.floor((firstDeparture - latestBookingMoment(input.booking.bookedAt)) / HOUR));
+    }
+  }
+
+  // The journey: this flight and those it connects with, in its direction, on this booking.
+  const journey = journeyOf(segments, input.segment);
+  if (journey) {
+    const start = journey[0];
+    const end = journey[journey.length - 1];
+    if (start.originCountry) s['trip.journey_departs_eu'] = EU_MEMBER_STATES.has(start.originCountry);
+    if (end.destinationCountry) s['trip.journey_arrives_eu'] = EU_MEMBER_STATES.has(end.destinationCountry);
+    const from = input.airports[start.originIata];
+    const to = input.airports[end.destinationIata];
+    // To the nearest 10 km, as Task 4 rounds a single flight's distance.
+    if (from && to) s['flight.distance_km'] = Math.round(haversineKm(from, to) / 10) * 10;
+    const nonstop = usForeignNonstopMinutes(journey);
+    if (nonstop !== null) s['trip.us_foreign_nonstop_minutes'] = nonstop;
+  }
+
+  // The re-routing offered after a cancellation or a schedule change: set only when an offer is known.
+  if ((type === 'cancellation' || type === 'schedule_change') && bookedOut !== null && noticeDays !== null) {
+    const offers = [...input.event.offers];
+    if (type === 'schedule_change' && latest?.scheduledOut) {
+      // The changed flight itself counts as an offer, with the rest of the journey as booked.
+      const changed = { ...input.segment, scheduledOut: latest.scheduledOut, scheduledIn: latest.scheduledIn };
+      offers.push(journey ? journey.map((f) => (sameFlight(f, input.segment) ? changed : f)) : [changed]);
+    }
+    const end = journey?.[journey.length - 1] ?? null;
+    const timed = offers.map((o) => offerTimes(o, segments, end?.destinationIata ?? null)).filter((o): o is OfferTimes => o !== null);
+    const offer = chooseOffer(timed, bookedOut, noticeDays);
+    if (offer) {
+      s['event.reroute_departs_early_minutes'] = Math.max(0, Math.floor((bookedOut - offer.leaves) / MINUTE));
+      const plannedArrival = time(end?.scheduledIn ?? null);
+      if (offer.arrives !== null && plannedArrival !== null) {
+        s['event.reroute_arrival_delay_minutes'] = Math.max(0, Math.floor((offer.arrives - plannedArrival) / MINUTE));
+      }
+    }
+  }
+
+  // passenger.volunteered, passenger.accepted_alternative, and event.cause come only from the planner's answers,
+  // and so do the re-routing facts while no offer is known.
+  for (const [fact, value] of Object.entries(input.answers)) s[fact as FactName] = value;
+  return s;
 }
 ```
+`s` is typed as `Situation`, so a fact name the contract doesn't define fails typecheck.
 
 `apps/web/lib/assist/questions.ts`:
 ```ts
-import type { MatchResult, Primitive } from '@elsewhere/rules/core';
+import { FACTS, isFactName, type MatchResult, type Primitive } from '@elsewhere/rules/core';
 
 export interface PlannerQuestion {
   fact: string;
@@ -5203,12 +6718,43 @@ export interface PlannerAnswer {
   value: string;
 }
 
+/**
+ * For a number fact, each option's value is the smallest number in its band, so an answer never makes a rule
+ * apply that the real time might not.
+ */
 const ASKABLE: Record<string, Omit<PlannerQuestion, 'fact'>> = {
   'passenger.accepted_alternative': {
     prompt: 'Did anyone accept the airline’s new flight or a travel credit?',
     options: [
       { value: 'false', label: 'No, not yet' },
       { value: 'true', label: 'Yes, we accepted it' },
+    ],
+  },
+  'event.reroute_arrival_delay_minutes': {
+    prompt: 'When does the airline’s new flight get you to your final destination, compared with your original arrival?',
+    options: [
+      { value: '0', label: 'At or before the original time' },
+      { value: '1', label: 'Less than 2 hours later' },
+      { value: '120', label: '2 to 3 hours later' },
+      { value: '180', label: '3 to 4 hours later' },
+      { value: '240', label: '4 hours or more later' },
+      { value: '1440', label: 'The airline hasn’t offered a new flight' },
+    ],
+  },
+  'event.reroute_departs_early_minutes': {
+    prompt: 'Does the airline’s new flight leave earlier than your original flight?',
+    options: [
+      { value: '0', label: 'No, or no new flight was offered' },
+      { value: '1', label: 'Up to 1 hour earlier' },
+      { value: '61', label: 'More than 1 hour, up to 2 hours earlier' },
+      { value: '121', label: 'More than 2 hours earlier' },
+    ],
+  },
+  'passenger.volunteered': {
+    prompt: 'Did anyone give up their seat when the airline asked for volunteers?',
+    options: [
+      { value: 'false', label: 'No, the airline took our seats' },
+      { value: 'true', label: 'Yes, we volunteered' },
     ],
   },
   'event.cause': {
@@ -5221,8 +6767,17 @@ const ASKABLE: Record<string, Omit<PlannerQuestion, 'fact'>> = {
   },
 };
 
-/** The planner gets one question at a time, in this order, and only for facts a traveler can answer. */
-export const ASK_ORDER = ['passenger.accepted_alternative', 'event.cause'] as const;
+/**
+ * The planner gets one question at a time, in this order, and only for facts a traveler can answer. The
+ * re-routing questions come right after the rebooking one, while the airline's offer is in front of them.
+ */
+export const ASK_ORDER = [
+  'passenger.accepted_alternative',
+  'event.reroute_arrival_delay_minutes',
+  'event.reroute_departs_early_minutes',
+  'passenger.volunteered',
+  'event.cause',
+] as const;
 
 export function nextQuestion(results: MatchResult[], alreadyAsked: string[]): PlannerQuestion | null {
   const missing = new Set(results.filter((r) => r.outcome === 'may_apply').flatMap((r) => r.missing_facts as string[]));
@@ -5233,33 +6788,46 @@ export function nextQuestion(results: MatchResult[], alreadyAsked: string[]): Pl
 export function answerValue(answer: PlannerAnswer): Primitive {
   if (answer.value === 'true') return true;
   if (answer.value === 'false') return false;
+  if (isFactName(answer.fact) && FACTS[answer.fact].type === 'number') return Number(answer.value);
   return answer.value;
 }
 ```
 
-- [ ] **Step 4: Run the tests**
+- [ ] **Step 5: Run the tests and typecheck**
 
 ```bash
-cd apps/web && npx vitest run test/assist; cd ../..
+cd apps/web && npx vitest run test/assist && npm run typecheck; cd ../..
 ```
-Expected: PASS. The Lisbon scenario's three `may_apply` rules confirm the three-valued matcher behaves as C2 expects:
+Expected: PASS, and typecheck is clean. The Lisbon scenario's three `may_apply` rules confirm the three-valued matcher behaves as C2 expects:
 - **The refund rule** is missing `passenger.accepted_alternative`, which is askable.
 - **EU261 and the card benefit** are missing `event.delay_minutes`, because a cancellation has none. That fact isn't askable, so those rules stay out of the playbook.
 
-The test sorts the IDs, so order does not matter.
+The test sorts the IDs, so order does not matter. None of the fixture rules reads the booking-level facts or 1bc652c's EU261 facts, so all five scenarios match exactly as before them. The fixture's EU261 rule reads `flight.departs_eu`, which no longer counts Iceland, Norway, or Switzerland, and no scenario departs from them. Track A's own data cases pin the real EU261 rules against these facts.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add apps/web
 git commit -F - <<'EOF'
 Turn flight events into rule facts and pick one question to ask
 
-A cancellation or delay plus the segment's countries, carrier, distance,
-and duration becomes the situation the rules match on, and unknowns stay
-unknown. The old mock trip guides are now five fixture scenarios. When a
-rule may apply because a traveler-answerable fact is missing, the
-planner gets exactly one question, rebooking first.
+A cancellation, delay, or schedule change becomes the situation the
+rules match on: the flight's countries, carrier, and distance, and the
+booking-level facts from every flight on the ticket (whether it touches
+the U.S., whether it is a domestic itinerary, its U.S.-foreign nonstop,
+the booking airline, and a lower bound on how far ahead it was booked).
+EU261's facts come from the same data: the flight's own departure delay
+(the longer of the airline's estimate and the actual) and distance, the
+EU scope and distance of its journey in this direction, how far a
+schedule change moved the departure, and the re-routing the airline
+offered, from a forwarded rebooking or the changed flight itself. The
+EU is its 27 member states with their outermost regions; Iceland,
+Norway, and Switzerland have their own fact. Unknowns stay unknown. The
+old mock trip guides are now five fixture scenarios. When a rule may
+apply because a traveler-answerable fact is missing, the planner gets
+exactly one question, rebooking first, then when the airline's new
+flight arrives and leaves; "did anyone volunteer their seat" is one of
+them too.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01CZeaGyqM4LkMDPkaein2Sc
@@ -5286,7 +6854,7 @@ EOF
   - **Generation:**
     - `PlaybookInput = { eventSummary: string; situation: Situation; applying: Rule[]; reviewing: Rule[]; extraNumbers: string[] }`
     - `PlaybookResult = { playbook: Playbook; model: string; citationCheckPassed: boolean; rulesCited: { rule_id: string; rule_version: number }[] }`
-    - `generatePlaybook(input, opts?: { model?: LanguageModel }): Promise<PlaybookResult>`
+    - `generatePlaybook(input, opts?: { model?: LanguageModel }): Promise<PlaybookResult>`. It never throws for a model problem: a draft that fails the citation check twice, or a call that throws (AI Gateway down, a timeout, output that doesn't parse), falls back to the template.
 
 The citation check matches every money amount and every duration in an `owed` item or a drafted message against numbers that appear in the cited rules' verified text: the title, summary, entitlement amounts, timing, steps, and exceptions. It also accepts the incident's own numbers, `extraNumbers`, such as the delay in hours. This is how "an amount or deadline that differs from the rule" gets caught. Flight numbers and dates are not amounts or durations, so they are never flagged.
 
@@ -5342,7 +6910,8 @@ describe('checkCitations', () => {
 `apps/web/test/assist/playbook.test.ts`:
 ```ts
 import type { Rule, RulesLibrary } from '@elsewhere/rules/core';
-import { describe, expect, it } from 'vitest';
+import { MockLanguageModelV4 } from 'ai/test';
+import { describe, expect, it, vi } from 'vitest';
 import fixture from '../fixtures/rules-library.json';
 import { generatePlaybook } from '@/lib/assist/playbook';
 import { mockModel } from '../helpers/mock-model';
@@ -5396,6 +6965,21 @@ describe('generatePlaybook', () => {
     const result = await generatePlaybook({ ...input, applying: [] }, { model: mockModel(good) });
     expect(result.model).toBe('template');
     expect(result.playbook.owed).toEqual([]);
+  });
+
+  it('falls back to the template when the model call throws or its output does not parse', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const down = new MockLanguageModelV4({
+      doGenerate: async () => {
+        throw new Error('AI Gateway unavailable');
+      },
+    });
+    for (const model of [down, mockModel({ not: 'a playbook' })]) {
+      const result = await generatePlaybook(input, { model });
+      expect(result.model).toBe('template');
+      expect(result.citationCheckPassed).toBe(true);
+      expect(result.playbook.owed).toEqual([{ text: refund.summary, rule_ids: [refund.id] }]);
+    }
   });
 });
 ```
@@ -5571,20 +7155,28 @@ export async function generatePlaybook(input: PlaybookInput, opts: { model?: Lan
   const modelId = typeof lm === 'string' ? lm : lm.modelId;
   let feedback = '';
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    const { output } = await generateText({
-      model: lm,
-      output: Output.object({ schema: PlaybookSchema, name: 'playbook' }),
-      instructions: INSTRUCTIONS,
-      prompt: JSON.stringify({
-        what_happened: input.eventSummary,
-        facts: input.situation,
-        incident_numbers: input.extraNumbers,
-        rules_that_apply: rulesForPrompt(input.applying),
-        rules_being_rechecked: input.reviewing.map((rule) => rule.title),
-        ...(feedback ? { fix_these_problems_from_your_last_draft: feedback } : {}),
-      }),
-      providerOptions: NO_TRAINING,
-    });
+    let output: Playbook;
+    try {
+      // Reading `output` inside the try too: it throws when the text doesn't parse into the schema.
+      ({ output } = await generateText({
+        model: lm,
+        output: Output.object({ schema: PlaybookSchema, name: 'playbook' }),
+        instructions: INSTRUCTIONS,
+        prompt: JSON.stringify({
+          what_happened: input.eventSummary,
+          facts: input.situation,
+          incident_numbers: input.extraNumbers,
+          rules_that_apply: rulesForPrompt(input.applying),
+          rules_being_rechecked: input.reviewing.map((rule) => rule.title),
+          ...(feedback ? { fix_these_problems_from_your_last_draft: feedback } : {}),
+        }),
+        providerOptions: NO_TRAINING,
+      }));
+    } catch (error) {
+      // AI Gateway down, a timeout, or output that won't parse: the template is built from verified rule text alone.
+      console.error('playbook generation failed; using the template', error);
+      return fallback();
+    }
     const issues = checkCitations(output, input.applying, input.extraNumbers);
     if (issues.length === 0) return { playbook: output, model: modelId, citationCheckPassed: true, rulesCited: cited(output, input.applying) };
     feedback = issues.map((issue) => `${issue.path}: ${issue.problem} (${issue.detail})`).join('\n');
@@ -5598,7 +7190,7 @@ export async function generatePlaybook(input: PlaybookInput, opts: { model?: Lan
 ```bash
 cd apps/web && npx vitest run test/assist; cd ../..
 ```
-Expected: PASS. In the "good" playbook, "7 business days" is allowed because `7` appears in the refund rule's `timing`.
+Expected: PASS. In the "good" playbook, "7 business days" is allowed because `7` appears in the refund rule's `timing`. The throwing model and the unparseable output both land on the template, without an exception reaching the incident workflow.
 
 - [ ] **Step 5: Commit**
 
@@ -5612,6 +7204,8 @@ messages they can send, from verified matched rules only. A
 deterministic check fails any claim without a rule id, any citation
 outside the matched set, and any amount or deadline not found in the
 cited rule. One retry, then a template built from the rules' own text.
+A model call that throws or returns unparseable output goes straight
+to the template.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01CZeaGyqM4LkMDPkaein2Sc
@@ -5624,18 +7218,28 @@ EOF
 
 **Files:**
 - Create: `apps/web/lib/assist/assess.ts`, `apps/web/lib/assist/incidents.ts`, `apps/web/workflows/incident.ts`, `apps/web/app/trips/[id]/incidents/[incidentId]/page.tsx`, `apps/web/app/trips/[id]/incidents/[incidentId]/actions.ts`, `apps/web/test/assist/assess.test.ts`, `apps/web/test/workflows/incident.integration.test.ts`
-- Modify: `apps/web/lib/workflows/ports.ts`, `apps/web/lib/workflows/live-ports.ts`, `apps/web/lib/workflows/memory-ports.ts` (incident operations), `apps/web/workflows/segment-monitor.ts` and `apps/web/app/api/webhooks/aeroapi/[secret]/route.ts` (start the incident workflow)
+- Modify: `supabase/migrations/00012_group_trip_assist.sql` (`trips.hand_run`, `playbooks.held_for_review`, and the playbooks read policy), `apps/web/test/db/group-trip.test.ts`, `apps/web/lib/workflows/tokens.ts` (`incidentRunToken`), `apps/web/lib/workflows/ports.ts`, `apps/web/lib/workflows/live-ports.ts`, `apps/web/lib/workflows/memory-ports.ts` (incident operations), `apps/web/workflows/segment-monitor.ts` and `apps/web/app/api/webhooks/aeroapi/[secret]/route.ts` (start the incident workflow), `apps/web/test/workflows/segment-monitor.integration.test.ts`
 
 **Interfaces:**
 - Consumes:
-  - Task 10: `buildSituation`, `nextQuestion`, `answerValue`
+  - Task 10: `buildSituation`, `ItinerarySegment`, `ObservedFlight`, `nextQuestion`, `answerValue`
+  - Task 4: `aeroApi` (airport coordinates for the journey's distance)
   - Task 11: `generatePlaybook`, `PlaybookSchema`
   - Task 2: `queueNotifications`, `incidentNotice`, `questionNotice`, `reviewHoldNotice`
-  - Task 9: tokens and ports
+  - Task 9: tokens and ports, and the `FlightSnapshot` that `recordFlightSnapshot` stores in `incidents.raw_payload` and `booking_segments.last_status`
+  - Task 5: `bookings.booked_at`, and forwarded bookings saved one per confirmation code plus flights
   - `getLibrary()`, `matchRules`
 - Produces:
+  - **SQL:**
+    - `trips.hand_run boolean not null default false`. Only the service role writes it: `/admin`'s comp action (Task 16). C1's webhook also writes `pass_status = 'comp'` for a 100% promotion code, so `comp` alone doesn't mean hand-run.
+    - `playbooks.held_for_review boolean not null default false`. The read policy hides a held playbook from everyone but the service role, the planner included.
   - **Assessment** (`lib/assist/assess.ts`, pure):
-    - `AssessmentInput = { incident; segment; booking; asked: string[]; rules: Rule[] }`
+    - `LegRow = { carrier_iata; origin_iata; destination_iata; origin_country; destination_country; scheduled_out; scheduled_in }`: one flight, as `booking_segments` stores it
+    - `AssessmentInput = { incident: { …; raw_payload: unknown }; segment: LegRow & { flight_number; departure_local; distance_km; last_status: unknown }; booking: { booked_via: string | null; booked_at: string | null; segments: LegRow[] }; offers: LegRow[][]; airports: Record<string, { latitude: number; longitude: number }>; asked: string[]; rules: Rule[] }`. These fields feed Task 10's facts:
+      - `booking.segments` is every flight on the booking, in order, for the itinerary and journey facts.
+      - `raw_payload` and `last_status` are the FlightSnapshots at detection and latest, for the departure delay and the schedule change.
+      - `offers` holds the forwarded rebookings, for the re-routing facts.
+      - `airports` holds coordinates, for the journey's distance.
     - `Assessment = { situation; applying: Rule[]; reviewing: Rule[]; question: PlannerQuestion | null; eventSummary; extraNumbers: string[] }`, which `generatePlaybook` accepts as its `PlaybookInput`
     - `assess(input): Assessment`
     - `summarizeEvent({ carrierIata, flightNumber, originIata, departureLocal, eventType, delayMinutes }): string`
@@ -5644,20 +7248,29 @@ EOF
   - **Incident operations** (`lib/assist/incidents.ts`):
     - `askPlanner(incidentId, question)`
     - `recordAnswer(incidentId, answer | null)`
-    - `savePlaybook(incidentId): Promise<string>`
-    - `needsReview(incidentId): Promise<boolean>`, true for comped, hand-run trips
+    - `savePlaybook(incidentId): Promise<{ playbookId: string; held: boolean }>`. A hand-run trip's playbook is saved held.
+    - `needsReview(incidentId): Promise<boolean>`, true when the trip is `hand_run`
     - `requestReview(incidentId)`
+    - `releaseHeldPlaybooks(incidentId)`: shows the held playbooks to the group, and marks the incident `playbook_ready`
     - `notifyAffected(incidentId)`
+    - `unnotifiedIncidentIds(segmentId): Promise<string[]>`: open incidents on the segment with no `notified` event
+  - **Hook token:** `incidentRunToken(id)`
   - **`WorkflowPorts` gains:**
     - `assessIncident(id): Promise<{ question: PlannerQuestion | null }>`
     - `askPlanner(id, q)`
     - `recordAnswer(id, a | null)`
-    - `generatePlaybook(id): Promise<{ playbookId: string }>`
-    - `needsReview(id): Promise<boolean>`
+    - `generatePlaybook(id): Promise<{ playbookId: string; held: boolean }>`
     - `requestReview(id)`
+    - `releaseHeldPlaybooks(id)`
     - `notifyAffected(id)`
-  - **Workflow:** `incidentWorkflow(incidentId)`
+    - `unnotifiedIncidentIds(segmentId)`
+  - **Workflow:** `incidentWorkflow(incidentId)`, returning `{ incidentId; status: 'notified' | 'duplicate'; playbookId: string | null }`. It claims `incidentRunToken`, so a second run for the same incident exits.
   - **Server actions:** `answerQuestion(tripId, incidentId, fact, value)`
+
+How an incident's run is never lost:
+- **The segment monitor** starts `incidentWorkflow` after every successful poll, for each `unnotifiedIncidentIds` entry. That covers new incidents from the poll, and incidents from an alert whose `start` failed in the webhook route.
+- **The webhook route** catches a failed `start` and logs it. The alert is already recorded and deduped, so the next poll picks the incident up.
+- **The run token** makes those repeated starts harmless: while one run handles the incident (waiting for an answer, or for review), the others exit at once.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -5673,6 +7286,12 @@ describe('summarizeEvent', () => {
     );
     expect(summarizeEvent({ carrierIata: 'A3', flightNumber: '349', originIata: 'ATH', departureLocal: '2026-11-05T11:00', eventType: 'delay', delayMinutes: 200 })).toBe(
       'A3 349 from ATH on Nov 5 is running 3 h 20 min late.',
+    );
+    expect(summarizeEvent({ carrierIata: 'A3', flightNumber: '349', originIata: 'ATH', departureLocal: '2026-11-05T11:00', eventType: 'delay', delayMinutes: null })).toBe(
+      'A3 349 from ATH on Nov 5 was diverted.',
+    );
+    expect(summarizeEvent({ carrierIata: 'TP', flightNumber: '204', originIata: 'EWR', departureLocal: '2026-11-03T18:15', eventType: 'schedule_change', delayMinutes: null })).toBe(
+      'TP 204 from EWR on Nov 3 was moved to a new time.',
     );
   });
 });
@@ -5703,7 +7322,7 @@ describe('incidentWorkflow', () => {
     const run = await start(incidentWorkflow, ['inc-1']);
     await waitForHook(run, { token: incidentAnswerToken('inc-1') });
     await resumeHook(incidentAnswerToken('inc-1'), { fact: 'passenger.accepted_alternative', value: 'false' });
-    expect(await run.returnValue).toEqual({ incidentId: 'inc-1', playbookId: 'pb-inc-1' });
+    expect(await run.returnValue).toEqual({ incidentId: 'inc-1', status: 'notified', playbookId: 'pb-inc-1' });
     expect(state.answers.get('inc-1')).toEqual({ fact: 'passenger.accepted_alternative', value: 'false' });
     expect(state.notified).toEqual(['inc-1']);
   });
@@ -5725,10 +7344,23 @@ describe('incidentWorkflow', () => {
     const run = await start(incidentWorkflow, ['inc-3']);
     await waitForHook(run, { token: incidentReleaseToken('inc-3') });
     expect(state.reviewRequested).toEqual(['inc-3']);
+    expect(state.released).toEqual([]);
     expect(state.notified).toEqual([]);
     await resumeHook(incidentReleaseToken('inc-3'), { releasedBy: 'founder' });
     await run.returnValue;
+    expect(state.released).toEqual(['inc-3']);
     expect(state.notified).toEqual(['inc-3']);
+  });
+
+  it('exits when another run already handles the incident', async () => {
+    const state = memoryState();
+    state.questions.set('inc-4', { fact: 'event.cause', prompt: 'Why?', options: [] });
+    const first = await start(incidentWorkflow, ['inc-4']);
+    await waitForHook(first, { token: incidentAnswerToken('inc-4') });
+    const second = await start(incidentWorkflow, ['inc-4']);
+    expect(await second.returnValue).toEqual({ incidentId: 'inc-4', status: 'duplicate', playbookId: null });
+    expect(state.calls.filter((call) => call === 'ask:inc-4')).toHaveLength(1);
+    await getRun(first.runId).cancel();
   });
 });
 ```
@@ -5740,32 +7372,135 @@ cd apps/web && npx vitest run test/assist/assess.test.ts && npm run test:integra
 ```
 Expected: FAIL, with modules not found.
 
-- [ ] **Step 3: Implement assessment and incident operations**
+- [ ] **Step 3: Mark hand-run trips, and hide held playbooks**
+
+C1's webhook sets `pass_status = 'comp'` for a 100% promotion code too, so the review hold needs its own marker. And a held playbook must stay out of sight, not just out of the notifications. Ask the controller whether 00012 has been applied anywhere (Global Constraints). Then append to `apps/web/test/db/group-trip.test.ts`:
+```ts
+describe('hand-run trips and held playbooks (Task 12)', () => {
+  let incidentId: string;
+
+  beforeAll(async () => {
+    incidentId = await asService(db, async () => {
+      const booking = await one<{ id: string }>(
+        `insert into public.bookings (trip_id, kind, provider, extraction_confidence, dedupe_key) values ($1, 'flight', 'TAP Air Portugal', 0.97, 'held-test') returning id`,
+        [tripId],
+      );
+      const segment = await one<{ id: string }>(
+        `insert into public.booking_segments (booking_id, trip_id, position, carrier_iata, flight_number, origin_iata, destination_iata, departure_local)
+         values ($1, $2, 1, 'TP', '204', 'EWR', 'LIS', '2026-11-03T18:15') returning id`,
+        [booking.id, tripId],
+      );
+      return (await one<{ id: string }>(
+        `insert into public.incidents (trip_id, segment_id, event_type, dedupe_key, affected_user_ids) values ($1, $2, 'cancellation', 'held-test:cancellation', $3) returning id`,
+        [tripId, segment.id, `{${MEMBER}}`],
+      )).id;
+    });
+  });
+
+  it('only the service role marks a trip hand-run', async () => {
+    await rejects(() => asUser(db, PLANNER, () => db.query('update public.trips set hand_run = true where id = $1', [tripId])));
+    await asService(db, () => db.query('update public.trips set hand_run = true where id = $1', [tripId]));
+    const trip = await asService(db, () => one<{ hand_run: boolean }>('select hand_run from public.trips where id = $1', [tripId]));
+    expect(trip.hand_run).toBe(true);
+  });
+
+  it('hides a held playbook from the planner and the affected members until it is released', async () => {
+    await asService(db, () =>
+      db.query(
+        `insert into public.playbooks (incident_id, content, rules_cited, model, citation_check_passed, held_for_review) values ($1, '{}', '[]', 'test', true, true)`,
+        [incidentId],
+      ),
+    );
+    const read = (user: string) => asUser(db, user, () => db.query('select id from public.playbooks where incident_id = $1', [incidentId]));
+    expect((await read(PLANNER)).rows).toHaveLength(0);
+    expect((await read(MEMBER)).rows).toHaveLength(0);
+    await asService(db, () => db.query('update public.playbooks set held_for_review = false where incident_id = $1', [incidentId]));
+    expect((await read(PLANNER)).rows).toHaveLength(1);
+    expect((await read(MEMBER)).rows).toHaveLength(1);
+    expect((await read(OUTSIDER)).rows).toHaveLength(0);
+  });
+});
+```
+
+```bash
+cd apps/web && npx vitest run test/db; cd ../..
+```
+Expected: FAIL, with `column "hand_run" … does not exist`.
+
+In `supabase/migrations/00012_group_trip_assist.sql`:
+1. In section 3's `alter table public.trips … add column …` list, replace its last line, `  add column created_utm jsonb not null default '{}';`, with:
+   ```sql
+     add column created_utm jsonb not null default '{}',
+     -- Set by /admin's comp action: the founder runs this trip by hand, so its playbooks wait for review.
+     -- A 100% promotion code also makes a comp pass, but not a hand-run trip.
+     add column hand_run boolean not null default false;
+   ```
+   `hand_run` is not in the `authenticated` column grants, so a planner can neither read nor set it.
+2. In `create table public.playbooks`, directly after `citation_check_passed boolean not null,`, add:
+   ```sql
+     -- True while a hand-run trip's playbook waits for the founder. Only the service role sees it then.
+     held_for_review boolean not null default false,
+   ```
+3. In section 12, replace the policy `"Readers of the incident read its playbooks"` with:
+   ```sql
+   -- A playbook held for the founder's review stays hidden, from the planner too, until it is released.
+   create policy "Readers of the incident read its released playbooks" on public.playbooks for select using (
+     not held_for_review
+     and exists (select 1 from public.incidents i where i.id = incident_id
+                 and (public.is_trip_planner(i.trip_id) or auth.uid() = any (i.affected_user_ids)))
+   );
+   ```
+
+```bash
+cd apps/web && npx vitest run test/db; cd ../..
+```
+Expected: PASS, for both DB test files.
+
+- [ ] **Step 4: Implement assessment and incident operations**
 
 `apps/web/lib/assist/assess.ts`:
 ```ts
 import { matchRules, type Primitive, type Rule, type Situation } from '@elsewhere/rules/core';
 import { nextQuestion, type PlannerQuestion } from './questions';
-import { buildSituation } from './situation';
+import { buildSituation, type ItinerarySegment, type ObservedFlight } from './situation';
 
 const day = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
 
 export function summarizeEvent(e: { carrierIata: string; flightNumber: string; originIata: string; departureLocal: string; eventType: string; delayMinutes: number | null }): string {
   const flight = `${e.carrierIata} ${e.flightNumber} from ${e.originIata} on ${day.format(new Date(`${e.departureLocal.slice(0, 10)}T00:00:00Z`))}`;
   if (e.eventType === 'cancellation') return `${flight} was cancelled.`;
-  if (e.eventType === 'schedule_change') return `${flight} was diverted or changed.`;
-  const minutes = e.delayMinutes ?? 0;
-  return `${flight} is running ${Math.floor(minutes / 60)} h ${minutes % 60} min late.`;
+  if (e.eventType === 'schedule_change') return `${flight} was moved to a new time.`;
+  // Task 9 records a diversion as a delay whose length isn't known yet.
+  if (e.delayMinutes === null) return `${flight} was diverted.`;
+  return `${flight} is running ${Math.floor(e.delayMinutes / 60)} h ${e.delayMinutes % 60} min late.`;
 }
 
 export function incidentNumbers(delayMinutes: number | null): string[] {
   return delayMinutes === null ? [] : [String(delayMinutes), String(Math.floor(delayMinutes / 60))];
 }
 
+/** One flight, as `booking_segments` stores it. */
+export interface LegRow {
+  carrier_iata: string;
+  origin_iata: string;
+  destination_iata: string;
+  origin_country: string | null;
+  destination_country: string | null;
+  scheduled_out: string | null;
+  scheduled_in: string | null;
+}
+
 export interface AssessmentInput {
-  incident: { id: string; event_type: 'cancellation' | 'delay' | 'schedule_change'; delay_minutes: number | null; detected_at: string; facts: Record<string, Primitive> };
-  segment: { carrier_iata: string; flight_number: string; origin_iata: string; departure_local: string; origin_country: string | null; destination_country: string | null; distance_km: number | null; scheduled_out: string | null; scheduled_in: string | null };
-  booking: { booked_via: string | null; segment_count: number };
+  /** `raw_payload` is the FlightSnapshot that raised the incident (Task 9), or `{}`. */
+  incident: { id: string; event_type: 'cancellation' | 'delay' | 'schedule_change'; delay_minutes: number | null; detected_at: string; facts: Record<string, Primitive>; raw_payload: unknown };
+  /** The disrupted flight. `last_status` is the latest FlightSnapshot of it (Task 9), or null. */
+  segment: LegRow & { flight_number: string; departure_local: string; distance_km: number | null; last_status: unknown };
+  /** The booking the segment is on: when it was made (as printed), and every one of its flights, in order. */
+  booking: { booked_via: string | null; booked_at: string | null; segments: LegRow[] };
+  /** Forwarded rebookings of this booking, each its flights in order. Empty while none is known. */
+  offers: LegRow[][];
+  /** Airport coordinates by IATA code (AeroAPI), for the journey's distance. */
+  airports: Record<string, { latitude: number; longitude: number }>;
   asked: string[];
   rules: Rule[];
 }
@@ -5779,19 +7514,32 @@ export interface Assessment {
   extraNumbers: string[];
 }
 
+const leg = (row: LegRow): ItinerarySegment => ({
+  carrierIata: row.carrier_iata,
+  originIata: row.origin_iata,
+  destinationIata: row.destination_iata,
+  originCountry: row.origin_country,
+  destinationCountry: row.destination_country,
+  scheduledOut: row.scheduled_out,
+  scheduledIn: row.scheduled_in,
+});
+
+/** A stored FlightSnapshot, as opposed to `{}` or null. */
+const isObserved = (value: unknown): value is ObservedFlight => typeof value === 'object' && value !== null && 'scheduledOut' in value;
+
 /** Pure: everything an incident needs, from loaded rows. */
 export function assess(input: AssessmentInput): Assessment {
   const situation = buildSituation({
-    event: { type: input.incident.event_type, delayMinutes: input.incident.delay_minutes, detectedAt: input.incident.detected_at },
-    segment: {
-      carrierIata: input.segment.carrier_iata,
-      originCountry: input.segment.origin_country,
-      destinationCountry: input.segment.destination_country,
-      distanceKm: input.segment.distance_km,
-      scheduledOut: input.segment.scheduled_out,
-      scheduledIn: input.segment.scheduled_in,
+    event: {
+      type: input.incident.event_type,
+      delayMinutes: input.incident.delay_minutes,
+      detectedAt: input.incident.detected_at,
+      observed: [input.incident.raw_payload, input.segment.last_status].filter(isObserved),
+      offers: input.offers.map((offer) => offer.map(leg)),
     },
-    booking: { bookedVia: input.booking.booked_via, segmentCount: input.booking.segment_count },
+    segment: { ...leg(input.segment), distanceKm: input.segment.distance_km },
+    booking: { bookedVia: input.booking.booked_via, bookedAt: input.booking.booked_at, segments: input.booking.segments.map(leg) },
+    airports: input.airports,
     answers: input.incident.facts,
   });
   const relevant = input.rules.filter((rule) => rule.domain === 'flights' || rule.domain === 'money');
@@ -5824,10 +7572,13 @@ import { assess } from '@/lib/assist/assess';
 
 describe('assess', () => {
   const rules = (fixture as unknown as RulesLibrary).rules as Rule[];
+  const tp204 = { carrier_iata: 'TP', origin_iata: 'EWR', destination_iata: 'LIS', origin_country: 'US', destination_country: 'PT', scheduled_out: '2026-11-03T23:15:00Z', scheduled_in: '2026-11-04T06:35:00Z' };
   const base = {
-    incident: { id: 'inc', event_type: 'cancellation' as const, delay_minutes: null, detected_at: '2026-11-01T12:00:00Z', facts: {} },
-    segment: { carrier_iata: 'TP', flight_number: '204', origin_iata: 'EWR', departure_local: '2026-11-03T18:15', origin_country: 'US', destination_country: 'PT', distance_km: 5450, scheduled_out: '2026-11-03T23:15:00Z', scheduled_in: '2026-11-04T06:35:00Z' },
-    booking: { booked_via: null, segment_count: 1 },
+    incident: { id: 'inc', event_type: 'cancellation' as const, delay_minutes: null, detected_at: '2026-11-01T12:00:00Z', facts: {}, raw_payload: {} },
+    segment: { ...tp204, flight_number: '204', departure_local: '2026-11-03T18:15', distance_km: 5430, last_status: null },
+    booking: { booked_via: null, booked_at: null, segments: [tp204] },
+    offers: [],
+    airports: {},
     asked: [],
     rules,
   };
@@ -5838,6 +7589,33 @@ describe('assess', () => {
     expect(answered.applying.map((r) => r.id)).toEqual(['fixture-us-refund-cancelled-flight']);
     expect(answered.question).toBeNull();
   });
+
+  it('reads AeroAPI’s snapshots, the forwarded rebooking, and the airports into the EU261 facts', () => {
+    // Task 9's FlightSnapshot: the one that raised the incident is in raw_payload, the latest in last_status.
+    const snapshot = (estimatedOut: string, actualOut: string | null) => ({
+      faFlightId: 'TAP204-1',
+      cancelled: false,
+      diverted: false,
+      scheduledOut: tp204.scheduled_out,
+      estimatedOut,
+      actualOut,
+      scheduledIn: tp204.scheduled_in,
+      estimatedIn: null,
+      actualIn: null,
+      arrivalDelayMinutes: null,
+    });
+    const delayed = assess({
+      ...base,
+      incident: { ...base.incident, event_type: 'delay', delay_minutes: 200, raw_payload: { ...snapshot('2026-11-04T03:15:00Z', null), source: 'alert' } },
+      segment: { ...base.segment, last_status: snapshot('2026-11-04T02:45:00Z', '2026-11-04T02:45:00Z') },
+      airports: { EWR: { latitude: 40.6925, longitude: -74.1687 }, LIS: { latitude: 38.7813, longitude: -9.13592 } },
+    });
+    expect(delayed.situation).toMatchObject({ 'event.departure_delay_minutes': 240, 'flight.leg_distance_km': 5430, 'flight.distance_km': 5430, 'trip.journey_arrives_eu': true });
+
+    const rebooked = assess({ ...base, offers: [[{ ...tp204, scheduled_out: '2026-11-04T23:15:00Z', scheduled_in: '2026-11-05T06:35:00Z' }]] });
+    expect(rebooked.situation).toMatchObject({ 'event.reroute_departs_early_minutes': 0, 'event.reroute_arrival_delay_minutes': 1440 });
+    expect(assess(base).situation).not.toHaveProperty('event.reroute_arrival_delay_minutes');
+  });
 });
 ```
 
@@ -5846,32 +7624,65 @@ describe('assess', () => {
 import 'server-only';
 import type { Primitive } from '@elsewhere/rules/core';
 import { appUrl } from '@/lib/env';
+import { aeroApi } from '@/lib/flights/aeroapi';
 import { incidentNotice, questionNotice, reviewHoldNotice } from '@/lib/notify/templates';
 import { queueNotifications } from '@/lib/notify/queue';
 import { getLibrary } from '@/lib/rules/library';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { assess, type Assessment } from './assess';
+import { assess, type Assessment, type LegRow } from './assess';
 import { generatePlaybook } from './playbook';
 import { answerValue, type PlannerAnswer, type PlannerQuestion } from './questions';
+
+const LEG = 'carrier_iata, origin_iata, destination_iata, origin_country, destination_country, scheduled_out, scheduled_in';
 
 async function loadIncident(incidentId: string) {
   const admin = createAdminClient();
   const { data: incident } = await admin
     .from('incidents')
-    .select('id, trip_id, segment_id, event_type, delay_minutes, detected_at, facts, affected_user_ids, trips!inner(name, pass_status)')
+    .select('id, trip_id, segment_id, event_type, delay_minutes, detected_at, facts, raw_payload, affected_user_ids, trips!inner(name, pass_status)')
     .eq('id', incidentId)
     .single();
   if (!incident) throw new Error(`incident ${incidentId} not found`);
+  // last_status is AeroAPI's latest snapshot of the flight; raw_payload (above) is the one that raised the incident.
   const { data: segment } = await admin
     .from('booking_segments')
-    .select('booking_id, carrier_iata, flight_number, origin_iata, departure_local, origin_country, destination_country, distance_km, scheduled_out, scheduled_in')
+    .select(`booking_id, flight_number, departure_local, distance_km, last_status, ${LEG}`)
     .eq('id', incident.segment_id)
     .single();
-  const { data: booking } = await admin.from('bookings').select('booked_via').eq('id', segment!.booking_id).single();
-  const { count } = await admin.from('booking_segments').select('id', { count: 'exact', head: true }).eq('booking_id', segment!.booking_id);
+  // The itinerary and journey facts need every flight on the booking, with its airports, countries, and scheduled times.
+  const { data: booking } = await admin.from('bookings').select('booked_via, booked_at, confirmation_code').eq('id', segment!.booking_id).single();
+  const { data: legs } = await admin.from('booking_segments').select(LEG).eq('booking_id', segment!.booking_id).order('position');
+  // A forwarded rebooking is saved as its own booking (Task 5 dedupes on the code plus the flights), and an airline
+  // keeps the record locator when it rebooks. So the offered re-routings are the trip's other bookings with this code.
+  let offers: LegRow[][] = [];
+  if (booking?.confirmation_code) {
+    const { data: rebookings } = await admin
+      .from('bookings')
+      .select(`id, booking_segments(position, ${LEG})`)
+      .eq('trip_id', incident.trip_id)
+      .eq('confirmation_code', booking.confirmation_code)
+      .neq('id', segment!.booking_id);
+    offers = (rebookings ?? []).map((b) => [...b.booking_segments].sort((x, y) => x.position - y.position).map(({ position: _position, ...leg }) => leg));
+  }
+  // Coordinates for the journey's great-circle distance. A failed lookup only leaves flight.distance_km unset.
+  const api = await aeroApi();
+  const codes = [...new Set((legs ?? []).flatMap((l) => [l.origin_iata, l.destination_iata]))];
+  const found = await Promise.all(codes.map(async (code) => [code, await api.airport(code).catch(() => null)] as const));
+  const airports = Object.fromEntries(
+    found.flatMap(([code, a]) => (a?.latitude != null && a.longitude != null ? [[code, { latitude: a.latitude, longitude: a.longitude }]] : [])),
+  );
   const { data: asked } = await admin.from('incident_events').select('detail').eq('incident_id', incidentId).eq('kind', 'question_asked');
   const trip = Array.isArray(incident.trips) ? incident.trips[0] : incident.trips;
-  return { admin, incident, segment: segment!, booking: { booked_via: booking?.booked_via ?? null, segment_count: count ?? 1 }, asked: (asked ?? []).map((e) => (e.detail as { fact: string }).fact), trip };
+  return {
+    admin,
+    incident,
+    segment: segment!,
+    booking: { booked_via: booking?.booked_via ?? null, booked_at: booking?.booked_at ?? null, segments: legs ?? [] },
+    offers,
+    airports,
+    asked: (asked ?? []).map((e) => (e.detail as { fact: string }).fact),
+    trip,
+  };
 }
 
 export async function assessIncident(incidentId: string): Promise<Assessment & { tripId: string; tripName: string; affectedUserIds: string[]; passStatus: string }> {
@@ -5880,6 +7691,8 @@ export async function assessIncident(incidentId: string): Promise<Assessment & {
     incident: { ...loaded.incident, facts: (loaded.incident.facts ?? {}) as Record<string, Primitive> },
     segment: loaded.segment,
     booking: loaded.booking,
+    offers: loaded.offers,
+    airports: loaded.airports,
     asked: loaded.asked,
     rules: getLibrary().rules,
   });
@@ -5911,26 +7724,54 @@ export async function recordAnswer(incidentId: string, answer: PlannerAnswer | n
   await admin.from('incident_events').insert({ incident_id: incidentId, kind: 'answered', detail: answer ?? { timed_out: true } });
 }
 
-export async function savePlaybook(incidentId: string): Promise<string> {
+/** Saves the playbook. On a hand-run trip it is saved held: hidden from the group by RLS until releaseHeldPlaybooks. */
+export async function savePlaybook(incidentId: string): Promise<{ playbookId: string; held: boolean }> {
   const assessment = await assessIncident(incidentId);
   const result = await generatePlaybook(assessment);
+  const held = await needsReview(incidentId);
   const admin = createAdminClient();
   const { data: playbook, error } = await admin
     .from('playbooks')
-    .insert({ incident_id: incidentId, content: result.playbook, rules_cited: result.rulesCited, model: result.model, citation_check_passed: result.citationCheckPassed })
+    .insert({
+      incident_id: incidentId,
+      content: result.playbook,
+      rules_cited: result.rulesCited,
+      model: result.model,
+      citation_check_passed: result.citationCheckPassed,
+      held_for_review: held,
+    })
     .select('id')
     .single();
   if (error) throw new Error(error.message);
-  await admin.from('incidents').update({ status: 'playbook_ready' }).eq('id', incidentId);
-  await admin.from('incident_events').insert({ incident_id: incidentId, kind: 'playbook_generated', detail: { playbook_id: playbook.id, model: result.model } });
-  return playbook.id;
+  // A held playbook is not ready for the group until the founder releases it.
+  if (!held) await admin.from('incidents').update({ status: 'playbook_ready' }).eq('id', incidentId);
+  await admin.from('incident_events').insert({ incident_id: incidentId, kind: 'playbook_generated', detail: { playbook_id: playbook.id, model: result.model, held } });
+  return { playbookId: playbook.id, held };
 }
 
-/** Comped trips are the founder's hand-run watching: their playbooks wait for review before the group sees them. */
+/** Hand-run trips (comped from /admin) hold every playbook for the founder's review. A promotion-code comp is not hand-run. */
 export async function needsReview(incidentId: string): Promise<boolean> {
-  const { data } = await createAdminClient().from('incidents').select('trips!inner(pass_status)').eq('id', incidentId).single();
-  const trip = Array.isArray(data?.trips) ? data?.trips[0] : data?.trips;
-  return trip?.pass_status === 'comp';
+  const { data, error } = await createAdminClient().from('incidents').select('trips!inner(hand_run)').eq('id', incidentId).single();
+  if (error) throw new Error(error.message);
+  const trip = Array.isArray(data.trips) ? data.trips[0] : data.trips;
+  return trip?.hand_run === true;
+}
+
+/** Shows the incident's held playbooks to the group: on the founder's release, or when the two-hour hold runs out. */
+export async function releaseHeldPlaybooks(incidentId: string): Promise<void> {
+  const admin = createAdminClient();
+  const { error } = await admin.from('playbooks').update({ held_for_review: false }).eq('incident_id', incidentId).eq('held_for_review', true);
+  if (error) throw new Error(error.message);
+  await admin.from('incidents').update({ status: 'playbook_ready' }).eq('id', incidentId).neq('status', 'resolved');
+}
+
+/** Open incidents on a segment with no `notified` event: new ones, and any whose workflow never started. */
+export async function unnotifiedIncidentIds(segmentId: string): Promise<string[]> {
+  const { data, error } = await createAdminClient().from('incidents').select('id, incident_events(kind)').eq('segment_id', segmentId).neq('status', 'resolved');
+  if (error) throw new Error(error.message);
+  return (data ?? [])
+    .filter((incident) => !((incident.incident_events ?? []) as { kind: string }[]).some((event) => event.kind === 'notified'))
+    .map((incident) => incident.id as string);
 }
 
 export async function requestReview(incidentId: string): Promise<void> {
@@ -5968,7 +7809,12 @@ export async function notifyAffected(incidentId: string): Promise<void> {
 }
 ```
 
-- [ ] **Step 4: Extend the ports and write the workflow**
+- [ ] **Step 5: Extend the ports and write the workflow**
+
+Append to `apps/web/lib/workflows/tokens.ts`:
+```ts
+export const incidentRunToken = (incidentId: string) => `incident-run:${incidentId}`;
+```
 
 In `apps/web/lib/workflows/ports.ts`:
 1. Add `import type { PlannerAnswer, PlannerQuestion } from '@/lib/assist/questions';`. It is type-only, so no server code loads.
@@ -5977,14 +7823,15 @@ In `apps/web/lib/workflows/ports.ts`:
      assessIncident(incidentId: string): Promise<{ question: PlannerQuestion | null }>;
      askPlanner(incidentId: string, question: PlannerQuestion): Promise<void>;
      recordAnswer(incidentId: string, answer: PlannerAnswer | null): Promise<void>;
-     generatePlaybook(incidentId: string): Promise<{ playbookId: string }>;
-     needsReview(incidentId: string): Promise<boolean>;
+     generatePlaybook(incidentId: string): Promise<{ playbookId: string; held: boolean }>;
      requestReview(incidentId: string): Promise<void>;
+     releaseHeldPlaybooks(incidentId: string): Promise<void>;
      notifyAffected(incidentId: string): Promise<void>;
+     unnotifiedIncidentIds(segmentId: string): Promise<string[]>;
    ```
 
 In `apps/web/lib/workflows/live-ports.ts`:
-1. Add `import { askPlanner, assessIncident, needsReview, notifyAffected, recordAnswer, requestReview, savePlaybook } from '@/lib/assist/incidents';`.
+1. Add `import { askPlanner, assessIncident, notifyAffected, recordAnswer, releaseHeldPlaybooks, requestReview, savePlaybook, unnotifiedIncidentIds } from '@/lib/assist/incidents';`.
 2. Add these entries to the returned object:
    ```ts
        async assessIncident(incidentId) {
@@ -5992,12 +7839,11 @@ In `apps/web/lib/workflows/live-ports.ts`:
        },
        askPlanner,
        recordAnswer,
-       async generatePlaybook(incidentId) {
-         return { playbookId: await savePlaybook(incidentId) };
-       },
-       needsReview,
+       generatePlaybook: savePlaybook,
        requestReview,
+       releaseHeldPlaybooks,
        notifyAffected,
+       unnotifiedIncidentIds,
    ```
 
 In `apps/web/lib/workflows/memory-ports.ts`:
@@ -6008,10 +7854,21 @@ In `apps/web/lib/workflows/memory-ports.ts`:
      answers: Map<string, PlannerAnswer | null>;
      reviewed: Set<string>;
      reviewRequested: string[];
+     released: string[];
      notified: string[];
+     segmentIncidents: Map<string, string[]>;
    ```
-3. Initialise them in `memoryState()`: `questions: new Map(), answers: new Map(), reviewed: new Set(), reviewRequested: [], notified: []`.
-4. Add these to `memoryPorts()`:
+3. Initialise them in `memoryState()`: `questions: new Map(), answers: new Map(), reviewed: new Set(), reviewRequested: [], released: [], notified: [], segmentIncidents: new Map()`.
+4. Replace Task 9's `pollAndRecord`, so each polled incident is remembered for `unnotifiedIncidentIds`:
+   ```ts
+       async pollAndRecord(segmentId) {
+         state.calls.push(`poll:${segmentId}`);
+         const result = state.pollResults.shift() ?? { incidentId: null, ended: true };
+         if (result.incidentId) state.segmentIncidents.set(segmentId, [...(state.segmentIncidents.get(segmentId) ?? []), result.incidentId]);
+         return result;
+       },
+   ```
+5. Add these to `memoryPorts()`:
    ```ts
        async assessIncident(incidentId) {
          return { question: state.answers.has(incidentId) ? null : (state.questions.get(incidentId) ?? null) };
@@ -6023,16 +7880,19 @@ In `apps/web/lib/workflows/memory-ports.ts`:
          state.answers.set(incidentId, answer);
        },
        async generatePlaybook(incidentId) {
-         return { playbookId: `pb-${incidentId}` };
-       },
-       async needsReview(incidentId) {
-         return state.reviewed.has(incidentId);
+         return { playbookId: `pb-${incidentId}`, held: state.reviewed.has(incidentId) };
        },
        async requestReview(incidentId) {
          state.reviewRequested.push(incidentId);
        },
+       async releaseHeldPlaybooks(incidentId) {
+         state.released.push(incidentId);
+       },
        async notifyAffected(incidentId) {
          state.notified.push(incidentId);
+       },
+       async unnotifiedIncidentIds(segmentId) {
+         return (state.segmentIncidents.get(segmentId) ?? []).filter((incidentId) => !state.notified.includes(incidentId));
        },
    ```
 
@@ -6041,30 +7901,41 @@ In `apps/web/lib/workflows/memory-ports.ts`:
 import { createHook, sleep } from 'workflow';
 import type { PlannerAnswer, PlannerQuestion } from '@/lib/assist/questions';
 import { workflowPorts } from '@/lib/workflows/ports';
-import { incidentAnswerToken, incidentReleaseToken } from '@/lib/workflows/tokens';
+import { incidentAnswerToken, incidentReleaseToken, incidentRunToken } from '@/lib/workflows/tokens';
 
 export async function incidentWorkflow(incidentId: string) {
   'use workflow';
-  const { question } = await assessStep(incidentId);
-  if (question) {
-    await askStep(incidentId, question);
-    const hook = createHook<PlannerAnswer>({ token: incidentAnswerToken(incidentId) });
-    const answer = await Promise.race([hook.then((a) => a), sleep('6h').then(() => null)]);
-    hook.dispose();
-    await answerStep(incidentId, answer);
+  // The segment monitor restarts every incident that was never notified. The token makes those restarts
+  // harmless: while a run handles this incident, another one exits at once.
+  const claim = createHook({ token: incidentRunToken(incidentId) });
+  if (await claim.getConflict()) return { incidentId, status: 'duplicate' as const, playbookId: null };
+
+  try {
+    const { question } = await assessStep(incidentId);
+    if (question) {
+      await askStep(incidentId, question);
+      const hook = createHook<PlannerAnswer>({ token: incidentAnswerToken(incidentId) });
+      const answer = await Promise.race([hook.then((a) => a), sleep('6h').then(() => null)]);
+      hook.dispose();
+      await answerStep(incidentId, answer);
+    }
+
+    const { playbookId, held } = await playbookStep(incidentId);
+
+    if (held) {
+      // Hand-run trip: the founder reviews first. The playbook stays hidden (RLS) until it is released.
+      await requestReviewStep(incidentId);
+      const release = createHook<{ releasedBy: string }>({ token: incidentReleaseToken(incidentId) });
+      await Promise.race([release.then(() => true), sleep('2h').then(() => false)]);
+      release.dispose();
+      await releaseStep(incidentId);
+    }
+
+    await notifyStep(incidentId);
+    return { incidentId, status: 'notified' as const, playbookId };
+  } finally {
+    claim.dispose();
   }
-
-  const { playbookId } = await playbookStep(incidentId);
-
-  if (await needsReviewStep(incidentId)) {
-    await requestReviewStep(incidentId);
-    const release = createHook<{ releasedBy: string }>({ token: incidentReleaseToken(incidentId) });
-    await Promise.race([release.then(() => true), sleep('2h').then(() => false)]);
-    release.dispose();
-  }
-
-  await notifyStep(incidentId);
-  return { incidentId, playbookId };
 }
 
 async function assessStep(incidentId: string) {
@@ -6087,14 +7958,14 @@ async function playbookStep(incidentId: string) {
   return (await workflowPorts()).generatePlaybook(incidentId);
 }
 
-async function needsReviewStep(incidentId: string) {
-  'use step';
-  return (await workflowPorts()).needsReview(incidentId);
-}
-
 async function requestReviewStep(incidentId: string) {
   'use step';
   await (await workflowPorts()).requestReview(incidentId);
+}
+
+async function releaseStep(incidentId: string) {
+  'use step';
+  await (await workflowPorts()).releaseHeldPlaybooks(incidentId);
 }
 
 async function notifyStep(incidentId: string) {
@@ -6106,19 +7977,46 @@ async function notifyStep(incidentId: string) {
 Start the incident workflow wherever an incident opens:
 1. In `apps/web/workflows/segment-monitor.ts`:
    - Add `import { start } from 'workflow/api';` and `import { incidentWorkflow } from './incident';`.
-   - Inside the loop, after `incidents.push(polled.incidentId)`, add `await start(incidentWorkflow, [polled.incidentId]);`. Calling `start()` inside a workflow spawns a child run through an internal step.
+   - Inside the loop, replace `if (polled.incidentId) incidents.push(polled.incidentId);` with:
+     ```ts
+           if (polled.incidentId) incidents.push(polled.incidentId);
+           // New incidents, and any whose start failed in the alert route, get a run. A run that already
+           // handles an incident makes the new one exit (incidentRunToken).
+           for (const incidentId of await unnotifiedStep(segmentId)) await start(incidentWorkflow, [incidentId]);
+     ```
+     Calling `start()` inside a workflow spawns a child run through an internal step.
+   - Add the step at the bottom of the file:
+     ```ts
+     async function unnotifiedStep(segmentId: string) {
+       'use step';
+       return (await workflowPorts()).unnotifiedIncidentIds(segmentId);
+     }
+     ```
 2. In `apps/web/app/api/webhooks/aeroapi/[secret]/route.ts`:
    - Add `import { start } from 'workflow/api';` and `import { incidentWorkflow } from '@/workflows/incident';`.
-   - Before the final `return`, add `if (incidentId) await start(incidentWorkflow, [incidentId]);`.
+   - Before the final `return`, add:
+     ```ts
+       if (incidentId) {
+         try {
+           await start(incidentWorkflow, [incidentId]);
+         } catch (error) {
+           // The alert is recorded and deduped, so AeroAPI won't resend it. The segment's next poll starts every
+           // incident that was never notified, this one included.
+           console.error('incident workflow did not start', incidentId, error);
+         }
+       }
+     ```
 
-The segment-monitor integration test from Task 9 now spawns a child incident run for `inc-1`. `memoryPorts().assessIncident('inc-1')` returns no question, so the child finishes on its own, asynchronously. In `apps/web/test/workflows/segment-monitor.integration.test.ts`:
+The segment-monitor integration test from Task 9 now spawns a child incident run for `inc-1`. `memoryPorts().assessIncident('inc-1')` returns no question, so the child finishes on its own, asynchronously. Polls that come before it notifies start it again, and those runs exit as duplicates. In `apps/web/test/workflows/segment-monitor.integration.test.ts`:
 1. Change the vitest import to `import { beforeEach, describe, expect, it, vi } from 'vitest';`.
 2. After `const result = await run.returnValue;`, add:
    ```ts
    await vi.waitFor(() => expect(memoryState().notified).toContain('inc-1'), { timeout: 5000 });
    ```
 
-- [ ] **Step 5: Write the incident page and the answer action**
+- [ ] **Step 6: Write the incident page and the answer action**
+
+The page reads playbooks with the user's client, so the RLS policy from Step 3 keeps a held playbook off it until release: the planner and the affected members see "We're working out what applies" meanwhile.
 
 `apps/web/app/trips/[id]/incidents/[incidentId]/actions.ts`:
 ```ts
@@ -6276,27 +8174,30 @@ async function IncidentContent({ params }: { params: Params }) {
 }
 ```
 
-- [ ] **Step 6: Run the unit and integration tests, typecheck, and build**
+- [ ] **Step 7: Run the unit and integration tests, typecheck, and build**
 
 ```bash
 cd apps/web && npx vitest run && npm run test:integration && npm run typecheck && npm run build; cd ../..
 ```
 Expected: everything passes, and the build succeeds.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
-git add apps/web
+git add apps/web supabase/migrations/00012_group_trip_assist.sql
 git commit -F - <<'EOF'
 Run each disruption as a durable incident: ask, draft, notify
 
-An incident is assessed against the rules. If a traveler-answerable
-fact decides it, the planner gets one question and the workflow waits
-for the answer, up to six hours. Then it drafts the cited playbook and
-alerts only the people on that booking. Comped, hand-run trips hold the
-playbook for the founder's review for up to two hours. The incident
-page shows the claims with links to their rules and the messages ready
-to paste.
+An incident is assessed against the rules, with the booking-level facts
+from every flight on its ticket. If a traveler-answerable fact decides
+it, the planner gets one question and the workflow waits for the
+answer, up to six hours. Then it drafts the cited playbook and alerts
+only the people on that booking. Hand-run trips (trips.hand_run, set by
+/admin) hold the playbook for the founder's review for up to two hours,
+hidden from everyone until it is released. A promotion-code comp is not
+held. Polling restarts any incident that was never notified, and a run
+token makes the restart harmless. The incident page shows the claims
+with links to their rules and the messages ready to paste.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01CZeaGyqM4LkMDPkaein2Sc
@@ -6310,6 +8211,7 @@ EOF
 **Files:**
 - Create: `apps/web/lib/votes/tally.ts`, `apps/web/lib/votes/alternatives.ts`, `apps/web/app/trips/[id]/votes/[voteId]/page.tsx`, `apps/web/app/trips/[id]/votes/actions.ts`, `apps/web/app/trips/[id]/incidents/[incidentId]/vote-form.tsx`, `apps/web/test/votes/tally.test.ts`, `apps/web/test/votes/alternatives.test.ts`
 - Modify:
+  - `supabase/migrations/00012_group_trip_assist.sql` (`respond_vote`; drop direct writes to `vote_responses`), `apps/web/test/db/group-trip.test.ts`, and one line of C1's `apps/web/test/db/schema.test.ts`
   - `apps/web/lib/flights/aeroapi.ts` and `apps/web/lib/flights/fixture-aeroapi.ts` (add `routeSchedules`)
   - `apps/web/test/flights/resolve.test.ts` (stub `routeSchedules`)
   - `apps/web/app/trips/[id]/incidents/[incidentId]/page.tsx` (add the vote form)
@@ -6317,15 +8219,126 @@ EOF
 **Interfaces:**
 - Consumes: `TripVote` and `TripVoteOption` (Task 1); `aeroApi` and `localDateTime` (Task 4); `queueNotifications` and `voteNotice` (Task 2).
 - Produces:
+  - **SQL:** `respond_vote(p_vote_id uuid, p_option_id uuid)`, the only way to answer a vote. It rejects a closed vote and a non-member. When the vote names required voters (an incident vote names the affected travelers), only they may answer; otherwise any member may. Answering again changes the answer. C1's `vote_responses` insert and update policies, and its update grant, are dropped: a PostgREST upsert would also SET `vote_id` and `user_id`, which no grant allows, and a direct insert would get around the required-voter rule.
   - **AeroAPI addition:** `AeroApi.routeSchedules(dateStart, dateEnd, origin, destination): Promise<AeroScheduled[]>`, which calls `/schedules/{start}/{end}?origin=&destination=`
   - **Tally:** `tally(vote, options, responses, requiredUserIds): TripVote & { leaderOptionId: string | null; respondedCount: number; complete: boolean }`
   - **Alternatives:** `suggestAlternatives(segment, api, now): Promise<{ label: string; note: string }[]>`
   - **Server actions:**
     - `createVote(tripId, incidentId | null, prev, form)`
-    - `respondVote(tripId, voteId, optionId)`
-    - `closeVote(tripId, voteId)`
+    - `respondVote(tripId, voteId, optionId)`, through `respond_vote`
+    - `closeVote(tripId, voteId)`, which checks its update landed (RLS lets only the planner or the creator close a vote)
 
-- [ ] **Step 1: Write the failing tests**
+- [ ] **Step 1: Answer votes through one checked function**
+
+Ask the controller whether 00012 has been applied anywhere (Global Constraints). Then append to `apps/web/test/db/group-trip.test.ts`:
+```ts
+describe('votes (Task 13)', () => {
+  async function vote(required: string[]) {
+    const v = await asUser(db, PLANNER, () =>
+      one<{ id: string }>(
+        "insert into public.votes (trip_id, title, detail, required_user_ids, created_by) values ($1, 'Which flight?', '', $2, $3) returning id",
+        [tripId, `{${required.join(',')}}`, PLANNER],
+      ),
+    );
+    const options = await asUser(db, PLANNER, () =>
+      db.query<{ id: string }>("insert into public.vote_options (vote_id, label, position) values ($1, 'Tomorrow 7:05', 1), ($1, 'Tonight via Denver', 2) returning id", [v.id]),
+    );
+    return { id: v.id, first: options.rows[0].id, second: options.rows[1].id };
+  }
+  const respond = (user: string, voteId: string, optionId: string) => asUser(db, user, () => db.query('select public.respond_vote($1, $2)', [voteId, optionId]));
+
+  it('a member votes, then changes their vote while it is open', async () => {
+    const v = await vote([]);
+    await respond(MEMBER, v.id, v.first);
+    await respond(MEMBER, v.id, v.second);
+    const rows = await asService(db, () => db.query('select user_id, option_id from public.vote_responses where vote_id = $1', [v.id]));
+    expect(rows.rows).toEqual([{ user_id: MEMBER, option_id: v.second }]);
+  });
+
+  it('a vote that names its voters takes answers from them only', async () => {
+    const v = await vote([MEMBER]);
+    await rejects(() => respond(PLANNER, v.id, v.first), /not a voter on this vote/);
+    await respond(MEMBER, v.id, v.first);
+  });
+
+  it('a closed vote takes no answers', async () => {
+    const v = await vote([]);
+    await asUser(db, PLANNER, () => db.query("update public.votes set status = 'closed' where id = $1", [v.id]));
+    await rejects(() => respond(MEMBER, v.id, v.first), /vote is closed/);
+  });
+
+  it('outsiders cannot answer, nobody writes responses directly, and an option must belong to the vote', async () => {
+    const v = await vote([]);
+    const other = await vote([]);
+    await rejects(() => respond(OUTSIDER, v.id, v.first), /vote not found/);
+    await rejects(() =>
+      asUser(db, MEMBER, () => db.query('insert into public.vote_responses (vote_id, user_id, option_id) values ($1, $2, $3)', [v.id, MEMBER, v.first])),
+    );
+    await rejects(() => respond(MEMBER, v.id, other.first), /violates foreign key/);
+    const anon = await asService(db, () => one<{ ok: boolean }>("select has_function_privilege('anon', 'public.respond_vote(uuid, uuid)', 'execute') as ok"));
+    expect(anon.ok).toBe(false);
+  });
+});
+```
+
+C1's `schema.test.ts` writes a response directly in "votes and action items cannot change trip or assignees; responses cannot pick another vote option". That write path is about to close, so in that test replace:
+```ts
+    await asUser(db, PLANNER, () => db.query('insert into public.vote_responses (vote_id, user_id, option_id) values ($1, $2, $3)', [a.vote, PLANNER, a.option]));
+```
+with:
+```ts
+    await asUser(db, PLANNER, () => db.query('select public.respond_vote($1, $2)', [a.vote, a.option]));
+```
+The test's two rejections (a response pointing at another vote's option, and an update to another option) still hold: the first now fails RLS, the second the missing grant.
+
+```bash
+cd apps/web && npx vitest run test/db; cd ../..
+```
+Expected: FAIL, with `function public.respond_vote(uuid, uuid) does not exist`.
+
+In `supabase/migrations/00012_group_trip_assist.sql`:
+1. Directly after `create table public.vote_responses (…);` in section 7, add:
+   ```sql
+
+   -- Members answer only through here. A direct upsert would also SET vote_id and user_id, which no
+   -- column grant allows, and this function decides who may answer: a vote that names required voters
+   -- (an incident vote names the affected travelers) takes answers from them only, any other vote from
+   -- any member, and a closed vote from no one.
+   create or replace function public.respond_vote(p_vote_id uuid, p_option_id uuid)
+   returns void language plpgsql security definer set search_path = public as $$
+   declare v_vote public.votes%rowtype;
+   begin
+     select * into v_vote from public.votes where id = p_vote_id;
+     if not found or not public.is_trip_member(v_vote.trip_id) then
+       raise exception 'vote not found' using errcode = 'P0002';
+     end if;
+     if v_vote.status <> 'open' then
+       raise exception 'vote is closed' using errcode = '22023';
+     end if;
+     if cardinality(v_vote.required_user_ids) > 0 and not (auth.uid() = any (v_vote.required_user_ids)) then
+       raise exception 'not a voter on this vote' using errcode = '42501';
+     end if;
+     insert into public.vote_responses (vote_id, user_id, option_id)
+     values (p_vote_id, auth.uid(), p_option_id)
+     on conflict (vote_id, user_id) do update set option_id = excluded.option_id, responded_at = now();
+   end;
+   $$;
+   revoke execute on function public.respond_vote(uuid, uuid) from public, anon;
+   grant execute on function public.respond_vote(uuid, uuid) to authenticated;
+   ```
+2. In section 11, delete the line `grant update (option_id, responded_at) on public.vote_responses to authenticated;`.
+3. In section 12, replace the two `vote_responses` write policies, `"Members respond to open votes"` (insert) and `"Members change their open-vote response"` (update), with:
+   ```sql
+   -- No write policies on vote_responses: members answer through respond_vote().
+   ```
+   Keep `"Members read responses"`.
+
+```bash
+cd apps/web && npx vitest run test/db; cd ../..
+```
+Expected: PASS, for both DB test files.
+
+- [ ] **Step 2: Write the failing tests**
 
 `apps/web/test/votes/tally.test.ts`:
 ```ts
@@ -6393,14 +8406,14 @@ describe('suggestAlternatives', () => {
 });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [ ] **Step 3: Run the tests to verify they fail**
 
 ```bash
 cd apps/web && npx vitest run test/votes; cd ../..
 ```
 Expected: FAIL, with modules not found.
 
-- [ ] **Step 3: Implement**
+- [ ] **Step 4: Implement**
 
 `apps/web/lib/votes/tally.ts`:
 ```ts
@@ -6542,18 +8555,28 @@ export async function createVote(tripId: string, incidentId: string | null, _pre
   redirect(`/trips/${tripId}/votes/${vote.id}`);
 }
 
+const RESPOND_ERRORS: Record<string, string> = {
+  '22023': 'That vote is closed.',
+  '42501': 'This vote is for the travelers on the affected flight.',
+  P0002: 'That vote is not on this trip.',
+};
+
 export async function respondVote(tripId: string, voteId: string, optionId: string): Promise<void> {
-  const user = await requireUser(`/trips/${tripId}/votes/${voteId}`);
+  await requireUser(`/trips/${tripId}/votes/${voteId}`);
   const supabase = await createClient();
-  const { error } = await supabase.from('vote_responses').upsert({ vote_id: voteId, user_id: user.id, option_id: optionId, responded_at: new Date().toISOString() }, { onConflict: 'vote_id,user_id' });
-  if (error) throw new Error('That vote is closed.');
+  // respond_vote checks membership, the required voters, and that the vote is open, then inserts or changes the answer.
+  const { error } = await supabase.rpc('respond_vote', { p_vote_id: voteId, p_option_id: optionId });
+  if (error) throw new Error(RESPOND_ERRORS[error.code] ?? 'We could not record your vote.');
   revalidatePath(`/trips/${tripId}/votes/${voteId}`);
 }
 
 export async function closeVote(tripId: string, voteId: string): Promise<void> {
   await requireUser(`/trips/${tripId}/votes/${voteId}`);
   const supabase = await createClient();
-  await supabase.from('votes').update({ status: 'closed' }).eq('id', voteId);
+  // RLS lets only the planner or the vote's creator update it; anyone else's update matches no row.
+  const { data, error } = await supabase.from('votes').update({ status: 'closed' }).eq('id', voteId).eq('trip_id', tripId).select('id');
+  if (error) throw new Error(error.message);
+  if (!data || data.length === 0) throw new Error('Only the planner or whoever started the vote can close it.');
   revalidatePath(`/trips/${tripId}/votes/${voteId}`);
 }
 ```
@@ -6592,6 +8615,8 @@ async function VoteContent({ params }: { params: Params }) {
   const result = tally(vote, options ?? [], responses ?? [], vote.required_user_ids);
   const mine = (responses ?? []).find((r) => r.user_id === user.id)?.option_id ?? null;
   const notes = new Map((options ?? []).map((o) => [o.id, o.note]));
+  // Mirrors respond_vote: a vote that names its voters is theirs alone.
+  const canVote = vote.status === 'open' && (vote.required_user_ids.length === 0 || vote.required_user_ids.includes(user.id));
 
   return (
     <>
@@ -6601,7 +8626,7 @@ async function VoteContent({ params }: { params: Params }) {
         {result.options.map((option) => (
           <li key={option.id}>
             <form action={respondVote.bind(null, id, voteId, option.id)}>
-              <Button type="submit" variant={mine === option.id ? 'default' : 'outline'} disabled={vote.status === 'closed'} className="h-auto w-full justify-between py-3">
+              <Button type="submit" variant={mine === option.id ? 'default' : 'outline'} disabled={!canVote} className="h-auto w-full justify-between py-3">
                 <span className="text-left">
                   {option.label}
                   {notes.get(option.id) ? <span className="block text-xs font-normal opacity-80">{notes.get(option.id)}</span> : null}
@@ -6615,6 +8640,7 @@ async function VoteContent({ params }: { params: Params }) {
       <p className="mt-4 text-sm text-[#4b5745]">
         {result.respondedCount} of {result.requiredParticipantIds.length} have voted{vote.status === 'closed' ? ' · closed' : ''}.
       </p>
+      {vote.status === 'open' && !canVote ? <p className="mt-1 text-sm text-[#4b5745]">This vote is for the travelers on the affected flight.</p> : null}
       {vote.status === 'open' && (isPlanner === true || vote.created_by === user.id) ? (
         <form action={closeVote.bind(null, id, voteId)} className="mt-4">
           <Button type="submit" variant="outline" size="sm">
@@ -6656,7 +8682,7 @@ export function IncidentVoteForm({ tripId, incidentId, suggestions }: { tripId: 
 }
 ```
 
-In `apps/web/app/trips/[id]/incidents/[incidentId]/page.tsx`:
+In `apps/web/app/trips/[id]/incidents/[incidentId]/page.tsx` (Task 12's):
 1. Add the imports:
    ```tsx
    import { aeroApi } from '@/lib/flights/aeroapi';
@@ -6664,29 +8690,65 @@ In `apps/web/app/trips/[id]/incidents/[incidentId]/page.tsx`:
    import { IncidentVoteForm } from './vote-form';
    ```
 2. In `IncidentContent`:
-   - Also select `segment_id` and `affected_user_ids` from `incidents`.
-   - Load the segment's `origin_iata`, `destination_iata`, and `carrier_iata`.
-   - Compute `const suggestions = (await suggestAlternatives(segmentFields, await aeroApi(), new Date()).catch(() => [])).map((o) => `${o.label} (${o.note})`);`.
-   - Render `<IncidentVoteForm tripId={id} incidentId={incidentId} suggestions={suggestions} />` after the playbook, for the planner or an affected member.
+   - Replace `await requireUser(`/trips/${id}/incidents/${incidentId}`);` with `const user = await requireUser(`/trips/${id}/incidents/${incidentId}`);`.
+   - Change the `incidents` select to `'id, status, pending_question, detected_at, segment_id, affected_user_ids'`.
+   - After the `const question = …;` line, add:
+     ```tsx
+       // Schedule suggestions cost an AeroAPI call, so only someone who can start the vote gets them, only until
+       // a vote exists, and a failure (AeroAPI down, a missing key) leaves the options blank for the planner to type.
+       const canStartVote = isPlanner === true || ((incident.affected_user_ids ?? []) as string[]).includes(user.id);
+       const { data: existingVote } = await supabase.from('votes').select('id').eq('incident_id', incidentId).order('created_at', { ascending: false }).limit(1).maybeSingle();
+       let suggestions: string[] = [];
+       if (canStartVote && !existingVote && incident.status !== 'resolved') {
+         try {
+           const { data: segment } = await supabase.from('booking_segments').select('origin_iata, destination_iata, carrier_iata').eq('id', incident.segment_id).single();
+           if (segment) {
+             const options = await suggestAlternatives(
+               { originIata: segment.origin_iata, destinationIata: segment.destination_iata, carrierIata: segment.carrier_iata },
+               await aeroApi(),
+               new Date(),
+             );
+             suggestions = options.map((o) => `${o.label} (${o.note})`);
+           }
+         } catch (error) {
+           console.error('schedule suggestions failed', incidentId, error);
+         }
+       }
+     ```
+   - Directly before the closing disclaimer, `<p className="mt-10 text-xs text-[#4b5745]">We drafted this …</p>`, add:
+     ```tsx
+           {existingVote ? (
+             <p className="mt-10">
+               <Link href={`/trips/${id}/votes/${existingVote.id}`} className="text-[#b4532a] underline">
+                 See the group’s vote
+               </Link>
+             </p>
+           ) : canStartVote ? (
+             <IncidentVoteForm tripId={id} incidentId={incidentId} suggestions={suggestions} />
+           ) : null}
+     ```
 
-- [ ] **Step 4: Run the tests, typecheck, and build**
+- [ ] **Step 5: Run the tests, typecheck, and build**
 
 ```bash
 cd apps/web && npx vitest run && npm run typecheck && npm run build; cd ../..
 ```
-Expected: all tests pass, typecheck is clean, and the build succeeds.
+Expected: all tests pass, including both DB test files, typecheck is clean, and the build succeeds.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add apps/web
+git add apps/web supabase/migrations/00012_group_trip_assist.sql
 git commit -F - <<'EOF'
 Let the group decide by vote, from a link in the alert
 
 The planner or anyone affected turns the airline's offers into a vote,
 prefilled with scheduled flights on the same route that are labelled
-"availability not confirmed — ask the airline". One tap votes; the
-creator or planner closes it. Required voters are the affected members.
+"availability not confirmed — ask the airline". The schedule lookup
+runs only for someone who can start the vote, and only until one
+exists. One tap votes, through respond_vote: only the required voters
+(the affected members) answer an incident vote, and a closed vote takes
+no answers. The creator or planner closes it.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01CZeaGyqM4LkMDPkaein2Sc
@@ -7046,23 +9108,24 @@ EOF
 
 ### Task 15: The trip's smart feed and the members page
 
-The feed replaces C1's minimal `/trips/[id]` page. It keeps the forwarding address, the invite section (Task 1), and the pass section (C1 Task 9). On top of those it adds what needs doing now. When nothing does, it shows the capybara's "all clear" card. The members page is a plain list, with no characters.
+The feed turns C1's `/trips/[id]` page into what needs doing now. When nothing does, it shows the capybara's "all clear" card. Only `TripContent` changes. It keeps C1's forwarding-address code exactly: the planner-only `trip_inbound_code` RPC, the "couldn't load your forwarding address" note when it fails, and the quiet degrade when `INBOUND_DOMAIN` is unset. It never selects `inbound_code` with the user's client, which C1's grants refuse. `PassSection` (C1, including its text for a non-planner) and `InviteSection` (Task 1) stay as they are. The members page is a plain list, with no characters.
 
 **Files:**
-- Create: `apps/web/lib/trips/feed.ts`, `apps/web/app/trips/[id]/feed-actions.ts`, `apps/web/app/trips/[id]/members/page.tsx`, `apps/web/test/trips/feed.test.ts`
-- Modify: `apps/web/app/trips/[id]/page.tsx` (rewrite the content as the feed)
+- Create: `apps/web/lib/trips/feed.ts`, `apps/web/lib/intake/quarantine.ts`, `apps/web/app/trips/[id]/feed-actions.ts`, `apps/web/app/trips/[id]/members/page.tsx`, `apps/web/test/trips/feed.test.ts`
+- Modify: `apps/web/app/trips/[id]/page.tsx` (its imports and `TripContent`; a new `FeedItem`)
 
 **Interfaces:**
 - Consumes:
   - Tasks 13–14: `tally` and `balances`
-  - Task 1: `TripActionItem`, `createJoinLink`, `currentJoinLink`
+  - Task 1: `InviteSection`, `createJoinLink`, `currentJoinLink`
   - Task 5: `intakeWorkflow`
-  - C1: `inboundAddress`, `startPassCheckout`, `Character`
+  - C1: `inboundAddress`, the `trip_inbound_code` RPC, `startPassCheckout`, `PassSection`, `Character`
 - Produces:
   - `FeedCard`
-  - `buildFeed(input: FeedInput): FeedCard[]`
+  - `buildFeed(input: FeedInput): FeedCard[]`, over raw `action_items` rows
   - `isAllClear(cards): boolean`
-  - `approveQuarantined(tripId, messageId)`, a server action
+  - **Quarantine approval** (`lib/intake/quarantine.ts`): `approveQuarantined(messageId, tripId | null): Promise<boolean>`. It moves a quarantined message back to `received` and closes its approval item, and returns `true` when the caller should start intake. The planner's action passes its trip, so it can approve only its own trip's mail; Task 16's `/admin` passes `null`.
+  - `approveQuarantinedMail(tripId, messageId)`, the planner's server action
 
 - [ ] **Step 1: Write the failing test**
 
@@ -7220,7 +9283,37 @@ cd apps/web && npx vitest run test/trips/feed.test.ts; cd ../..
 ```
 Expected: PASS.
 
-- [ ] **Step 5: Write the quarantine approval action**
+- [ ] **Step 5: Write the quarantine approval**
+
+The planner approves from the feed, and the founder from `/admin` (Task 16). Both run one function. It stops short of `start()`, which runs only in route handlers, server actions, and workflows.
+
+`apps/web/lib/intake/quarantine.ts`:
+```ts
+import 'server-only';
+import { createAdminClient } from '@/lib/supabase/admin';
+
+/**
+ * Moves a quarantined forwarded email back to `received` and closes its approval item. The planner's action
+ * passes its trip id, so it can approve only its own trip's mail; /admin passes null. Returns true when the
+ * message was quarantined and is now waiting, so the caller starts intake.
+ */
+export async function approveQuarantined(messageId: string, tripId: string | null): Promise<boolean> {
+  const admin = createAdminClient();
+  let update = admin.from('inbound_messages').update({ status: 'received' }).eq('id', messageId).eq('status', 'quarantined');
+  if (tripId) update = update.eq('trip_id', tripId);
+  const { data: message, error } = await update.select('id, trip_id').maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!message) return false;
+  const { error: itemError } = await admin
+    .from('action_items')
+    .update({ status: 'done' })
+    .eq('trip_id', message.trip_id)
+    .eq('source_kind', 'inbound_quarantine')
+    .eq('related_entity_id', messageId);
+  if (itemError) throw new Error(itemError.message);
+  return true;
+}
+```
 
 `apps/web/app/trips/[id]/feed-actions.ts`:
 ```ts
@@ -7229,27 +9322,25 @@ Expected: PASS.
 import { revalidatePath } from 'next/cache';
 import { start } from 'workflow/api';
 import { requireUser } from '@/lib/auth/user';
-import { createAdminClient } from '@/lib/supabase/admin';
+import { approveQuarantined } from '@/lib/intake/quarantine';
 import { createClient } from '@/lib/supabase/server';
 import { intakeWorkflow } from '@/workflows/intake';
 
-export async function approveQuarantined(tripId: string, messageId: string): Promise<void> {
+export async function approveQuarantinedMail(tripId: string, messageId: string): Promise<void> {
   await requireUser(`/trips/${tripId}`);
   const supabase = await createClient();
   const { data: isPlanner } = await supabase.rpc('is_trip_planner', { p_trip_id: tripId });
   if (isPlanner !== true) throw new Error('Only the planner can approve forwarded mail.');
-  const admin = createAdminClient();
-  const { data: message } = await admin.from('inbound_messages').update({ status: 'received' }).eq('id', messageId).eq('trip_id', tripId).eq('status', 'quarantined').select('id').maybeSingle();
-  if (!message) return;
-  await admin.from('action_items').update({ status: 'done' }).eq('trip_id', tripId).eq('source_kind', 'inbound_quarantine').eq('related_entity_id', messageId);
-  await start(intakeWorkflow, [messageId]);
+  if (await approveQuarantined(messageId, tripId)) await start(intakeWorkflow, [messageId]);
   revalidatePath(`/trips/${tripId}`);
 }
 ```
 
-- [ ] **Step 6: Rewrite the trip page as the feed**
+- [ ] **Step 6: Turn the trip page's content into the feed**
 
-`apps/web/app/trips/[id]/page.tsx`. Replace the whole file. The forwarding, invite, and pass sections carry over from C1 and Task 1 unchanged.
+In `apps/web/app/trips/[id]/page.tsx` (C1's page, with Task 1's `InviteSection`), change three things and leave the rest. `TripPage`, `PassSection`, and `InviteSection` stay exactly as they are.
+
+1. Replace the import block with:
 ```tsx
 import { Suspense } from 'react';
 import Link from 'next/link';
@@ -7258,7 +9349,6 @@ import { notFound } from 'next/navigation';
 import { Character } from '@/components/character';
 import { Button } from '@/components/ui/button';
 import { requireUser } from '@/lib/auth/user';
-import { requireEnv } from '@/lib/env';
 import { balances, type Split } from '@/lib/expenses/settle';
 import { ANONYMOUS_ID_COOKIE, isAnonymousId } from '@/lib/funnel/anonymous-id';
 import { assignVariant, variantPriceLabel } from '@/lib/funnel/variant';
@@ -7266,32 +9356,46 @@ import { createClient } from '@/lib/supabase/server';
 import { buildFeed, isAllClear, type FeedCard } from '@/lib/trips/feed';
 import { inboundAddress } from '@/lib/trips/inbound-code';
 import { createJoinLink, currentJoinLink, startPassCheckout } from './actions';
-import { approveQuarantined } from './feed-actions';
+import { approveQuarantinedMail } from './feed-actions';
+```
+`cookies`, `variantPriceLabel`, and friends stay for C1's `PassSection`; `createJoinLink` and `currentJoinLink` for Task 1's `InviteSection`.
 
-type Params = Promise<{ id: string }>;
-type SearchParams = Promise<{ pass?: string }>;
+2. Directly after the `type SearchParams = …;` line, add:
+```tsx
 
+// Task 9 records a diversion as a delay whose length isn't known yet.
 const summaryFor = (row: { event_type: string; delay_minutes: number | null }) =>
-  row.event_type === 'cancellation' ? 'A flight was cancelled.' : row.event_type === 'delay' ? `A flight is running ${Math.floor((row.delay_minutes ?? 0) / 60)} h late.` : 'A flight changed.';
+  row.event_type === 'cancellation'
+    ? 'A flight was cancelled.'
+    : row.event_type === 'delay'
+      ? row.delay_minutes === null
+        ? 'A flight was diverted.'
+        : `A flight is running ${Math.floor(row.delay_minutes / 60)} h late.`
+      : 'A flight changed.';
+```
 
-export default function TripPage({ params, searchParams }: { params: Params; searchParams: SearchParams }) {
-  return (
-    <main className="mx-auto max-w-3xl px-6 py-12">
-      <Suspense fallback={<p className="text-[#4b5745]">Loading the trip…</p>}>
-        <TripContent params={params} searchParams={searchParams} />
-      </Suspense>
-    </main>
-  );
-}
-
+3. Replace the whole `TripContent` function with this, and add `FeedItem` directly after it. The forwarding-address lines are C1's, unchanged:
+```tsx
 async function TripContent({ params, searchParams }: { params: Params; searchParams: SearchParams }) {
   const { id } = await params;
   const { pass } = await searchParams;
   const user = await requireUser(`/trips/${id}`);
   const supabase = await createClient();
-  const { data: trip } = await supabase.from('trips').select('id, name, destination_country, start_date, end_date, inbound_code, pass_status').eq('id', id).maybeSingle();
+  // inbound_code and join_token_hash are not column-readable; never select * from trips.
+  const { data: trip } = await supabase
+    .from('trips')
+    .select('id, name, destination_country, start_date, end_date, pass_status')
+    .eq('id', id)
+    .maybeSingle();
   if (!trip) notFound();
-  const { data: isPlanner } = await supabase.rpc('is_trip_planner', { p_trip_id: id });
+  // Only the planner gets a code back; a member sees null and no forwarding address.
+  const { data: code, error: codeError } = await supabase.rpc('trip_inbound_code', { p_trip_id: trip.id });
+  if (codeError) console.error('trip_inbound_code failed', codeError.message);
+  const domain = process.env.INBOUND_DOMAIN;
+  if (!domain) console.error('INBOUND_DOMAIN is not set');
+  const address = typeof code === 'string' && domain ? inboundAddress(code, domain) : null;
+  const addressFailed = Boolean(codeError) || (typeof code === 'string' && !domain);
+  const { data: isPlanner } = await supabase.rpc('is_trip_planner', { p_trip_id: trip.id });
 
   const [{ data: actionItems }, { data: incidents }, { data: votes }, { data: myResponses }, { data: segments }, { data: expenses }, { data: settlements }] = await Promise.all([
     supabase.from('action_items').select('id, title, detail, source_kind, related_entity_id, assigned_user_ids').eq('trip_id', id).eq('status', 'open'),
@@ -7340,13 +9444,21 @@ async function TripContent({ params, searchParams }: { params: Params; searchPar
         ))}
       </ul>
 
-      <section className="mt-8 rounded-xl border border-[#e4dfd0] bg-white p-6">
-        <h2 className="font-semibold">Forward the bookings here</h2>
-        <p className="mt-2 break-all font-mono text-lg">{inboundAddress(trip.inbound_code, requireEnv('INBOUND_DOMAIN'))}</p>
-        <p className="mt-2 text-sm text-[#4b5745]">Forward flight, hotel, and rental confirmations from the email address you signed in with.</p>
-      </section>
-      {isPlanner === true ? <InviteSection tripId={id} /> : null}
-      <PassSection tripId={id} passStatus={trip.pass_status} justPaid={pass === 'success'} isPlanner={isPlanner === true} />
+      {address ? (
+        <section className="mt-8 rounded-xl border border-[#e4dfd0] bg-white p-6">
+          <h2 className="font-semibold">Forward the bookings here</h2>
+          <p className="mt-2 break-all font-mono text-lg">{address}</p>
+          <p className="mt-2 text-sm text-[#4b5745]">
+            Forward flight, hotel, and rental confirmations from the email address you signed in with.
+          </p>
+        </section>
+      ) : addressFailed ? (
+        <p role="alert" className="mt-8 text-sm text-[#4b5745]">
+          We couldn’t load your forwarding address. Refresh the page to try again.
+        </p>
+      ) : null}
+      <InviteSection tripId={trip.id} />
+      <PassSection tripId={trip.id} passStatus={trip.pass_status} justPaid={pass === 'success'} isPlanner={isPlanner === true} />
     </>
   );
 }
@@ -7358,7 +9470,7 @@ function FeedItem({ card, tripId }: { card: FeedCard; tripId: string }) {
       <li className="rounded-xl border border-[#e4dfd0] bg-white p-4">
         <p className="font-medium">{card.title}</p>
         <p className="mt-1 text-sm text-[#4b5745]">{card.detail}</p>
-        <form action={approveQuarantined.bind(null, tripId, card.messageId)} className="mt-3">
+        <form action={approveQuarantinedMail.bind(null, tripId, card.messageId)} className="mt-3">
           <Button type="submit" size="sm" variant="outline">Approve and read it</Button>
         </form>
       </li>
@@ -7377,56 +9489,8 @@ function FeedItem({ card, tripId }: { card: FeedCard; tripId: string }) {
     </li>
   );
 }
-
-async function InviteSection({ tripId }: { tripId: string }) {
-  const link = await currentJoinLink(tripId);
-  return (
-    <section className="mt-6 rounded-xl border border-[#e4dfd0] bg-white p-6">
-      <h2 className="font-semibold">Invite the group</h2>
-      {link ? (
-        <p className="mt-2 break-all font-mono text-sm">{link}</p>
-      ) : (
-        <p className="mt-2 text-sm text-[#4b5745]">Create a link and drop it in the group chat. Anyone with it can join until a week after the trip.</p>
-      )}
-      <form
-        action={async () => {
-          'use server';
-          await createJoinLink(tripId);
-        }}
-        className="mt-3"
-      >
-        <Button type="submit" variant="outline">{link ? 'Reset the link' : 'Create invite link'}</Button>
-      </form>
-    </section>
-  );
-}
-
-async function PassSection({ tripId, passStatus, justPaid, isPlanner }: { tripId: string; passStatus: 'none' | 'active' | 'comp'; justPaid: boolean; isPlanner: boolean }) {
-  if (passStatus !== 'none') {
-    return (
-      <section className="mt-6 rounded-xl border border-[#cfe3c8] bg-[#f1f8ee] p-6">
-        <h2 className="font-semibold">Trip pass active</h2>
-        <p className="mt-1 text-sm text-[#4b5745]">We’re watching every confirmed flight for the group.</p>
-      </section>
-    );
-  }
-  if (justPaid) {
-    return <section role="status" className="mt-6 rounded-xl border border-[#e4dfd0] bg-white p-6">Payment received. Turning on the trip pass — refresh in a moment.</section>;
-  }
-  if (!isPlanner) return null;
-  const anonymousId = (await cookies()).get(ANONYMOUS_ID_COOKIE)?.value;
-  const price = variantPriceLabel(isAnonymousId(anonymousId) ? assignVariant(anonymousId) : 'p19');
-  return (
-    <section className="mt-6 rounded-xl border border-[#e4dfd0] bg-white p-6">
-      <h2 className="font-semibold">Watch this trip</h2>
-      <p className="mt-1 text-sm text-[#4b5745]">One {price} pass covers the whole group: flight watching, cited playbooks, and group alerts. We draft the messages; you send them.</p>
-      <form action={startPassCheckout.bind(null, tripId)} className="mt-4">
-        <Button type="submit">Get the trip pass — {price}</Button>
-      </form>
-    </section>
-  );
-}
 ```
+`InviteSection` returns nothing for a member, and `PassSection` keeps C1's "The trip planner can turn on the trip pass for the whole group." for them.
 
 - [ ] **Step 7: Write the members page**
 
@@ -7494,9 +9558,11 @@ Turn the trip page into a feed of what needs doing now
 
 The planner's open question comes first, then each person's own action
 items, votes still waiting on them, and money. Quarantined mail gets
-an approve button. When nothing needs anyone, the capybara says so.
-The forwarding address, invite link, and trip pass stay on the page,
-and a plain members page shows who is on which booking.
+an approve button, through the same approval /admin uses. When nothing
+needs anyone, the capybara says so. C1's forwarding address (the
+planner-only lookup, with its error and missing-domain handling), the
+invite link, and the trip pass stay on the page unchanged, and a plain
+members page shows who is on which booking.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01CZeaGyqM4LkMDPkaein2Sc
@@ -7509,7 +9575,8 @@ EOF
 
 `/admin` is where the founder runs the 10–20 follower trips by hand:
 - see every trip
-- comp a pass, which also starts monitoring
+- comp a pass, which marks the trip hand-run and starts monitoring. A trip that already has a pass, paid or comped, can't be comped again.
+- start monitoring again for a trip with a pass, if the Stripe webhook's `start` failed (Task 9). The run tokens make it safe to repeat.
 - rerun document checks
 - approve quarantined mail
 - edit a held playbook (validated and logged), then release it
@@ -7533,7 +9600,8 @@ A second daily cron runs the spec's T-30 document check. It re-checks every memb
   - Task 11: `checkCitations` and `PlaybookSchema`
   - Task 7: `runDocumentChecks`
   - Task 9: `booking_segments.monitor_state = 'polling_only'`, set when alert registration fails or polling keeps failing
-  - Task 6/15: `approveQuarantined` (the same logic, here with admin rights)
+  - Task 15: `approveQuarantined(messageId, null)`, the planner's approval logic, here across trips
+  - Task 12: `trips.hand_run` and `playbooks.held_for_review`
   - Task 5: `removeInbound`
 - Produces:
   - **Admin allow list** (`lib/admin/emails.ts`, pure, so workflow steps can import it):
@@ -7543,14 +9611,16 @@ A second daily cron runs the spec's T-30 document check. It re-checks every memb
   - **Retention:**
     - `retentionPlan(input): RetentionPlan`
     - `inboundObjects(admin, storagePath): Promise<string[]>`
+    - `selectAll(page): Promise<T[]>`, which reads every 1,000-row page of a select (PostgREST returns at most 1,000 rows a request)
     - `runRetention(now?): Promise<RetentionPlan>`
-  - **Crons:** `GET /api/cron/retention` and `GET /api/cron/document-checks`, both daily with Bearer `CRON_SECRET`
+  - **Crons:** `GET /api/cron/retention` and `GET /api/cron/document-checks`, both daily with Bearer `CRON_SECRET`, refused for everyone while the secret is unset
   - **Server actions:**
-    - `compPass(tripId)`
+    - `compPass(tripId)`: refuses a trip that has a pass; sets `pass_status = 'comp'` and `hand_run = true`
+    - `startMonitoring(tripId)`
     - `rerunChecks(tripId)`
     - `adminApproveQuarantined(messageId)`
-    - `editPlaybook(incidentId, prev, form)`
-    - `releasePlaybook(incidentId)`
+    - `editPlaybook(incidentId, prev, form)`: a new version stays held while the incident's playbook is held
+    - `releasePlaybook(incidentId)`: resumes the release hook, and logs instead of throwing when the hold already ran out
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -7574,7 +9644,7 @@ describe('admin guard', () => {
 `apps/web/test/retention.test.ts`:
 ```ts
 import { describe, expect, it } from 'vitest';
-import { inboundObjects, retentionPlan } from '@/lib/retention';
+import { inboundObjects, retentionPlan, selectAll } from '@/lib/retention';
 
 const now = new Date('2027-01-31T00:00:00Z');
 
@@ -7638,6 +9708,27 @@ describe('retentionPlan', () => {
     expect(listed).toEqual(['t/m1']);
   });
 });
+
+describe('selectAll', () => {
+  it('reads past the 1,000-row page that PostgREST returns', async () => {
+    const rows = Array.from({ length: 2500 }, (_, i) => ({ id: i }));
+    const pages: [number, number][] = [];
+    const all = await selectAll(async (from, to) => {
+      pages.push([from, to]);
+      return { data: rows.slice(from, to + 1), error: null };
+    });
+    expect(all).toHaveLength(2500);
+    expect(pages).toEqual([
+      [0, 999],
+      [1000, 1999],
+      [2000, 2999],
+    ]);
+  });
+
+  it('throws on an error instead of acting on a partial list', async () => {
+    await expect(selectAll(async () => ({ data: null, error: { message: 'timeout' } }))).rejects.toThrow('timeout');
+  });
+});
 ```
 
 `apps/web/test/cron/document-checks-route.test.ts`:
@@ -7678,6 +9769,15 @@ describe('GET /api/cron/document-checks', () => {
   it('refuses calls without the cron secret', async () => {
     const { GET } = await import('@/app/api/cron/document-checks/route');
     expect((await GET(new Request('https://x.test/api/cron/document-checks'))).status).toBe(401);
+    expect(checked).toEqual([]);
+  });
+
+  it('refuses everyone while CRON_SECRET is unset, including "Bearer undefined"', async () => {
+    delete process.env.CRON_SECRET;
+    const { GET } = await import('@/app/api/cron/document-checks/route');
+    for (const authorization of ['Bearer undefined', 'Bearer ']) {
+      expect((await GET(new Request('https://x.test/api/cron/document-checks', { headers: { authorization } }))).status).toBe(401);
+    }
     expect(checked).toEqual([]);
   });
 
@@ -7784,17 +9884,37 @@ export async function inboundObjects(
   return [...new Set([storagePath, ...(objects ?? []).map((object) => `${prefix}/${object.name}`)])];
 }
 
+const PAGE = 1000;
+
+/**
+ * PostgREST returns at most 1,000 rows a request, so a plain select would silently drop the rest, and retention
+ * would act on part of the data. This reads page after page until a short one. `page` must order its rows.
+ */
+export async function selectAll<T>(
+  page: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>,
+): Promise<T[]> {
+  const rows: T[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await page(from, from + PAGE - 1);
+    if (error) throw new Error(error.message);
+    rows.push(...(data ?? []));
+    if (!data || data.length < PAGE) return rows;
+  }
+}
+
 export async function runRetention(now: Date = new Date()): Promise<RetentionPlan> {
   const { createAdminClient } = await import('@/lib/supabase/admin');
   const { removeInbound } = await import('@/lib/intake/storage');
   const admin = createAdminClient();
-  const [{ data: trips }, { data: members }, { data: documents }, { data: inbound }] = await Promise.all([
-    admin.from('trips').select('id, end_date'),
-    admin.from('trip_members').select('trip_id, user_id'),
-    admin.from('member_documents').select('user_id, keep_on_profile'),
-    admin.from('inbound_messages').select('id, storage_path, received_at').not('storage_path', 'is', null),
+  const [trips, members, documents, inbound] = await Promise.all([
+    selectAll<{ id: string; end_date: string | null }>((from, to) => admin.from('trips').select('id, end_date').order('id').range(from, to)),
+    selectAll<{ trip_id: string; user_id: string }>((from, to) => admin.from('trip_members').select('trip_id, user_id').order('id').range(from, to)),
+    selectAll<{ user_id: string; keep_on_profile: boolean }>((from, to) => admin.from('member_documents').select('user_id, keep_on_profile').order('id').range(from, to)),
+    selectAll<{ id: string; storage_path: string | null; received_at: string }>((from, to) =>
+      admin.from('inbound_messages').select('id, storage_path, received_at').not('storage_path', 'is', null).order('id').range(from, to),
+    ),
   ]);
-  const plan = retentionPlan({ now, trips: trips ?? [], members: members ?? [], documents: documents ?? [], inbound: inbound ?? [] });
+  const plan = retentionPlan({ now, trips, members, documents, inbound });
 
   if (plan.deleteDocumentsFor.length > 0) {
     await admin.from('member_documents').delete().in('user_id', plan.deleteDocumentsFor).eq('keep_on_profile', false);
@@ -7815,7 +9935,9 @@ export async function runRetention(now: Date = new Date()): Promise<RetentionPla
 import { runRetention } from '@/lib/retention';
 
 export async function GET(request: Request): Promise<Response> {
-  if (request.headers.get('authorization') !== `Bearer ${process.env.CRON_SECRET}`) {
+  const secret = process.env.CRON_SECRET;
+  // An unset secret must never turn "Bearer undefined" into a valid token.
+  if (!secret || request.headers.get('authorization') !== `Bearer ${secret}`) {
     return new Response('unauthorized', { status: 401 });
   }
   const plan = await runRetention();
@@ -7834,7 +9956,9 @@ import { createAdminClient } from '@/lib/supabase/admin';
 
 /** The spec's T-30 check: daily, re-check every member of each trip that starts 30 days from today (UTC). */
 export async function GET(request: Request): Promise<Response> {
-  if (request.headers.get('authorization') !== `Bearer ${process.env.CRON_SECRET}`) {
+  const secret = process.env.CRON_SECRET;
+  // An unset secret must never turn "Bearer undefined" into a valid token.
+  if (!secret || request.headers.get('authorization') !== `Bearer ${secret}`) {
     return new Response('unauthorized', { status: 401 });
   }
   const day = new Date(Date.now() + 30 * 24 * 3600_000).toISOString().slice(0, 10);
@@ -7850,13 +9974,13 @@ export async function GET(request: Request): Promise<Response> {
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "crons": [
-    { "path": "/api/cron/notifications", "schedule": "*/15 * * * *" },
+    { "path": "/api/cron/notifications", "schedule": "0 13 * * *" },
     { "path": "/api/cron/retention", "schedule": "0 7 * * *" },
     { "path": "/api/cron/document-checks", "schedule": "0 13 * * *" }
   ]
 }
 ```
-The document check runs at 13:00 UTC, morning in the US. Its notices are not urgent, so quiet hours still apply.
+The document check runs at 13:00 UTC, morning in the US. Its notices are not urgent, so quiet hours still apply. Every cron is daily while the team is on Hobby; Task 18 Step 2 switches the notifications cron to every 15 minutes once the team is on Pro.
 
 Append to `.env.example`:
 ```bash
@@ -7893,17 +10017,37 @@ import { assessIncident } from '@/lib/assist/incidents';
 import { checkCitations } from '@/lib/assist/citation-check';
 import { PlaybookSchema } from '@/lib/assist/playbook-schema';
 import { runDocumentChecks } from '@/lib/documents/service';
+import { approveQuarantined } from '@/lib/intake/quarantine';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { incidentReleaseToken } from '@/lib/workflows/tokens';
 import { intakeWorkflow } from '@/workflows/intake';
 import { tripMonitorWorkflow } from '@/workflows/trip-monitor';
 
-/** A comped trip is hand-run: its playbooks wait for review before anyone is notified. */
+/** A comped trip is hand-run: trips.hand_run makes its playbooks wait for review before anyone is notified. */
 export async function compPass(tripId: string): Promise<void> {
   const founder = await requireAdmin();
   const admin = createAdminClient();
-  await admin.from('passes').insert({ trip_id: tripId, price_variant: 'comp', amount_cents: 0, status: 'comp', created_by: founder.id, paid_at: new Date().toISOString() });
-  await admin.from('trips').update({ pass_status: 'comp' }).eq('id', tripId);
+  const { data: trip, error } = await admin.from('trips').select('pass_status').eq('id', tripId).maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!trip) throw new Error('Trip not found.');
+  // Never comp over a pass the group already has, paid or comped.
+  if (trip.pass_status !== 'none') throw new Error('This trip already has a pass.');
+  const { error: passError } = await admin
+    .from('passes')
+    .insert({ trip_id: tripId, price_variant: 'comp', amount_cents: 0, status: 'comp', created_by: founder.id, paid_at: new Date().toISOString() });
+  if (passError) throw new Error(passError.message);
+  const { error: tripError } = await admin.from('trips').update({ pass_status: 'comp', hand_run: true }).eq('id', tripId).eq('pass_status', 'none');
+  if (tripError) throw new Error(tripError.message);
+  await start(tripMonitorWorkflow, [tripId]);
+  revalidatePath('/admin');
+}
+
+/** For a trip whose Stripe webhook could not start monitoring (Task 9). A second run exits, so repeating it is safe. */
+export async function startMonitoring(tripId: string): Promise<void> {
+  await requireAdmin();
+  const { data: trip, error } = await createAdminClient().from('trips').select('pass_status').eq('id', tripId).maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!trip || trip.pass_status === 'none') throw new Error('Only a trip with a pass is monitored.');
   await start(tripMonitorWorkflow, [tripId]);
   revalidatePath('/admin');
 }
@@ -7916,11 +10060,8 @@ export async function rerunChecks(tripId: string): Promise<void> {
 
 export async function adminApproveQuarantined(messageId: string): Promise<void> {
   await requireAdmin();
-  const admin = createAdminClient();
-  const { data: message } = await admin.from('inbound_messages').update({ status: 'received' }).eq('id', messageId).eq('status', 'quarantined').select('id, trip_id').maybeSingle();
-  if (!message) return;
-  await admin.from('action_items').update({ status: 'done' }).eq('trip_id', message.trip_id).eq('source_kind', 'inbound_quarantine').eq('related_entity_id', messageId);
-  await start(intakeWorkflow, [messageId]);
+  // The same approval as the planner's feed button (Task 15), across every trip.
+  if (await approveQuarantined(messageId, null)) await start(intakeWorkflow, [messageId]);
   revalidatePath('/admin');
 }
 
@@ -7945,6 +10086,8 @@ export async function editPlaybook(incidentId: string, _prev: EditState, form: F
 
   const cited = new Set([...parsed.data.owed, ...parsed.data.steps, ...parsed.data.messages].flatMap((item) => item.rule_ids));
   const admin = createAdminClient();
+  // An edit made during the review hold stays hidden with the rest until the release.
+  const { data: latest } = await admin.from('playbooks').select('held_for_review').eq('incident_id', incidentId).order('created_at', { ascending: false }).limit(1).maybeSingle();
   const { data: playbook } = await admin
     .from('playbooks')
     .insert({
@@ -7953,6 +10096,7 @@ export async function editPlaybook(incidentId: string, _prev: EditState, form: F
       rules_cited: assessment.applying.filter((r) => cited.has(r.id)).map((r) => ({ rule_id: r.id, rule_version: r.version })),
       model: 'founder-edit',
       citation_check_passed: true,
+      held_for_review: latest?.held_for_review ?? false,
     })
     .select('id')
     .single();
@@ -7963,7 +10107,12 @@ export async function editPlaybook(incidentId: string, _prev: EditState, form: F
 
 export async function releasePlaybook(incidentId: string): Promise<void> {
   const founder = await requireAdmin();
-  await resumeHook(incidentReleaseToken(incidentId), { releasedBy: founder.id });
+  try {
+    await resumeHook(incidentReleaseToken(incidentId), { releasedBy: founder.id });
+  } catch (error) {
+    // No hook: the two-hour hold already ran out and the workflow released the playbook itself.
+    console.warn('no release hook for the incident; the hold already ended', incidentId, error);
+  }
   revalidatePath('/admin');
 }
 ```
@@ -8000,7 +10149,7 @@ import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { requireAdmin } from '@/lib/admin/guard';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { adminApproveQuarantined, compPass, releasePlaybook, rerunChecks } from './actions';
+import { adminApproveQuarantined, compPass, releasePlaybook, rerunChecks, startMonitoring } from './actions';
 import { PlaybookEditor } from './playbook-editor';
 
 export default function AdminPage() {
@@ -8018,15 +10167,15 @@ async function AdminContent() {
   await requireAdmin();
   const admin = createAdminClient();
   const [{ data: trips }, { data: incidents }, { data: quarantined }, { data: fallback }] = await Promise.all([
-    admin.from('trips').select('id, name, pass_status, start_date, end_date').order('start_date', { ascending: true }).limit(200),
+    admin.from('trips').select('id, name, pass_status, hand_run, start_date, end_date').order('start_date', { ascending: true }).limit(200),
     admin.from('incidents').select('id, trip_id, event_type, status, detected_at').neq('status', 'resolved').order('detected_at', { ascending: false }).limit(50),
     admin.from('inbound_messages').select('id, trip_id, sender, subject').eq('status', 'quarantined').limit(50),
     admin.from('booking_segments').select('id, trip_id, carrier_iata, flight_number, departure_local').eq('monitor_state', 'polling_only').order('scheduled_out').limit(50),
   ]);
-  const playbooks = new Map<string, unknown>();
+  const playbooks = new Map<string, { content: unknown; held: boolean }>();
   for (const incident of incidents ?? []) {
-    const { data } = await admin.from('playbooks').select('content').eq('incident_id', incident.id).order('created_at', { ascending: false }).limit(1).maybeSingle();
-    if (data) playbooks.set(incident.id, data.content);
+    const { data } = await admin.from('playbooks').select('content, held_for_review').eq('incident_id', incident.id).order('created_at', { ascending: false }).limit(1).maybeSingle();
+    if (data) playbooks.set(incident.id, { content: data.content, held: data.held_for_review === true });
   }
 
   return (
@@ -8049,13 +10198,20 @@ async function AdminContent() {
                   <Link href={`/trips/${trip.id}`} className="underline">{trip.name}</Link>
                 </td>
                 <td>{trip.start_date} → {trip.end_date}</td>
-                <td>{trip.pass_status}</td>
+                <td>
+                  {trip.pass_status}
+                  {trip.hand_run ? ' · hand-run' : ''}
+                </td>
                 <td className="flex gap-2 py-2">
                   {trip.pass_status === 'none' ? (
                     <form action={compPass.bind(null, trip.id)}>
                       <Button size="sm" variant="outline" type="submit">Comp and hand-run</Button>
                     </form>
-                  ) : null}
+                  ) : (
+                    <form action={startMonitoring.bind(null, trip.id)}>
+                      <Button size="sm" variant="outline" type="submit">Start monitoring</Button>
+                    </form>
+                  )}
                   <form action={rerunChecks.bind(null, trip.id)}>
                     <Button size="sm" variant="outline" type="submit">Re-run document checks</Button>
                   </form>
@@ -8076,10 +10232,12 @@ async function AdminContent() {
             </p>
             {playbooks.has(incident.id) ? (
               <>
-                <PlaybookEditor incidentId={incident.id} json={JSON.stringify(playbooks.get(incident.id), null, 2)} />
-                <form action={releasePlaybook.bind(null, incident.id)} className="mt-2">
-                  <Button size="sm" type="submit">Release to the group</Button>
-                </form>
+                <PlaybookEditor incidentId={incident.id} json={JSON.stringify(playbooks.get(incident.id)!.content, null, 2)} />
+                {playbooks.get(incident.id)!.held ? (
+                  <form action={releasePlaybook.bind(null, incident.id)} className="mt-2">
+                    <Button size="sm" type="submit">Release to the group</Button>
+                  </form>
+                ) : null}
               </>
             ) : null}
           </article>
@@ -8119,7 +10277,7 @@ async function AdminContent() {
 }
 ```
 
-"Release to the group" resumes the incident's release hook. It has no effect once the two-hour hold has already released on its own, because the hook is gone by then.
+"Release to the group" shows only while the incident's latest playbook is held, and resumes the release hook; the workflow then releases the playbooks and notifies. If the two-hour hold ran out in the meantime, the hook is gone and the workflow has already released them, so `releasePlaybook` logs that and returns. "Start monitoring" shows for every trip with a pass; a run already watching the trip makes the new one exit.
 
 - [ ] **Step 7: Run the tests, typecheck, and build**
 
@@ -8135,14 +10293,18 @@ git add apps/web .env.example
 git commit -F - <<'EOF'
 Add /admin for hand-run trips, and the daily retention job
 
-The founder comps a pass, which starts monitoring and holds every
-playbook for review. They can rerun document checks, approve
-quarantined mail, and edit a held playbook. An edit is saved as a new
-version only if it still passes the citation check, and every edit is
-logged. Flights on fallback watching are listed for a manual check.
-Retention deletes documents 30 days after a member's last trip unless
-they kept them, raw inbound files after 30 days, and bookings a year
-after the trip. A second daily cron runs the T-30 document check.
+The founder comps a pass, which marks the trip hand-run, starts
+monitoring, and holds every playbook for review. A trip that already
+has a pass can't be comped. They can restart monitoring, rerun document
+checks, approve quarantined mail through the planner's own approval,
+and edit a held playbook. An edit is saved as a new version only if it
+still passes the citation check, and every edit is logged. Release
+shows only while a playbook is held. Flights on fallback watching are
+listed for a manual check. Retention reads every page of its tables and
+deletes documents 30 days after a member's last trip unless they kept
+them, raw inbound files after 30 days, and bookings a year after the
+trip. A second daily cron runs the T-30 document check. Both crons
+refuse every caller while CRON_SECRET is unset.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01CZeaGyqM4LkMDPkaein2Sc
@@ -8265,10 +10427,9 @@ In `apps/web/package.json` `scripts`, add:
 ```
 The evals import modules marked `server-only`. The `react-server` condition resolves that package to its empty module, as Next does on the server. Without the flag, `server-only` throws on import. This was verified with `tsx` 4.23 on Node 24.
 
-Append to `.gitignore`:
+Append to `.gitignore` (Task 9 already ignores `apps/web/.workflow-data/`):
 ```
-# Workflow local World data, and e2e run output
-apps/web/.workflow-data/
+# e2e run output
 apps/web/e2e/.run/
 apps/web/test-results/
 apps/web/playwright-report/
@@ -8430,19 +10591,27 @@ export async function signIn(page: Page, email: string, next: string): Promise<v
   await page.waitForURL((url) => url.pathname === next);
 }
 
-export async function pollRow<T>(read: () => PromiseLike<{ data: T | null }>, accept: (row: T) => boolean, timeout = 90_000): Promise<T> {
-  let found: T | null = null;
+/**
+ * Polls `read` until `accept` passes on a row, then returns that row. Typed on the whole response, so the
+ * result is never null: a supabase `.single()` or `.maybeSingle()` response types `data` as `Row | null`.
+ */
+export async function pollRow<R extends { data: unknown }>(
+  read: () => PromiseLike<R>,
+  accept: (row: NonNullable<R['data']>) => boolean,
+  timeout = 90_000,
+): Promise<NonNullable<R['data']>> {
+  let found: NonNullable<R['data']> | null = null;
   await expect
     .poll(
       async () => {
         const { data } = await read();
-        found = data !== null && accept(data) ? data : null;
+        found = data !== null && data !== undefined && accept(data as NonNullable<R['data']>) ? (data as NonNullable<R['data']>) : null;
         return found !== null;
       },
       { timeout, intervals: [500, 1000, 2000] },
     )
     .toBe(true);
-  return found as T;
+  return found as NonNullable<R['data']>;
 }
 
 export function stripeSignature(payload: string): string {
@@ -8508,6 +10677,7 @@ export function writeRunFixtures(plan: FlightPlan): void {
         provider: 'TAP Air Portugal',
         confirmation_code: 'E2ETAP',
         booked_via: null,
+        booked_at: null,
         passenger_names: ['PLANNER/PAT MR', 'MEMBER/MO MS'],
         segments: [
           { carrier_iata: 'TP', flight_number: '204', origin_iata: 'EWR', destination_iata: 'LIS', departure_local: plan.departureLocal, arrival_local: plan.arrivalLocal },
@@ -8739,18 +10909,29 @@ test('a group trip, from rule page to cited playbook and vote', async ({ browser
     await memberPage.getByRole('button', { name: 'Join the trip' }).click();
     await memberPage.waitForURL(`**/trips/${tripId}`);
 
+    // A member puts only themselves on a booking: toggleAssignment calls claim_booking_seat for them.
     await memberPage.goto(`/trips/${tripId}/bookings`);
     await memberPage.getByRole('button', { name: 'Mo Member', exact: true }).click();
-    await pollRow(() => db().from('booking_members').select('member_id').eq('trip_id', tripId!), (rows) => rows.length === 2);
+    const { data: me } = await db().from('trip_members').select('id').eq('trip_id', tripId!).eq('user_id', member.id).single();
+    await pollRow(
+      () => db().from('booking_members').select('member_id').eq('trip_id', tripId!),
+      (rows) => rows.length === 2 && rows.some((row) => row.member_id === me!.id),
+    );
   });
 
   await test.step('a paid pass starts watching the flight', async () => {
+    const sessionId = `cs_e2e_${run}`;
+    // C1's completePass activates only a checkout session it created, so seed the pending pass startPassCheckout would have.
+    const { error: passError } = await db()
+      .from('passes')
+      .insert({ trip_id: tripId, stripe_session_id: sessionId, price_variant: 'p9', amount_cents: 900, status: 'pending', created_by: planner.id });
+    expect(passError).toBeNull();
     const event = {
       id: `evt_e2e_${run}`,
       object: 'event',
       type: 'checkout.session.completed',
       created: Math.floor(Date.now() / 1000),
-      data: { object: { id: `cs_e2e_${run}`, object: 'checkout.session', client_reference_id: tripId, payment_status: 'paid', amount_total: 900 } },
+      data: { object: { id: sessionId, object: 'checkout.session', client_reference_id: tripId, payment_status: 'paid', amount_total: 900 } },
     };
     const payload = JSON.stringify(event);
     const response = await request.post('/api/webhooks/stripe', { data: payload, headers: { 'content-type': 'application/json', 'stripe-signature': stripeSignature(payload) } });
@@ -8850,8 +11031,13 @@ The eval data is real confirmations and real past disruptions, shared with conse
   - the files it names
   - `expected.json`: the bookings, hand-checked
 - **`incidents/<case>.json`:** at least 50 past cancellations and delays, the spec's replay set. Each case:
-  - holds `{ incident, segment, booking }` in the `AssessmentInput` shape
-  - puts the planner's answers in `incident.facts`
+  - holds `{ incident, segment, booking, offers, airports }` in the `AssessmentInput` shape (Task 12). Every flight, wherever it appears, is a `LegRow`: `carrier_iata`, `origin_iata`, `destination_iata`, `origin_country`, `destination_country`, `scheduled_out`, and `scheduled_in`. The booking-level, journey, and EU261 facts (Task 10) come from these fields:
+    - `booking` is `{ booked_via, booked_at, segments }`. `booked_at` is the booking date as the confirmation printed it, or `null`. `segments` lists every flight on the ticket in order, the disrupted one included.
+    - `segment` is the disrupted flight as booked: a `LegRow` plus `flight_number`, `departure_local`, `distance_km` (that flight alone), and `last_status`.
+    - `incident.raw_payload` and `segment.last_status` hold AeroAPI's view of the flight at detection and at its latest, as Task 9's `FlightSnapshot`, or `{}` and `null` when there is none. A delay case needs `estimatedOut` or `actualOut` for `event.departure_delay_minutes`. A schedule-change case needs the new `scheduledOut` and `scheduledIn`.
+    - `offers` lists the airline's rebookings, each with its flights in order, or `[]` when none was sent.
+    - `airports` maps each IATA code on the booking to `{ latitude, longitude }`, for `flight.distance_km`.
+  - puts the planner's answers in `incident.facts`, including `passenger.volunteered` where it matters
   - lists `expected_rule_ids`: the verified rules that should apply, hand-checked
 
 `apps/web/scripts/eval-extraction.mts`:
@@ -9025,7 +11211,7 @@ Expected:
 - `git status` lists no `.env.e2e.local`, nothing under `e2e/.run/`, and no `test-results/`.
 
 ```bash
-git add apps/web .gitignore
+git add apps/web .gitignore package-lock.json
 git commit -F - <<'EOF'
 Prove the group-trip loop end to end, and add launch evals
 
@@ -9033,7 +11219,7 @@ One Playwright run drives the whole product against an e2e database
 branch:
 - a rule page to a new trip, attributed to the visitor
 - a forwarded booking the planner confirms
-- a member who joins by link
+- a member who joins by link and claims their seat
 - a paid pass that starts monitoring
 - a cancellation, the planner's one question, and a cited playbook
   emailed to both travelers
@@ -9066,7 +11252,7 @@ Secrets never go in the repo, the launch log, or the chat. The founder reads eac
 
 **Files:**
 - Create: `apps/web/scripts/resend-setup.mts`, `apps/web/scripts/smoke-production.mts`, `apps/web/lib/notify/sms-consent.ts`, `apps/web/app/privacy/page.tsx`, `apps/web/app/sms-terms/page.tsx`, `apps/web/test/notify/sms-consent.test.ts`
-- Modify: `apps/web/app/join/[token]/join-form.tsx` (consent wording and links), `apps/web/app/join/[token]/actions.ts` (shared policy version), `apps/web/e2e/env.ts` (`SUPPORT_EMAIL`), `.env.example`, and this plan's launch log (Step 20)
+- Modify: `apps/web/vercel.json` (the notifications cron at every 15 minutes, Step 2), `apps/web/app/join/[token]/join-form.tsx` (consent wording and links), `apps/web/app/join/[token]/actions.ts` (shared policy version), `apps/web/e2e/env.ts` (`SUPPORT_EMAIL`), `.env.example`, and this plan's launch log (Step 20)
 
 **Interfaces:**
 - Consumes:
@@ -9106,10 +11292,15 @@ Expected:
 
 - [ ] **Step 2: [Founder confirms] Put the Vercel team on Pro, and record the team slug**
 
-The notifications cron runs every 15 minutes (Task 2). On Hobby, a deploy with any cron that runs more than once a day fails with "Hobby accounts are limited to daily cron jobs."
+The notifications cron should run every 15 minutes, so that messages held for quiet hours go out at 8am local. On Hobby, a deploy with any cron that runs more than once a day fails with "Hobby accounts are limited to daily cron jobs," so Tasks 2 and 16 shipped it daily. Pro also carries the Vercel Firewall rate-limit rules Step 18 needs.
 1. **Check the plan.** Use `mcp__claude_ai_Vercel__list_teams`, then `mcp__claude_ai_Vercel__get_team` for the team that owns `elsewhere-web`. The response shows the plan and the slug.
 2. **Upgrade if needed.** If the team is on Hobby, upgrade it under Settings → Billing, after an explicit yes. Pro is a paid plan.
 3. **Record the slug.** Write it in the launch log as `TEAM_SLUG`, and `export TEAM_SLUG=<slug>`. The Workflow CLI needs it in Steps 15 and 18.
+4. **Switch the notifications cron to every 15 minutes,** once the team is on Pro. In `apps/web/vercel.json`, change the notifications entry to:
+   ```json
+       { "path": "/api/cron/notifications", "schedule": "*/15 * * * *" },
+   ```
+   It is committed in Step 13 and deploys in Step 15.
 
 - [ ] **Step 3: Generate the app's own secrets**
 
@@ -9139,12 +11330,21 @@ with needed(table_name, column_name) as (values
   ('playbooks', 'citation_check_passed'), ('action_items', 'source_kind'),
   ('vote_responses', 'vote_id'), ('settlements', 'amount_cents'),
   ('notifications', 'send_after'), ('notifications', 'related_entity_id'), ('consents', 'revoked_at'),
-  ('webhook_events', 'event_id'))
+  ('webhook_events', 'event_id'),
+  ('trips', 'hand_run'), ('bookings', 'booked_at'), ('playbooks', 'held_for_review'))
 select n.table_name, n.column_name
 from needed n
 left join information_schema.columns c
   on c.table_schema = 'public' and c.table_name = n.table_name and c.column_name = n.column_name
 where c.column_name is null;
+```
+   Expected: zero rows. The last three columns are C2's own additions to 00012 (Tasks 5 and 12). If they are missing, 00012 reached production before C2 finished editing it: apply the C2 SQL as `00013_group_trip_assist_c2.sql` (Global Constraints) before going on.
+   Then check C2's functions and index the same way:
+```sql
+select name from (values ('set_join_token'), ('claim_booking_seat'), ('respond_vote')) as f(name)
+where not exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname = f.name)
+union all
+select 'funnel_forwarded_trip_idx' where not exists (select 1 from pg_indexes where schemaname = 'public' and indexname = 'funnel_forwarded_trip_idx');
 ```
    Expected: zero rows.
 3. **Travel-admin routes.**
@@ -9366,6 +11566,7 @@ Do this as early as possible. Brand and campaign vetting is the slowest part of 
    - **Sender Pool:** add the number.
    - **Integration:** choose "Send a webhook" for incoming messages, with Request URL `https://<APP_DOMAIN>/api/webhooks/twilio` and method `POST`. The route checks Twilio's signature against exactly this URL, built from `NEXT_PUBLIC_APP_URL`. Use the same scheme and host, with no `www` and no trailing slash.
    - **Opt-Out Management (Advanced Opt-Out):** turn it on. Keep Twilio's default STOP and START replies. Set the HELP reply to `Elsewhere trip alerts: flight updates for your group trips. Help: <SUPPORT_EMAIL>. Msg frequency varies. Msg&data rates may apply. Reply STOP to opt out.`
+   - **SMS pumping protection:** turn on SMS Pumping Protection for Programmable Messaging (Messaging → Settings), and under Messaging → Geo permissions allow only the countries members text from (the United States, plus Canada if wanted). Phone sign-in codes go out through this service, and an open sign-in form is a pumping target. Step 19 checks both before phone sign-in goes live.
    - Record the service's SID (`MG…`). It is `TWILIO_MESSAGING_SERVICE_SID`. The Account SID and Auth Token from the console are `TWILIO_ACCOUNT_SID` and `TWILIO_AUTH_TOKEN`.
 4. **Brand registration.** Under Messaging → Regulatory Compliance, register the A2P 10DLC brand. The founder supplies the legal business name, EIN, address, and contact, with website `https://<APP_DOMAIN>`.
    - **With an EIN,** register a Standard brand.
@@ -9824,6 +12025,15 @@ Record the submission date, then each status change, in the launch log. Approval
 
 - [ ] **Step 18: [Founder confirms] Open trips, and run one hand-run trip end to end**
 
+**Rate limits first.** Code sends and trip creation are rate-limited in the app (Task 1's `rateLimited`), against named Vercel Firewall rules. Without the rules, `rateLimited` logs `rate limit rule "…" is not configured` and lets every request through. Load the `vercel:vercel-firewall` skill and follow its current procedure (dashboard or `vercel firewall` CLI). On the production project, create two custom rules, each with the condition **@vercel/firewall** rate-limit ID equal to the rule ID and a **Rate Limit** action, fixed window, keyed by IP:
+
+| Rule ID | Limit |
+|---|---|
+| `auth-code-send` | 5 requests / 60 s |
+| `trips-create` | 3 requests / 60 s |
+
+Then check them in production: request a sign-in code at `https://<APP_DOMAIN>/login` six times within a minute, from one browser. The sixth attempt shows "Too many codes requested. Wait a minute, then try again." The deployment's runtime logs show no `is not configured in Vercel Firewall` warning. Record both rules in the launch log.
+
 **Open trips.** C1 kept trip creation closed until intake shipped.
 ```bash
 vercel env rm TRIPS_OPEN production --cwd apps/web --yes
@@ -9859,7 +12069,7 @@ curl -s "$AERO/alerts" -H "x-apikey: $AEROAPI_KEY" | jq -r '.alerts[] | "\(.id) 
 ```bash
 curl -s "<invite link>" | grep -o '<meta [^>]*property="og:[a-z:]*"[^>]*>'
 ```
-5. **A member joins.** Someone who is not on the Supabase team (a volunteer, or the founder's second address) opens the link, gets the code by email, joins, and claims their seat on the bookings page. Their documents page shows the owl or the capybara card. The planner's documents view shows the result and never the date.
+5. **A member joins.** Someone who is not on the Supabase team (a volunteer, or the founder's second address) opens the link, gets the code by email, joins, and claims their seat on the bookings page by tapping their own name, which goes through `claim_booking_seat`. Their name then shows as on the booking, and the booking's confirmation code shows for them. Tapping anyone else's name is not offered. Their documents page shows the owl or the capybara card. The planner's documents view shows the result and never the date.
 6. **Clean up, only if this was not a real trip.** For a real trip, leave it running: the founder's own trip is the first hand-run trip. For a test trip, with the founder's yes:
    - **Cancel its runs.** `npx workflow cancel <run_id> --backend vercel --project elsewhere-web --team "$TEAM_SLUG"` for each of its runs.
    - **Delete its AeroAPI alerts.** `curl -s -X DELETE "$AERO/alerts/<id>" -H "x-apikey: $AEROAPI_KEY"`.
@@ -9870,6 +12080,9 @@ If any check fails, close trips again (`TRIPS_OPEN=false`, then redeploy), fix t
 - [ ] **Step 19: [Founder confirms] Turn SMS on once the A2P campaign clears**
 
 Run this only when Twilio shows the campaign as approved. Until then, every alert goes by email, which Tasks 1 and 2 already enforce.
+
+**Pumping protection first.** In the Twilio console, confirm SMS Pumping Protection is on and Geo permissions allow only the countries chosen in Step 10. In Supabase, under Authentication → Rate Limits, set "Rate limit for sending SMS messages" to 30 an hour. The `auth-code-send` Firewall rule (Step 18) also covers text-message codes. Don't go on until all three are in place.
+
 1. **Supabase phone sign-in.** Under Authentication → Sign In / Providers → Phone, enable the provider:
    - SMS provider Twilio, with the Account SID, the Auth Token, and the Messaging Service SID from Step 10
    - SMS message template: `Your Elsewhere code is {{ .Code }}`
@@ -9898,7 +12111,7 @@ Fill in every row as its step completes. Never put a secret in this table. A row
 
 | # | Item | Result or evidence | Date |
 |---|---|---|---|
-| 1 | Vercel plan, and `TEAM_SLUG` (Step 2) | | |
+| 1 | Vercel plan, `TEAM_SLUG`, and the notifications cron at every 15 minutes (Step 2) | | |
 | 2 | App secrets generated and stored: names only (Step 3) | | |
 | 3 | `00012` is the last migration; the schema probe returns 0 rows; advisors as intended (Step 4) | | |
 | 4 | Private `inbound` bucket exists (Step 4) | | |
@@ -9907,14 +12120,14 @@ Fill in every row as its step completes. Never put a secret in this table. A row
 | 7 | Supabase SMTP through Resend; a non-team address got a code (Step 7) | | |
 | 8 | AeroAPI tier, the monthly call estimate, and the account endpoint set (Step 8) | | |
 | 9 | AI Gateway budget; both model IDs live; the ZDR choice (Step 9) | | |
-| 10 | Twilio brand: type and submission date (Step 10) | | |
+| 10 | Twilio brand: type and submission date; SMS pumping protection and Geo permissions on (Step 10) | | |
 | 11 | `SUPPORT_EMAIL`, and the founder approved the wording (Step 11) | | |
 | 12 | Production variables set; no seams (Step 14) | | |
 | 13 | Merge commit, production deployment, crons listed, Workflow CLI reached (Step 15) | | |
 | 14 | Production smoke passed (Step 16) | | |
 | 15 | A2P campaign: submitted, then approved (Step 17) | | |
-| 16 | `TRIPS_OPEN=true` deployed; the hand-run trip passed checks 1–5 (Step 18) | | |
-| 17 | SMS on: phone sign-in, opt-in recorded, STOP mirrored (Step 19) | | |
+| 16 | Firewall rules `auth-code-send` and `trips-create` live and checked; `TRIPS_OPEN=true` deployed; the hand-run trip passed checks 1–5 (Step 18) | | |
+| 17 | SMS on: pumping protection and the Supabase SMS limit confirmed; phone sign-in, opt-in recorded, STOP mirrored (Step 19) | | |
 
 Commit the filled log after Step 18, and again after Step 19:
 ```bash
@@ -9937,15 +12150,15 @@ EOF
 |---|---|
 | **Group join:** one link per trip, hashed and revocable, expiring at trip end + 7 days; OTP by email or phone; pay handles; SMS opt-in recorded in `consents` | 1 |
 | **Join-link preview reveals only the trip name, dates, and traveler count:** the OG image and the page metadata both go through `joinPreview`, whose test pins exactly those three keys. Task 18 checks it in production, in Messages and WhatsApp. | 1, 18 |
-| **Members confirm which bookings they are on:** members toggle their own seat, under C1's RLS | 8, 17 |
+| **Members confirm which bookings they are on:** a member puts only themselves on a booking through `claim_booking_seat` (C1's RLS keeps direct inserts planner-only), and takes themselves off under RLS. The planner assigns anyone. A flight added by hand needs at least one traveler. | 8, 17, 18 |
 | **Intake:** a per-trip address; a sender allow list, with everyone else quarantined for approval; a durable `intakeWorkflow` that fetches attachments from Resend; extraction with per-group confidence; dedupe on code plus segment; passenger matching; planner confirmation below 0.9 | 3, 5, 6, 15, 16 |
 | **Screenshots, and manual entry when parsing fails** | 5, 8 |
 | **Document checks:** passport country and expiry and REAL ID only; deterministic matching; `unknown` when skipped; the planner sees results, never dates; action items assigned to the member; checks on join, on booking change, at T-30 days, and at T-72h | 7, 9, 16 |
 | **Travel admin:** the official route always shows (State Department renewal, seeded in C1, alongside TSA REAL ID, CBP Global Entry, and TSA PreCheck); the expedited-passport affiliate, with its disclosure, shows only when routine renewal no longer fits; no GovSwift partner API or callbacks | C1 seed, 7, 18 (Step 4 sets the affiliate once a program approves) |
-| **Monitoring:** starts on an active or comped pass; an AeroAPI alert per segment, delivered to the path-secret route; a polling safety net; dedupe on the provider event; checks and a briefing at T-72h; ends at trip end + 7 days | 4, 9 |
+| **Monitoring:** starts on an active or comped pass; an AeroAPI alert per segment, delivered to the path-secret route; a polling safety net; dedupe on the provider event; checks and a briefing at T-72h; ends at trip end + 7 days. A failed start never fails the Stripe webhook; the run tokens make `/admin`'s restart safe, and polling restarts any incident never notified. | 4, 9, 12, 16 |
 | **AeroAPI down or alert registration failing:** polling with exponential backoff; persistent failure becomes an `/admin` alert | 9, 16 |
 | **Flight not found:** an action item to the planner | 4 |
-| **The situation builder fills `flight.departs_us` and `flight.scheduled_duration_minutes`** (Track A's Task 18 amendment), and both are pinned by scenario tests | 10 |
+| **The situation builder fills the contract's facts** where the data allows: `flight.departs_us` (Track A's Task 18 amendment); `trip.itinerary_domestic_us` and `trip.us_foreign_nonstop_minutes` (30b549f); `event.at_us_airport`, `trip.touches_us`, `trip.booked_with_us_carrier`, and a lower bound for `trip.hours_booked_before_departure` (bd7e847); EU261's `event.departure_delay_minutes`, `event.departure_moved_earlier_minutes`, the two `event.reroute_*` facts, `flight.leg_distance_km`, the journey's `flight.distance_km`, `flight.departs_iceland_norway_switzerland`, and `trip.journey_departs_eu` / `trip.journey_arrives_eu`, with `flight.departs_eu` / `flight.arrives_eu` on the 27 member states (1bc652c). `passenger.volunteered` and an unknown re-routing are planner questions. Unit tests pin each fact and its unknown case, and the scenarios pin the fixture matches. | 3, 9, 10, 12 |
 | **One targeted question when a fact is unknown;** the answer resumes the workflow through a hook | 10, 12 |
 | **Playbooks:** only verified rules are cited, and `needs_review` rules appear in caveats as "being re-checked". The deterministic citation check catches a missing ID, a rule outside the allowed set, and any amount or duration not in the rule. A failed draft regenerates once, then falls back to the template. | 11 |
 | **Options and the vote:** schedule data is labelled "availability not confirmed — ask the airline" | 13 |
@@ -9956,8 +12169,8 @@ EOF
 | **Who owes what:** minimal transfers; Venmo and Cash App links; marking settled; no money moves through Elsewhere | 14 |
 | **Smart feed, and the members page** | 15 |
 | **The cast in the app:** join and onboarding (1); the owl on document-check cards (7); the incident header's `lead_character`, small, with the text leading (12); the capybara's all-clear card (7, 15); empty states (15). There is no art on the bookings list (8), the money ledger (14), the members page (15), `/admin` (16), forms, or the legal pages (18). | 1, 7, 12, 15 |
-| **`/admin`:** every trip; comp a pass; rerun checks; incidents; edits validated and logged in `incident_events`; release; quarantined mail; flights on fallback watching | 16 |
-| **Retention:** documents 30 days after the last trip unless kept; raw inbound files after 30 days; bookings a year after the trip | 16 |
+| **`/admin`:** every trip; comp a pass (marking it `hand_run`), never over an existing pass; restart monitoring; rerun checks; incidents; edits validated and logged in `incident_events`; release, shown only for a held playbook; quarantined mail; flights on fallback watching | 16 |
+| **Retention:** documents 30 days after the last trip unless kept; raw inbound files after 30 days; bookings a year after the trip. Every select reads all its pages. | 16 |
 | **Confirmation codes visible only to members on that booking and to the planner** | C1 RLS, 8 |
 | **AI through AI Gateway with no prompt training;** document fields never go to a model | 3, 11 (`NO_TRAINING`), 7 (deterministic checks), 18 |
 | **Webhook signatures for Resend, Stripe, and Twilio;** the AeroAPI path token can be rotated | 6, C1 and 9, 2, 18 (Step 8 gives the rotation procedure) |
@@ -9983,17 +12196,42 @@ EOF
 6. **Task 12's Interfaces left out names Task 17 consumes:** the pure `assess` and `AssessmentInput`. They are now listed, along with `assessIncident`'s real return type and its file.
 7. **Launch blockers that Task 18 closes:**
    - Supabase's built-in mailer reaches only team addresses, so invited members got no code. Task 18 Step 7 adds Resend SMTP.
-   - Hobby rejects the 15-minute cron. Step 2 requires Pro.
+   - Hobby rejects the 15-minute cron. Tasks 2 and 16 ship it daily, and Step 2 moves the team to Pro and switches it to every 15 minutes.
    - AeroAPI needs `PUT /alerts/endpoint` before any alert can be created. Step 8 sets it.
    - A2P review needs a privacy policy and SMS terms. Step 11 adds both, with shared opt-in wording.
    - Trip creation stayed closed behind `TRIPS_OPEN`. Step 18 opens it.
    - The C2 branch had no merge step. Step 15 adds one.
 
+8. **Reconciled with the built C1 and contract bd7e847 (2026-10-02).** A pre-flight scan against `restart/track-c` found code that would not have worked there:
+   - **Joining:** `join_trip` takes the raw token, and planners cannot write `join_token_hash`. Task 1 passes the token and sets links through a new `set_join_token`. C1's login test is rewritten for the new state, keeping every hostile-`next` case.
+   - **Seats and votes:** members could not insert `booking_members`, and the `vote_responses` upsert hit the column grants. Tasks 8 and 13 add `claim_booking_seat` and `respond_vote`, each with DB tests.
+   - **The trip page** selected `inbound_code`, which C1's grants refuse. Task 15 keeps C1's planner-only lookup and its error handling, and leaves C1's pass section and Task 1's invite section untouched.
+   - **The e2e** posted a Stripe event for a session C1 never created. It now seeds the pending pass first.
+   - **Facts:** Task 10 now derives the bd7e847 facts from every flight on the booking, and Task 3 extracts the booking date they need.
+   - **Robustness:** every place a paid trip, an alert, or a forwarded email could be lost to a failed `start` now recovers. Writes are checked, `last_status` is saved last, the cron routes refuse an unset secret, and code sends and trip creation are rate-limited before trips open.
+
+9. **Contract 1bc652c's EU261 facts (2026-10-02).** Track A's Task 21 legal review added eight facts and redefined three. C2 now derives them, and every one is checked against Track A's `facts.ts` at c1f4348:
+   - **Task 10** derives the departure delay as the longer of AeroAPI's estimate and the actual, for that flight only. It also derives the leg distance (Task 4's `distance_km`), the journey's distance and EU ends, how far a schedule change moved the departure, and the offered re-routing. Each fact is unset while unknown, and each has a unit test for both cases.
+   - **Region sets:** `EU261_SCOPE` (which wrongly held IS, NO, LI, and CH) is replaced by `EU_MEMBER_STATES`, the 27 states with GP, MQ, GF, RE, YT, and MF, and by `ICELAND_NORWAY_SWITZERLAND`.
+   - **Flight distance:** `flight.distance_km` now means the journey's first airport to its final destination, so it no longer copies the disrupted flight's own distance.
+   - **One journey helper.** `journeyOf` serves the journey facts and `trip.us_foreign_nonstop_minutes` alike.
+   - **Questions:** an unknown re-routing becomes two planner questions, asked right after the rebooking question. Each answer band maps to its smallest value, and `answerValue` returns numbers for number facts.
+   - **Event types (Task 9).** A diversion was a `schedule_change`, which now means the same flight at another time. It is a delay of unknown length instead. A departure moved an hour or more from the booked time is now detected as a schedule change; before, nothing raised one. Task 12's summary and Task 15's feed line say "diverted" and "moved to a new time".
+   - **Loading (Task 12).** `loadIncident` now loads AeroAPI's snapshots (`raw_payload`, `last_status`), the trip's other bookings with the same record locator as offers, and airport coordinates. Task 17's replay cases carry the same fields.
+
 ### Deliberate deviations from the spec (kept)
 
 - **AeroAPI alerts are recorded directly by the webhook route,** instead of resuming a hook raced against `sleep` (Task 9). Both paths share one dedupe key.
 - **Join tokens are derived from a server secret** by HMAC (132 bits) rather than stored as random values (Task 1). Only the hash is stored, and resetting the link rotates it.
-- **Comps:** `/admin` writes a `comp` pass directly, instead of using a Stripe 100% promotion code (Task 16). `pass_status = comp` still keeps comps out of the paid metrics, so no promotion codes are needed.
+- **Comps:** `/admin` writes a `comp` pass directly, instead of using a Stripe 100% promotion code (Task 16), and marks the trip `hand_run`. `pass_status = comp` keeps comps out of the paid metrics. The review hold keys on `hand_run`, so a promotion-code comp from C1's webhook is never held.
+- **SMS reaches only members who signed in by phone.** An email account has no phone on its profile, so it gets every alert by email. Adding and verifying a phone for an email account waits for v2 (Task 1).
+- **The sender allow list trusts the `From` header** (Task 6). Resend gives no SPF or DKIM verdict. A forger also needs the trip's unguessable address, and anything unclear waits for the planner.
+- **Journeys are split by a 24-hour rule** (Task 10). A flight joins the previous one when it leaves the airport that one reached within 24 hours, the international ticketing convention for a stopover. The contract defines a journey but not where it breaks. An unusual itinerary, such as a planned stopover under a day on the way out, is read as one journey.
+- **Offers are the trip's other bookings with the same record locator** (Task 12). Airlines usually keep the locator when they rebook. A rebooking on a new locator is not seen, and the planner is asked instead. The arrival of an offer that doesn't reach the final destination by itself is left unknown, rather than stitched onto the remaining booked flights.
+- **A diversion is a delay of unknown length** (Task 9). The contract calls an air return that does not continue a cancellation. AeroAPI's `diverted` flag can't tell the two apart, so C2 never claims one.
+- **A schedule change is a departure moved at least an hour** (Task 9, `RETIME_MINUTES`). Smaller moves are schedule-data noise. The EU261 rule's earliest threshold is a move of more than 60 minutes.
+- **`trip.hours_booked_before_departure` is a lower bound** (Task 10). Confirmations rarely print a time zone, so C2 measures from the latest moment the printed booking time can mean. It never overclaims an "at least N hours ahead" rule, and may miss one booked within a day of the threshold.
+- **Schedule suggestions for a vote are not cached** (Task 13). The AeroAPI call runs only for the planner or an affected member, only until the incident has a vote, inside a `try`.
 - **The e2e replaces providers with guarded seams** rather than provider test modes, and SMS is not exercised while it is off (Task 17). Task 18 Step 19 covers SMS live.
 - **Extraction accuracy is measured over every field,** which is stricter than the spec's flight number, date, and names.
 - **The T-72h checks and briefing run only for trips with a pass,** because the spec ties them to the monitor workflow. The T-30 check runs for every trip.
@@ -10010,11 +12248,12 @@ The `placeholder=` hits are HTML input hints.
 
 ### Type and name consistency (spot checks)
 
-- **C1 names.** All 17 C1 names C2 consumes exist in the C1 plan, with the signatures C2 uses. Among them are `startPassCheckout`, `inboundAddress`, `inboundCodeFromAddress`, `characterDataUrl`, `getCurrentUser`, `requireUser`, `CurrentUser`, `recordEvent`, `assertTestSeamAllowed`, `requireEnv`, `appUrl`, `CHARACTER_NAMES`, `Character` (`character`, `variant`, `width`), the `trip_directory` RPC, `getLibrary`, and `handleStripeEvent`'s `activated` outcome.
-- **Schema columns.** Every column Task 18's schema probe lists exists in C1's `00012`, including `trips.join_token_expires_at`, `profiles.timezone`, `notifications.send_after`, and `booking_segments.monitor_state` (with `polling_only`).
+- **C1 names.** Checked against the built C1 on `restart/track-c` (2026-10-02), not only the C1 plan. `join_trip(p_token, p_display_name)` takes the raw token. `trip_inbound_code` is the only way to read `inbound_code`. `handleStripeEvent` marks the event processed before C2's `start`, and `completePass` ignores sessions it didn't create. The C1 names C2 consumes include `startPassCheckout`, `inboundAddress`, `inboundCodeFromAddress`, `characterDataUrl`, `getCurrentUser`, `requireUser`, `CurrentUser`, `recordEvent`, `assertTestSeamAllowed`, `requireEnv`, `appUrl`, `CHARACTER_NAMES`, `Character` (`character`, `variant`, `width`), the `trip_directory` RPC, `getLibrary`, and `handleStripeEvent`'s `activated` outcome.
+- **Schema columns.** Every column Task 18's schema probe lists exists in C1's `00012`, including `trips.join_token_expires_at`, `profiles.timezone`, `notifications.send_after`, and `booking_segments.monitor_state` (with `polling_only`), or is one of C2's additions: `trips.hand_run`, `bookings.booked_at`, and `playbooks.held_for_review`. C2's functions (`set_join_token`, `claim_booking_seat`, `respond_vote`) and `funnel_forwarded_trip_idx` have DB tests in `group-trip.test.ts`; the SQL and those tests, plus C1's `schema.test.ts`, were run together on PGlite while reconciling.
 - **Workflow ports.**
   - Task 9 defines the monitor operations, including the new `flagMonitorTrouble`.
-  - Task 12 adds its incident operations to all three files, by appending.
+  - Task 12 adds its incident operations to all three files: `generatePlaybook` returns `{ playbookId, held }`, and `releaseHeldPlaybooks` and `unnotifiedIncidentIds` are new. There is no `needsReview` port: the held flag comes back with the playbook.
+  - Task 12 also replaces the memory `pollAndRecord`, so polled incidents feed `unnotifiedIncidentIds`.
   - The memory and live ports implement every method.
   - The `pollResults` type takes the optional `failed`.
 - **Assessment to playbook.** `Assessment` (Task 12) structurally satisfies `PlaybookInput` (Task 11): `eventSummary`, `situation`, `applying`, `reviewing`, and `extraNumbers`. Task 17's replay passes it straight through.
@@ -10023,7 +12262,7 @@ The `placeholder=` hits are HTML input hints.
   - `routeSchedules` (Task 13) is added to both implementations, and to the resolve test's stub.
 - **Notifications and hooks.**
   - `NotifyInput` and the template signatures (Task 2) match every `queueNotifications` call, in Tasks 7, 9, 12, and 13.
-  - The hook tokens (Task 9) match their uses in Tasks 12 and 16.
+  - The hook tokens match their uses: `tripMonitorToken` and `segmentMonitorToken` (Task 9), `incidentAnswerToken` and `incidentReleaseToken` (Task 9, used in Tasks 12 and 16), and `incidentRunToken` (Task 12).
 - **Task 18's scripts.** `resend-setup.mts` and `smoke-production.mts` typecheck under `--strict` against `resend` 6.32.0 and `twilio` 6.1.2.
 - **Noted, not changed:**
   - C1's self-review says "C2 Task 8" uses the travel-admin routes; it is Task 7.
@@ -10036,4 +12275,7 @@ This plan was written without running any of it. The executor should know which 
 - **Vercel AI Gateway:** the `budgets` and `api-keys` flags. Task 18 runs `--help` first.
 - **Twilio and Supabase console labels.**
 - **AeroAPI:** the tier names and prices.
-- **Workflow:** that `sleep(Date)` and `wakeUp` behave in `@workflow/vitest` as they already do for the existing Task 9 test.
+- **AeroAPI schedule data:** that a retimed flight shows its new `scheduled_out`, and is still found by the poll's 6-hour window around the booked departure. A retime of more than 6 hours reaches C2 only through an alert. For diversions, FlightAware's forum says a diverted flight appears as a second entry and `destination` is not reliably the diversion airport. That is why Task 9 does not try to detect an air return.
+- **Workflow:** that `sleep(Date)` and `wakeUp` behave in `@workflow/vitest` as they already do for the existing Task 9 test. `createHook().getConflict()` is in `@workflow/core` 5.0.1's types; the trip and incident run tokens use it the way the segment monitor does.
+- **Vercel Firewall:** that `checkRateLimit` reads the client IP from `headers()` inside a server action, and that rate-limit rules are on the Pro plan. Task 18 checks the limit by hand before opening trips.
+- **Twilio:** the SMS Pumping Protection and Geo permissions console labels.
