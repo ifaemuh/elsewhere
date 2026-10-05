@@ -1,0 +1,51 @@
+rule: us-dot-tarmac-delay-limits
+cases:
+  - name: 30 minutes on the tarmac (first duty starts after 30)
+    situation: { event.type: tarmac_delay, event.at_us_airport: true, flight.touches_us: true, event.delay_minutes: 30 }
+    outcome: does_not_apply
+  - name: 31 minutes on the tarmac
+    situation: { event.type: tarmac_delay, event.at_us_airport: true, flight.touches_us: true, event.delay_minutes: 31 }
+    outcome: applies
+  - name: 119 minutes on the tarmac
+    situation: { event.type: tarmac_delay, event.at_us_airport: true, flight.touches_us: true, event.delay_minutes: 119 }
+    outcome: applies
+  - name: exactly 120 minutes on the tarmac (food and water due)
+    situation: { event.type: tarmac_delay, event.at_us_airport: true, flight.touches_us: true, event.delay_minutes: 120 }
+    outcome: applies
+  - name: domestic flight, exactly 180 minutes
+    situation: { event.type: tarmac_delay, event.at_us_airport: true, flight.touches_us: true, flight.is_domestic_us: true, event.delay_minutes: 180 }
+    outcome: applies
+  - name: international flight, 239 minutes
+    situation: { event.type: tarmac_delay, event.at_us_airport: true, flight.touches_us: true, flight.is_domestic_us: false, event.delay_minutes: 239 }
+    outcome: applies
+  - name: international flight, exactly 240 minutes
+    situation: { event.type: tarmac_delay, event.at_us_airport: true, flight.touches_us: true, flight.is_domestic_us: false, event.delay_minutes: 240 }
+    outcome: applies
+  - name: held at a foreign airport
+    situation: { event.type: tarmac_delay, event.at_us_airport: false, flight.touches_us: true, event.delay_minutes: 200 }
+    outcome: does_not_apply
+  - name: where the aircraft was held is not known yet
+    situation: { event.type: tarmac_delay, flight.touches_us: true, event.delay_minutes: 200 }
+    outcome: may_apply
+    missing_facts: [event.at_us_airport]
+  - name: US airline flight diverted to a US airport
+    situation: { event.type: tarmac_delay, event.at_us_airport: true, flight.touches_us: false, flight.carrier_is_us: true, event.delay_minutes: 200 }
+    outcome: applies
+  - name: foreign airline flight between two foreign points diverted to a US airport
+    situation: { event.type: tarmac_delay, event.at_us_airport: true, flight.touches_us: false, flight.carrier_is_us: false, event.delay_minutes: 200 }
+    outcome: does_not_apply
+  - name: flight does not touch the US and the airline is not known yet
+    situation: { event.type: tarmac_delay, event.at_us_airport: true, flight.touches_us: false, event.delay_minutes: 200 }
+    outcome: may_apply
+    missing_facts: [flight.carrier_is_us]
+  - name: length of the delay not known yet
+    situation: { event.type: tarmac_delay, event.at_us_airport: true, flight.touches_us: true }
+    outcome: may_apply
+    missing_facts: [event.delay_minutes]
+  - name: a delay at the gate is not a tarmac delay
+    situation: { event.type: delay, event.at_us_airport: true, flight.touches_us: true, event.delay_minutes: 200 }
+    outcome: does_not_apply
+  - name: event type not known yet
+    situation: { event.at_us_airport: true, flight.touches_us: true, event.delay_minutes: 200 }
+    outcome: may_apply
+    missing_facts: [event.type]

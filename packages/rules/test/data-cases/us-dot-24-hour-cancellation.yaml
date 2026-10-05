@@ -1,0 +1,45 @@
+rule: us-dot-24-hour-cancellation
+cases:
+  - name: booked direct 10 hours ago, departure 336 hours after booking
+    situation: { trip.touches_us: true, trip.booked_via: direct, trip.hours_since_booking: 10, trip.hours_booked_before_departure: 336 }
+    outcome: applies
+  - name: exactly 24 hours since booking
+    situation: { trip.touches_us: true, trip.booked_via: direct, trip.hours_since_booking: 24, trip.hours_booked_before_departure: 336 }
+    outcome: applies
+  - name: 25 hours since booking
+    situation: { trip.touches_us: true, trip.booked_via: direct, trip.hours_since_booking: 25, trip.hours_booked_before_departure: 336 }
+    outcome: does_not_apply
+  - name: booked exactly 168 hours before departure
+    situation: { trip.touches_us: true, trip.booked_via: direct, trip.hours_since_booking: 10, trip.hours_booked_before_departure: 168 }
+    outcome: applies
+  - name: booked 167 hours before departure
+    situation: { trip.touches_us: true, trip.booked_via: direct, trip.hours_since_booking: 10, trip.hours_booked_before_departure: 167 }
+    outcome: does_not_apply
+  - name: booked through an online travel agency
+    situation: { trip.touches_us: true, trip.booked_via: ota, trip.hours_since_booking: 10, trip.hours_booked_before_departure: 336 }
+    outcome: does_not_apply
+  - name: how it was booked is not known yet
+    situation: { trip.touches_us: true, trip.hours_since_booking: 10, trip.hours_booked_before_departure: 336 }
+    outcome: may_apply
+    missing_facts: [trip.booked_via]
+  - name: hours since booking not known yet
+    situation: { trip.touches_us: true, trip.booked_via: direct, trip.hours_booked_before_departure: 336 }
+    outcome: may_apply
+    missing_facts: [trip.hours_since_booking]
+  - name: hours booked before departure not known yet
+    situation: { trip.touches_us: true, trip.booked_via: direct, trip.hours_since_booking: 10 }
+    outcome: may_apply
+    missing_facts: [trip.hours_booked_before_departure]
+  - name: US airline booking between two foreign airports
+    situation: { trip.touches_us: false, trip.booked_with_us_carrier: true, trip.booked_via: direct, trip.hours_since_booking: 10, trip.hours_booked_before_departure: 336 }
+    outcome: applies
+  - name: foreign airline booking that does not touch the US
+    situation: { trip.touches_us: false, trip.booked_with_us_carrier: false, trip.booked_via: direct, trip.hours_since_booking: 10, trip.hours_booked_before_departure: 336 }
+    outcome: does_not_apply
+  - name: booking does not touch the US and the airline is not known yet
+    situation: { trip.touches_us: false, trip.booked_via: direct, trip.hours_since_booking: 10, trip.hours_booked_before_departure: 336 }
+    outcome: may_apply
+    missing_facts: [trip.booked_with_us_carrier]
+  - name: lufthansa.com booking Munich-Frankfurt-New York
+    situation: { trip.touches_us: true, trip.booked_with_us_carrier: false, trip.booked_via: direct, trip.hours_since_booking: 10, trip.hours_booked_before_departure: 336 }
+    outcome: applies
