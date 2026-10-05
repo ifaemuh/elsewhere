@@ -49,7 +49,7 @@ describe('documentRulesCover', () => {
   });
 });
 
-import { PASSPORT_GAP_DETAIL } from '@/lib/documents/check';
+import { PASSPORT_GAP_DETAIL, referencesFact } from '@/lib/documents/check';
 
 describe('checkMember passport coverage gap', () => {
   const base = rules.find((r) => r.id === 'fixture-passport-validity-pt')!;
@@ -89,5 +89,47 @@ describe('checkMember passport coverage gap', () => {
     expect(checks).toEqual([{ result: 'unknown', rule: null, detail: PASSPORT_GAP_DETAIL }]);
     const both = checkMember([eta, { ...base, applies_when: { all: [{ fact: 'trip.destination_country', in: ['GB'] }] } } as Rule], { ...gb, 'passenger.nationality': 'FR' });
     expect(both.map((c) => c.result).sort()).toEqual(['action_needed', 'unknown']);
+  });
+
+  const fr = { ...gb, 'passenger.nationality': 'FR' };
+  const gap = [{ result: 'unknown', rule: null, detail: PASSPORT_GAP_DETAIL }];
+
+  it('still gaps an unlisted passport when the rule also has a passport-months condition', () => {
+    const us = { ...base, id: 'us-only-months', applies_when: { all: [{ fact: 'trip.destination_country', in: ['GB'] }, { fact: 'passenger.nationality', in: ['US'] }, { fact: 'passenger.passport_months_valid_after_return', lt: 6 }] } } as Rule;
+    expect(checkMember([us], { ...fr, 'passenger.passport_months_valid_after_return': 9 })).toEqual(gap);
+  });
+  it('gives a US member only the ETA action when another rule is scoped to CN and IN', () => {
+    const cnIn = gated('gated-cn-in', ['CN', 'IN']);
+    const checks = checkMember([eta, cnIn], { ...gb, 'passenger.nationality': 'US' });
+    expect(checks).toMatchObject([{ result: 'action_needed', rule: { id: 'gated-eta' } }]);
+  });
+  it('gives a nationality that no scoped rule lists the gap, not a CN or IN rule match', () => {
+    expect(checkMember([eta, gated('gated-cn-in', ['CN', 'IN'])], fr)).toEqual(gap);
+  });
+  it('gives no gap to a British passport going to GB', () => {
+    expect(checkMember([gated('gated-eta', ['US'])], { ...gb, 'passenger.nationality': 'GB' })).toEqual([{ result: 'ok', rule: null, detail: 'No document issues found for this trip.' }]);
+  });
+  it('gives no gap to a British passport going to Jersey', () => {
+    const je = { ...eta, applies_when: { all: [{ fact: 'trip.destination_country', in: ['GB', 'JE'] }, { fact: 'passenger.nationality', in: ['US'] }] } } as Rule;
+    expect(checkMember([je], { 'trip.destination_country': 'JE', 'passenger.nationality': 'GB', 'flight.is_domestic_us': false })[0].result).toBe('ok');
+    expect(checkMember([je], { 'trip.destination_country': 'JE', 'passenger.nationality': 'FR', 'flight.is_domestic_us': false })).toEqual(gap);
+  });
+  it('gives no gap when the destination is unknown', () => {
+    expect(checkMember([eta], { 'passenger.nationality': 'FR' })[0].result).toBe('ok');
+  });
+  it('gives no gap when the rule is for another destination', () => {
+    expect(checkMember([eta], { 'trip.destination_country': 'PT', 'passenger.nationality': 'FR', 'flight.is_domestic_us': false })[0].result).toBe('ok');
+  });
+});
+
+describe('referencesFact', () => {
+  const n = { fact: 'passenger.nationality', in: ['US'] } as const;
+  const d = { fact: 'trip.destination_country', in: ['GB'] } as const;
+  it('finds a top-level and a deeply nested reference', () => {
+    expect(referencesFact({ all: [d, n] } as never, 'passenger.nationality')).toBe(true);
+    expect(referencesFact({ all: [d, { any: [d, { all: [d, n] }] }] } as never, 'passenger.nationality')).toBe(true);
+  });
+  it('is false when the fact is absent', () => {
+    expect(referencesFact({ all: [d, { any: [d] }] } as never, 'passenger.nationality')).toBe(false);
   });
 });

@@ -1,7 +1,7 @@
 import type { Rule, RulesLibrary } from '@elsewhere/rules/core';
 import { describe, expect, it } from 'vitest';
 import fixture from '../fixtures/rules-library.json';
-import { NO_COVERAGE_DETAIL } from '@/lib/documents/check';
+import { NO_COVERAGE_DETAIL, PASSPORT_GAP_DETAIL } from '@/lib/documents/check';
 import { affiliateOffer, groupStatus, renewalSentenceFor } from '@/lib/documents/present';
 
 const rules = (fixture as unknown as RulesLibrary).rules as Rule[];
@@ -24,12 +24,18 @@ describe('groupStatus', () => {
     expect(groupStatus([])).toBe('Not checked yet');
   });
   it('ranks needs-attention above unknown above all clear', () => {
-    expect(groupStatus([{ result: 'unknown', rule_id: 'a' }, { result: 'action_needed', rule_id: 'b' }])).toBe('Needs attention');
-    expect(groupStatus([{ result: 'unknown', rule_id: 'a' }])).toBe('Hasn’t confirmed yet');
-    expect(groupStatus([{ result: 'ok', rule_id: null }])).toBe('All clear');
+    expect(groupStatus([{ result: 'unknown', rule_id: 'a', detail: '' }, { result: 'action_needed', rule_id: 'b', detail: '' }])).toBe('Needs attention');
+    expect(groupStatus([{ result: 'unknown', rule_id: 'a', detail: '' }])).toBe('Hasn’t confirmed yet');
+    expect(groupStatus([{ result: 'ok', rule_id: null, detail: '' }])).toBe('All clear');
   });
   it('shows a neutral state when no verified rule covers the trip', () => {
-    expect(groupStatus([{ result: 'unknown', rule_id: null }])).toBe('No verified rules for this trip yet');
+    expect(groupStatus([{ result: 'unknown', rule_id: null, detail: NO_COVERAGE_DETAIL }])).toBe('No verified rules for this trip yet');
+  });
+  it('says the passport is not covered for a gap row', () => {
+    expect(groupStatus([{ result: 'unknown', rule_id: null, detail: PASSPORT_GAP_DETAIL }])).toBe('Passport not covered yet');
+  });
+  it('still ranks needs-attention above a gap row', () => {
+    expect(groupStatus([{ result: 'unknown', rule_id: null, detail: PASSPORT_GAP_DETAIL }, { result: 'action_needed', rule_id: 'b', detail: '' }])).toBe('Needs attention');
   });
 });
 

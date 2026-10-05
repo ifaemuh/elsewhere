@@ -1,5 +1,5 @@
 import type { Rule } from '@elsewhere/rules/core';
-import { requiredMonths } from './check';
+import { PASSPORT_GAP_DETAIL, requiredMonths } from './check';
 import { passportSentence, renewalAdvice, type RenewalRoute } from './deadlines';
 
 const regionName = new Intl.DisplayNames(['en'], { type: 'region' });
@@ -7,12 +7,14 @@ const regionName = new Intl.DisplayNames(['en'], { type: 'region' });
 interface StatusRow {
   result: 'ok' | 'action_needed' | 'unknown';
   rule_id: string | null;
+  detail: string;
 }
 
 /** What the planner sees for one member. A member with no rows has not been checked, which is never "All clear". */
 export function groupStatus(theirs: StatusRow[]): string {
   if (theirs.length === 0) return 'Not checked yet';
   if (theirs.some((c) => c.result === 'action_needed')) return 'Needs attention';
+  if (theirs.some((c) => c.result === 'unknown' && c.rule_id === null && c.detail === PASSPORT_GAP_DETAIL)) return 'Passport not covered yet';
   if (theirs.some((c) => c.result === 'unknown' && c.rule_id === null)) return 'No verified rules for this trip yet';
   if (theirs.some((c) => c.result === 'unknown')) return 'Hasn’t confirmed yet';
   return 'All clear';

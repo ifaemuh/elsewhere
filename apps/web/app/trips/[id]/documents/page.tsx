@@ -40,14 +40,14 @@ async function DocumentsContent({ params }: { params: Params }) {
 
   return (
     <>
-      <p className="mt-2 text-[#4b5745]">We keep only your passport’s issuing country and expiry date, and whether your ID is REAL ID. Never the number.</p>
+      <p className="mt-2 text-[#4b5745]">We keep only your passport’s issuing country and expiry date, and whether you have a REAL ID card, a passport or another ID TSA accepts. Never the number.</p>
 
       {myChecks.map((check) => {
         const rule = rules.find((r) => r.id === check.rule_id) ?? null;
         if (check.result === 'unknown' && check.rule_id === null) {
           return (
             <section key="no-coverage" className="mt-6 rounded-xl border border-[#e4dfd0] bg-white p-5">
-              <p className="font-medium">Elsewhere has no verified entry rules for this destination yet.</p>
+              <p className="font-medium">{check.detail}</p>
               <p className="mt-2 text-sm text-[#4b5745]">Check your destination’s official government site before you go, and make sure your passport is valid for your whole stay.</p>
               {passportRoute ? (
                 <p className="mt-2 text-sm">
