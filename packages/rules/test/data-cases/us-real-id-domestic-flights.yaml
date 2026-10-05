@@ -1,0 +1,22 @@
+rule: us-real-id-domestic-flights
+cases:
+  - name: domestic flight, no REAL ID or other accepted ID
+    situation: { flight.is_domestic_us: true, passenger.has_real_id: false }
+    outcome: applies
+  - name: domestic flight, has REAL ID or another accepted ID
+    situation: { flight.is_domestic_us: true, passenger.has_real_id: true }
+    outcome: does_not_apply
+  - name: domestic flight, ID status not known yet
+    situation: { flight.is_domestic_us: true }
+    outcome: may_apply
+    missing_facts: [passenger.has_real_id]
+  - name: international flight without ID
+    situation: { flight.is_domestic_us: false, passenger.has_real_id: false }
+    outcome: does_not_apply
+  - name: flight type not known yet
+    situation: { passenger.has_real_id: false }
+    outcome: may_apply
+    missing_facts: [flight.is_domestic_us]
+  - name: international flight, ID status not known yet
+    situation: { flight.is_domestic_us: false }
+    outcome: does_not_apply
