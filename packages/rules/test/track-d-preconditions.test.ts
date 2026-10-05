@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildLibrary, changesFromHistory, type Rule, type Source } from '../src/index.ts';
+import { buildLibrary, changesFromHistory, type Rule, type Source } from '../src/index';
 
 const source: Source = {
   key: 'test-source',
