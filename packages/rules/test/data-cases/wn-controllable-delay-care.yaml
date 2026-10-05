@@ -1,35 +1,48 @@
 rule: wn-controllable-delay-care
 cases:
-  - name: Southwest-caused delay of exactly 180 minutes
-    situation: { flight.carrier_iata: WN, event.type: delay, event.cause: controllable, event.delay_minutes: 180 }
+  - name: Southwest-caused delay leaving exactly 180 minutes late
+    situation: { flight.marketing_carrier_iata: WN, event.type: delay, event.cause: controllable, event.departure_delay_minutes: 180 }
     outcome: applies
-  - name: delay of 179 minutes is under the threshold
-    situation: { flight.carrier_iata: WN, event.type: delay, event.cause: controllable, event.delay_minutes: 179 }
+  - name: departure delay of 179 minutes is under the threshold
+    situation: { flight.marketing_carrier_iata: WN, event.type: delay, event.cause: controllable, event.departure_delay_minutes: 179 }
     outcome: does_not_apply
-  - name: cancellation, cause not known, 240 minutes late
-    situation: { flight.carrier_iata: WN, event.type: cancellation, event.cause: unknown, event.delay_minutes: 240 }
+  - name: delay, cause not known to the airline yet
+    situation: { flight.marketing_carrier_iata: WN, event.type: delay, event.cause: unknown, event.departure_delay_minutes: 240 }
     outcome: applies
-  - name: cancellation, 179 minutes late
-    situation: { flight.carrier_iata: WN, event.type: cancellation, event.cause: controllable, event.delay_minutes: 179 }
+  - name: delay with only the arrival delay known
+    situation: { flight.marketing_carrier_iata: WN, event.type: delay, event.cause: controllable, event.delay_minutes: 240 }
+    outcome: may_apply
+    missing_facts: [event.departure_delay_minutes]
+  - name: controllable cancellation announced 7 days ahead
+    situation: { flight.marketing_carrier_iata: WN, event.type: cancellation, event.cause: controllable, event.notice_days: 7 }
+    outcome: applies
+  - name: controllable cancellation announced 8 days ahead
+    situation: { flight.marketing_carrier_iata: WN, event.type: cancellation, event.cause: controllable, event.notice_days: 8 }
     outcome: does_not_apply
-  - name: cause not known yet is not the same as unknown
-    situation: { flight.carrier_iata: WN, event.type: delay, event.delay_minutes: 200 }
+  - name: cancellation, notice not known yet
+    situation: { flight.marketing_carrier_iata: WN, event.type: cancellation, event.cause: controllable }
+    outcome: may_apply
+    missing_facts: [event.notice_days]
+  - name: controllable missed connection
+    situation: { flight.marketing_carrier_iata: WN, event.type: missed_connection, event.cause: controllable }
+    outcome: applies
+  - name: cause not known yet
+    situation: { flight.marketing_carrier_iata: WN, event.type: missed_connection }
     outcome: may_apply
     missing_facts: [event.cause]
-  - name: delay length not known yet
-    situation: { flight.carrier_iata: WN, event.type: delay, event.cause: controllable }
-    outcome: may_apply
-    missing_facts: [event.delay_minutes]
-  - name: carrier not known yet
-    situation: { event.type: delay, event.cause: controllable, event.delay_minutes: 200 }
-    outcome: may_apply
-    missing_facts: [flight.carrier_iata]
   - name: weather delay, uncontrollable
-    situation: { flight.carrier_iata: WN, event.type: delay, event.cause: uncontrollable, event.delay_minutes: 300 }
+    situation: { flight.marketing_carrier_iata: WN, event.type: delay, event.cause: uncontrollable, event.departure_delay_minutes: 300 }
     outcome: does_not_apply
-  - name: another carrier
-    situation: { flight.carrier_iata: AA, event.type: delay, event.cause: controllable, event.delay_minutes: 300 }
+  - name: uncontrollable cancellation
+    situation: { flight.marketing_carrier_iata: WN, event.type: cancellation, event.cause: uncontrollable, event.notice_days: 1 }
     outcome: does_not_apply
+  - name: another marketing carrier
+    situation: { flight.marketing_carrier_iata: AA, event.type: delay, event.cause: controllable, event.departure_delay_minutes: 300 }
+    outcome: does_not_apply
+  - name: marketing carrier not known yet
+    situation: { event.type: delay, event.cause: controllable, event.departure_delay_minutes: 300 }
+    outcome: may_apply
+    missing_facts: [flight.marketing_carrier_iata]
   - name: a delayed bag is not a flight delay
-    situation: { flight.carrier_iata: WN, event.type: bag_delayed, event.cause: controllable, event.delay_minutes: 300 }
+    situation: { flight.marketing_carrier_iata: WN, event.type: bag_delayed, event.cause: controllable, event.departure_delay_minutes: 300 }
     outcome: does_not_apply

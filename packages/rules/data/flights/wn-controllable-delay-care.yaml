@@ -2,46 +2,61 @@ id: wn-controllable-delay-care
 version: 1
 status: draft
 domain: flights
-jurisdiction: US-DOT
-title: "Southwest delay or cancellation it caused, 3+ hours? Its plan promises rebooking, meals and sometimes a hotel"
+jurisdiction: "carrier:WN"
+title: "Southwest caused your delay, cancellation or missed connection? Its plan commits to rebooking, a meal and maybe a hotel"
 summary: >-
-  Southwest's Customer Service Plan promises care only when a delay of three hours or more, or a Southwest-initiated
-  cancellation, is within Southwest's control (for example mechanical problems or an aircraft swap): rebooking at no
-  additional cost, a meal voucher, and a hotel for an unplanned overnight. If weather or air traffic control caused it,
-  the plan promises rebooking only.
+  If Southwest caused it (e.g. a mechanical problem), its Customer Service Plan commits to rebooking at no additional
+  cost on the next Southwest flight with seats after a cancellation or 3+ hour delay, a meal voucher after a 3+ hour
+  wait, and lodging if no same-day Southwest flight to your destination is available. For weather or Air Traffic
+  Control delays it lists rebooking only.
 applies_when:
   all:
-    - fact: flight.carrier_iata
+    - fact: flight.marketing_carrier_iata
       eq: WN
-    - fact: event.type
-      in: [delay, cancellation]
     - fact: event.cause
       in: [controllable, unknown]
-    - fact: event.delay_minutes
-      gte: 180
+    - any:
+        - all:
+            - fact: event.type
+              in: [delay]
+            - fact: event.departure_delay_minutes
+              gte: 180
+        - all:
+            - fact: event.type
+              in: [cancellation]
+            - fact: event.notice_days
+              lte: 7
+        - fact: event.type
+          in: [missed_connection]
 entitlement:
   kind: care
   amount:
-    rebooking: "next available Southwest flight(s) with seats available to your ticketed destination at no additional cost"
-    meals: "a meal voucher upon request at the airport for participating vendors, or, if participating vendors or vouchers are not available, reimbursement of reasonable requests for meals purchased; owed for a delay within Southwest's control of three or more hours, or a Southwest-initiated cancellation within its control that results in a wait of three or more hours for a flight at the airport"
-    lodging: "lodging arranged upon request if available, or reimbursement of reasonable requests for lodging (provided you do not reside locally); owed only if Southwest flight accommodations departing the same day to your intended destination or applicable co-terminal city are not available, resulting in an unscheduled overnight delay or stay when your itinerary did not originally include an overnight layover"
+    rebooking: "next available Southwest flight(s) with seats available to your ticketed destination at no additional cost; owed for a delay within Southwest's control of three hours or longer or a Southwest-initiated cancellation within its control"
+    meals: "a meal voucher upon request at the airport for participating vendors, or, if participating vendors or vouchers are not available, reimbursement of reasonable requests for meals purchased; owed for a delay within Southwest's control of three or more hours, or a Southwest-initiated cancellation within its control that results in a wait of three or more hours for a flight at the airport. For a missed connection, the flight Southwest delayed must have been three or more hours late"
+    lodging: "lodging arranged upon request if available, or reimbursement of reasonable requests for lodging (provided you do not reside locally); owed only if Southwest flight accommodations departing the same day to your intended destination or applicable co-terminal city are not available following a delay or Southwest-initiated cancellation within its control, resulting in an unscheduled overnight delay or stay when your itinerary did not originally include an overnight layover. No hours threshold is stated"
     ground_transportation: "a voucher upon request, or reimbursement of reasonable requests, if the lodging Southwest arranges does not provide shuttle service to and from the airport"
-    luv_voucher: "a fully transferable Southwest LUV Voucher of at least $75 if Southwest canceled or delayed your flight within seven days of the scheduled departure, you arrived at your final destination three or more hours after the scheduled arrival time, and you request it at Southwest.com/DelayForm no later than one year after the flight"
-  timing: "at the airport, on request"
+    luv_voucher: "you may be eligible for a fully transferable Southwest LUV Voucher of at least $75 if Southwest canceled or delayed your flight within seven days of the scheduled departure, you arrived at your final destination three or more hours after the scheduled arrival time, and you request it at Southwest.com/DelayForm no later than one year after the flight"
+  timing: "rebooking, meal, lodging and ground transportation on request at the airport; the LUV Voucher by request at Southwest.com/DelayForm within one year of the flight"
 how_to_claim:
   steps:
     - "Ask Southwest to rebook you on the next available Southwest flight to your ticketed destination at no additional cost."
-    - "If your wait at the airport is three hours or more, ask for a meal voucher. If participating vendors or vouchers are not available, ask Southwest to reimburse reasonable meal purchases."
-    - "If no same-day Southwest flight to your destination is available and you face an unplanned overnight stay that your original itinerary did not include, ask Southwest to arrange lodging, or to reimburse reasonable lodging costs if you do not live locally."
+    - "If you are waiting three or more hours at the airport, ask for a meal voucher. If participating vendors or vouchers are not available, ask Southwest to reimburse reasonable meal purchases."
+    - "If no same-day Southwest flight to your destination is available and you face an unplanned overnight stay that your original itinerary did not include, ask Southwest to arrange lodging, or to honor a reasonable request for reimbursement for lodging."
     - "If the lodging Southwest arranges has no airport shuttle, ask for a ground transportation voucher or reimbursement."
     - "If you arrive at your final destination three or more hours after the scheduled arrival time, request the Southwest LUV Voucher at Southwest.com/DelayForm within one year of the flight."
+    - "If you believe an airline has not fulfilled its commitment, contact the airline first to ensure it gives you what is owed."
   templates: [airline_care_request]
 exceptions:
-  - "The care commitments (meals, lodging, ground transportation, LUV Voucher) depend on Southwest having caused the problem. For delays of three hours or more or cancellations not within Southwest's control (for example weather, Air Traffic Control, safety or security-related events, FAA-required crew duty limitations, infrastructure or utility problems), the plan promises rebooking on the next available Southwest flight at no additional cost, and nothing more."
-  - "Lodging is only for an unscheduled overnight delay or stay when your itinerary did not originally include an overnight layover, only if same-day Southwest accommodations to your destination are not available, and only upon request. Lodging is arranged if available, and the reimbursement language covers you provided you do not reside locally."
-  - "The LUV Voucher is only for a Southwest cancellation or delay within seven days of the scheduled departure when you arrive three or more hours late. A voucher already issued for the same delay or cancellation satisfies the commitment."
+  - "These commitments depend on Southwest having caused the problem. For a delay of three hours or more or a cancellation that is not within Southwest's control (for example weather, Air Traffic Control, safety or security-related events, FAA-required crew duty limitations, infrastructure or utility problems), the plan lists only rebooking on the next available Southwest flight at no additional cost."
+  - "Staffing shortages may not count as Southwest's fault. The Contract of Carriage treats as outside Southwest's control, among other things, labor-related disputes affecting Southwest's service, an inability to obtain fuel, supplies, parts, airport gates, labor or landing facilities, and any fact or situation Southwest did not foresee, and it lists a lack of sufficient materials, staffing or supplies among the safety reasons it may cancel or delay a flight."
+  - "For a cancellation, the meal applies when the cancellation results in a wait of three or more hours for a flight at the airport. For a missed connection, rebooking and the meal apply when the flight Southwest delayed was three or more hours late, and lodging has no hours threshold. The plan does not mention missed connections by name, and the Contract of Carriage says Southwest does not guarantee that you will make connections to other flights, whether operated by Southwest or another airline."
+  - "Lodging is arranged upon request if available, or Southwest will honor reasonable requests for reimbursement for lodging, and the plan adds 'provided you do not reside locally'. It applies only after a delay or cancellation within Southwest's control that leaves no same-day Southwest flight to your destination and causes an unscheduled overnight delay or stay when your itinerary did not originally include an overnight layover."
+  - "Unless Southwest provides it at its direction, the Contract of Carriage says Southwest does not assume responsibility for ground transportation between its airports and any other location, and that ground transportation is at your expense."
+  - "The LUV Voucher is something you 'may be eligible' for. The Contract of Carriage says a LUV Voucher is issued at Southwest's sole discretion in a specified dollar amount with a specified expiration date, and is redeemable only for the purchase of tickets, not for cash. It is only for a Southwest cancellation or delay within seven days of the scheduled departure when you arrive three or more hours late. A voucher already issued for the same delay or cancellation satisfies the commitment."
   - "Snacks and beverages are something Southwest 'may' provide, not a promise."
-  - "The plan applies to flights operated by Southwest Airlines. It is not a contract. If it conflicts with the Contract of Carriage, the Contract of Carriage governs, and the Contract of Carriage says a refund to the original form of payment is your exclusive remedy for a Southwest cancellation or Significantly Delayed or Changed Flight."
+  - "These services don't cover itinerary changes Southwest makes more than seven days before departure."
+  - "The plan covers flights operated by Southwest Airlines. Southwest says the plan is not a contract, but federal rules require it to adhere to the plan's terms."
+  - "Rebooking is promised on Southwest flights only, and the Contract of Carriage words it as Southwest 'may offer' to transport you on the next Southwest flight on which space is available. Carriage on another airline is governed by that airline's contract or conditions of carriage."
 sources:
   - id: s1
     source: wn-customer-service-plan
@@ -72,13 +87,45 @@ sources:
         supports: [applies_when, exceptions]
       - text: "is not a contract and does not create any contractual obligations on the part of the Carrier."
         supports: [exceptions]
-      - text: "if there is any conflict between the language of the SWA CSP and the Southwest Airlines Contract of Carriage,the Contract of Carriage shall govern."
-        supports: [exceptions]
+      - text: "Notifying Customers in a timely manner of changes in travel itineraries (more than seven days from departure)"
+        supports: [applies_when, exceptions]
+      - text: "The servicesdescribed here do not apply to changes in travel itineraries referenced in Section 11."
+        supports: [applies_when, exceptions]
   - id: s2
     source: wn-contract-of-carriage
     quotes:
-      - text: "A refund to the original form of payment is your exclusive remedy in the event of aSouthwest cancellation or Significantly Delayed or Changed Flight"
+      - text: "Southwest does not guarantee that aPassenger will make connections to other flights, whether operated by Southwest or anotherairline."
+        supports: [summary, exceptions]
+      - text: "Southwest may offer to transport the Passenger at no additional charge on the nextSouthwest Airlines flight(s)"
         supports: [exceptions]
+      - text: "Unless provided at the direction of Southwest, Southwest does not assume responsibilityfor the ground transportation of any Passenger or his or her Baggage between any Airportused by Southwest and any other location."
+        supports: [exceptions]
+      - text: "Ground Transportation is at the Passenger’sexpense."
+        supports: [exceptions]
+      - text: "or any other labor related dispute involving or affecting Southwest’sservice"
+        supports: [exceptions]
+      - text: "theinability to obtain fuel, supplies, components, parts, fluids, airport gates, labor, landingfacilities"
+        supports: [exceptions]
+      - text: "or any fact or situation that was not foreseen, anticipated,or predicted by Southwest."
+        supports: [exceptions]
+      - text: "the lack of sufficient materials, staffing, or supplies for a flight to beoperated."
+        supports: [exceptions]
+      - text: "Southwest LUV Voucher means a voucher issued by Southwest, at Southwest’s solediscretion in a specified dollar amount with a specified expiration date."
+        supports: [exceptions]
+      - text: "Southwest LUVVouchers are redeemable solely for the purchase of Tickets and may not be redeemed forcash."
+        supports: [exceptions]
+      - text: "Carriage on any Interline Carrier is governed by the Interline Carrier’s contract orconditions of carriage."
+        supports: [exceptions]
+  - id: s3
+    source: ecfr-14-cfr-259
+    quotes:
+      - text: "Each covered carrier must adopt a Customer Service Plan applicable to its scheduled flights as specified in paragraphs (b)(1) through (14) of this section and adhere to the plan's terms."
+        supports: [exceptions]
+  - id: s4
+    source: dot-customer-service-dashboard
+    quotes:
+      - text: "If you believe an airline has not fulfilled its commitment, contact the airline first to ensure it gives you what is owed."
+        supports: [how_to_claim.steps.5]
 lead_character: capybara
 tags: [delay, cancellation, care, meals, hotel, southwest, controllable]
 last_verified: null
