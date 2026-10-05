@@ -1,0 +1,90 @@
+id: ua-controllable-delay-care
+version: 1
+status: draft
+domain: flights
+jurisdiction: "carrier:UA"
+title: "United delayed or cancelled your flight and it's on them? Ask for meal and hotel vouchers"
+summary: >-
+  United's Customer Commitment says that when a delay or cancellation is within United's control and you wait more than
+  three hours, you get a meal voucher, and when you must stay overnight away from home you get hotel vouchers and a ride
+  voucher. It depends on United having caused the delay. Ask if it isn't offered.
+applies_when:
+  all:
+    - fact: flight.carrier_iata
+      eq: UA
+    - fact: event.type
+      in: [delay, cancellation]
+    - fact: event.cause
+      in: [controllable, unknown]
+    - fact: event.delay_minutes
+      gt: 180
+entitlement:
+  kind: care
+  amount:
+    meal: "a digital or printed meal voucher for the reasonable cost of a meal at airport food vendors, when the delay or cancellation is within United's control and you wait more than three hours"
+    hotel: "digital or printed hotel vouchers for a partner hotel when a delay or cancellation within United's control keeps you away from your home city and you need to stay overnight; the contract of carriage says one night's lodging, or a travel certificate on request if no lodging is provided, when your delay is expected to exceed four hours between 10:00 p.m. and 6:00 a.m. local time"
+    ground_transport: "a voucher for the reasonable cost of a ride to the hotel if the hotel doesn't provide a shuttle or ride from the airport"
+  timing: "The sources give no deadline. Ask while you are waiting at the airport."
+how_to_claim:
+  steps:
+    - "If you wait more than three hours, check whether United gave you a meal voucher. If you didn't automatically get one, ask United for it."
+    - "If you need to stay overnight, ask United for a hotel voucher. If the hotel has no shuttle, ask for a voucher for the ride to the hotel."
+    - "If United can't offer a hotel voucher because its partner hotels have no room, and you pay for a different place to stay, keep the receipt and submit it to United's Customer Care Team."
+    - "Take what United offers. If you turn it down and buy meals, a hotel or a ride yourself, United won't pay you back."
+  templates: [airline_care_request]
+exceptions:
+  - "This depends on the airline having caused the problem. United's plan covers delays and cancellations 'within our control, like mechanical issues'. The contract of carriage says lodging is not furnished 'When such interruption is due to circumstances outside UA’s control.' If the cause is weather or another event beyond United's control, these commitments do not apply."
+  - "The meal commitment is for a wait of 'more than three hours'. The contract of carriage's own meal wording is 'an extensive delay caused by UA'."
+  - "The hotel commitment turns on an overnight stay away from your home city (United's plan) or a delay expected to exceed four hours between 10:00 p.m. and 6:00 a.m. local time (contract of carriage). Lodging is not furnished to a passenger whose trip is interrupted at a city which is his or her permanent domicile, origin point, or stopover point."
+  - "United decides whether to give lodging or, on your request, a travel certificate for one night's lodging up to a maximum amount determined by United."
+  - "If United offered lodging, food, or ground transportation and you turned it down, it is not liable to reimburse what you secured yourself."
+  - "The contract of carriage says the amenities in that rule are the sole and exclusive remedy for a claim under it."
+  - "These are United's commitments for its own flights. For a flight starting outside the U.S., the contract of carriage says that if local or international laws regulate the situation, Rule 24 is not applied, and United's plan says relevant local laws may also apply outside the U.S."
+sources:
+  - id: s1
+    source: ua-customer-service-plan
+    quotes:
+      - text: "For cancellations or delays within our control, like mechanical issues, that result in your waiting for more than three hours, we’ll give you a digital or printed meal voucher."
+        supports: [summary, applies_when, entitlement.amount, exceptions, how_to_claim.steps.0]
+      - text: "This voucher can be used for the reasonable cost of a meal at airport food vendors. If you don’t automatically get one, just ask us."
+        supports: [entitlement.amount, how_to_claim.steps.0]
+      - text: "When a delay or cancellation within our control, like a mechanical issue, keeps you away from your home city and you need to stay overnight, we’ll give you digital or printed hotel vouchers that can be used at a partner hotel."
+        supports: [summary, applies_when, entitlement.amount, exceptions, how_to_claim.steps.1]
+      - text: "If we’re unable to offer you a hotel voucher because a room at one of our hotel partners is not available, and you find and pay for a different place to stay, you can submit your receipt to our Customer Care Team, and we’ll reimburse you for reasonable hotel costs."
+        supports: [how_to_claim.steps.2]
+      - text: "If you stay the night at a hotel nearby because of a delay or cancellation within our control, and the hotel doesn’t provide a shuttle or ride from the airport, we’ll give you a voucher for the reasonable cost of a ride to the hotel."
+        supports: [summary, entitlement.amount, how_to_claim.steps.1]
+      - text: "If we’ve offered you any of these services, you’re free to turn us down. But if you do, we won’t pay you back for any meals, hotels, or other services you choose to find and pay for yourself. If you are outside the U.S., relevant local laws may also apply."
+        supports: [exceptions, how_to_claim.steps.3]
+  - id: s2
+    source: ua-contract-of-carriage
+    quotes:
+      - text: "UA will provide at its option either one night’s lodging, or, if no lodging is provided and upon the passenger’s request only, reimbursement for one night’s lodging in the form of an electronic travel certificate that may be applied to future travel on UA up to a maximum amount determined by UA when a UA flight on which a Passenger is being transported incurs Irregular Operations and the Passenger incurs a delay that is expected to exceed four hours between the hours of 10:00 p.m. to 6:00 a.m. local time."
+        supports: [applies_when, entitlement.amount, exceptions]
+      - text: "Where lodging has been offered but not accepted by a Passenger for whatever reason, UA is not liable to reimburse the Passenger for expenses relating to alternative lodging secured independently by the Passenger."
+        supports: [exceptions, how_to_claim.steps.3]
+      - text: "To a Passenger whose trip is interrupted at a city which is his/her permanent domicile, origin point, or stopover point, or"
+        supports: [exceptions]
+      - text: "When such interruption is due to circumstances outside UA’s control."
+        supports: [summary, applies_when, exceptions]
+      - text: "UA will provide snacks and/or food and beverage vouchers in the event of an extensive delay caused by UA."
+        supports: [summary, entitlement.amount, exceptions]
+      - text: "Where food and beverage vouchers have been offered but not accepted by a Passenger for whatever reason, UA is not liable to reimburse the Passenger for expenses relating to food and beverage secured independently by the Passenger."
+        supports: [exceptions, how_to_claim.steps.3]
+      - text: "When lodging is furnished in accordance with 1) above and ground transportation is not furnished by the hotel, UA will provide ground transportation to the place of lodging via public conveyance."
+        supports: [entitlement.amount, how_to_claim.steps.1]
+      - text: "Where ground transportation has been offered but not accepted by a Passenger for whatever reason, UA is not liable to reimburse the Passenger for expenses relating to alternative ground transportation secured by the Passenger."
+        supports: [exceptions, how_to_claim.steps.3]
+      - text: "The sole and exclusive remedy for a passenger who has a claim under this Rule shall be the express amenities provided in this Rule."
+        supports: [exceptions]
+      - text: "If local or international laws regulate a Schedule Change, Force Majeure or Irregular Operations, then the procedures in Rule 24 will not be applied."
+        supports: [exceptions]
+      - text: "Flight or service cancellation, omission of a scheduled stop, or any other delay or interruption in the scheduled operation of a carrier’s flight;"
+        supports: [applies_when]
+lead_character: capybara
+tags: [delay, cancellation, care, meal, hotel, united]
+last_verified: null
+verified_by: null
+review_by: null
+history:
+  - { version: 1, status: draft, date: 2026-10-05 }

@@ -1,0 +1,38 @@
+rule: ua-controllable-delay-care
+cases:
+  - name: United-caused delay of 181 minutes
+    situation: { flight.carrier_iata: UA, event.type: delay, event.cause: controllable, event.delay_minutes: 181 }
+    outcome: applies
+  - name: cause not known yet still applies
+    situation: { flight.carrier_iata: UA, event.type: delay, event.cause: unknown, event.delay_minutes: 240 }
+    outcome: applies
+  - name: United-caused cancellation with a long wait
+    situation: { flight.carrier_iata: UA, event.type: cancellation, event.cause: controllable, event.delay_minutes: 600 }
+    outcome: applies
+  - name: exactly three hours is not more than three hours
+    situation: { flight.carrier_iata: UA, event.type: delay, event.cause: controllable, event.delay_minutes: 180 }
+    outcome: does_not_apply
+  - name: 179 minutes
+    situation: { flight.carrier_iata: UA, event.type: delay, event.cause: controllable, event.delay_minutes: 179 }
+    outcome: does_not_apply
+  - name: weather delay is outside United's control
+    situation: { flight.carrier_iata: UA, event.type: delay, event.cause: uncontrollable, event.delay_minutes: 400 }
+    outcome: does_not_apply
+  - name: another carrier
+    situation: { flight.carrier_iata: DL, event.type: delay, event.cause: controllable, event.delay_minutes: 400 }
+    outcome: does_not_apply
+  - name: schedule change is not a delay or cancellation
+    situation: { flight.carrier_iata: UA, event.type: schedule_change, event.cause: controllable, event.delay_minutes: 400 }
+    outcome: does_not_apply
+  - name: delay length not known yet
+    situation: { flight.carrier_iata: UA, event.type: delay, event.cause: controllable }
+    outcome: may_apply
+    missing_facts: [event.delay_minutes]
+  - name: cause not entered yet
+    situation: { flight.carrier_iata: UA, event.type: delay, event.delay_minutes: 240 }
+    outcome: may_apply
+    missing_facts: [event.cause]
+  - name: carrier not known yet
+    situation: { event.type: delay, event.cause: controllable, event.delay_minutes: 240 }
+    outcome: may_apply
+    missing_facts: [flight.carrier_iata]

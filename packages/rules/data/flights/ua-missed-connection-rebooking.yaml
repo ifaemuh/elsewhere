@@ -1,0 +1,79 @@
+id: ua-missed-connection-rebooking
+version: 1
+status: draft
+domain: flights
+jurisdiction: "carrier:UA"
+title: "Missed your connection because of a United delay? United rebooks you at no extra charge"
+summary: >-
+  If a United-caused delay or cancellation makes you miss a connection on the same ticket, United's contract of carriage
+  says it will transport you on its own flights, subject to availability, in the same class of service at no additional
+  cost, and may at its sole discretion put you on another carrier. It depends on United having caused the problem.
+applies_when:
+  all:
+    - fact: flight.carrier_iata
+      eq: UA
+    - fact: event.type
+      in: [missed_connection]
+    - fact: flight.single_ticket
+      eq: true
+    - fact: event.cause
+      in: [controllable, unknown]
+entitlement:
+  kind: rebooking
+  amount:
+    rebooking: "transport on United's own flights, subject to availability, to the destination, next stopover point, or transfer point shown on its portion of your ticket, without stopover, in the same class of service, at no additional cost"
+    other_carrier: "at United's sole discretion, United may arrange for you to travel on another carrier, or by ground transportation if acceptable to you"
+    partner_airline_next_day: "if your same-day cancellation or delay is caused by something within United's control and no United flight is available until the next day, ask and United will book you on a partner airline's flight at no additional cost if it has seats available for United customers in your ticketed cabin"
+  timing: "The sources give no deadline. Ask the airline as soon as you know you've missed the connection."
+how_to_claim:
+  steps:
+    - "Ask United about your rebooking options at united.com, in the United app, at an airport kiosk, or through an airport or contact center agent."
+    - "Ask to be put on the next United flight with available seats in your cabin, at no additional cost."
+    - "If your delay or cancellation is within United's control and United has no flight until the next day, ask United to book you on a partner airline's flight."
+  templates: []
+exceptions:
+  - "This depends on the airline having caused the problem. The contract of carriage's rebooking measures apply 'because of Irregular Operations caused by UA'. If the cause is beyond United's control, such as weather, they may not apply. For that case the contract says United 'may re-accommodate Passengers on another available UA flight or on another carrier or combination of carriers, or via ground transportation'."
+  - "Another carrier is at United's option: 'At its sole discretion, UA may arrange for the passenger to travel on another carrier.' The partner-airline commitment in United's plan is limited to a same-day cancellation or delay within United's control with no United flight until the next day, and to partner seats being available."
+  - "If the connecting flight was not operated, the contract says 'the Delivering Carrier is responsible to arrange for carriage of the Passenger or to make a refund'. That sentence does not mention cause."
+  - "United has 'no obligation to honor another carrier’s ticket that does not reflect a confirmed reservation on UA, unless the issuing carrier reissues the ticket for any changes in routing'."
+  - "This is United's commitment for its own flights. For a flight starting outside the U.S., the contract of carriage says that if local or international laws regulate the situation, Rule 24 is not applied, and United's plan says relevant local laws may also apply outside the U.S."
+sources:
+  - id: s1
+    source: ua-contract-of-carriage
+    quotes:
+      - text: "When a Passenger’s ticket is affected because of Irregular Operations caused by UA, UA will take the following measures:"
+        supports: [summary, applies_when, entitlement.amount, exceptions]
+      - text: "Transport the Passenger on its own flights, subject to availability, to the Destination, next Stopover point, or transfer point shown on its portion of the Ticket, without Stopover in the same class of service, at no additional cost to the Passenger; or"
+        supports: [summary, entitlement.amount, how_to_claim.steps.1]
+      - text: "At its sole discretion, UA may arrange for the passenger to travel on another carrier. United may also, at its sole discretion, and if acceptable to the passenger, arrange for the passenger to travel via ground transportation."
+        supports: [summary, entitlement.amount, exceptions]
+      - text: "In the event a Passenger misses an onward connecting flight on which space is reserved because the Delivering Carrier did not operate its flight due to Irregular Operations or a Schedule Change, the Delivering Carrier is responsible to arrange for carriage of the Passenger or to make a refund."
+        supports: [exceptions]
+      - text: "Delay in scheduled departure or arrival of a carrier’s flight resulting in a Misconnection;"
+        supports: [applies_when]
+      - text: "Misconnection – occurs at a Connecting Point when a Passenger holding confirmed space on an Original Receiving Carrier is unable to use such confirmed space because the Delivering Carrier was unable to deliver him/her to the Connecting Point in time to connect with the Original Receiving Carrier’s flight."
+        supports: [applies_when]
+      - text: "UA may re-accommodate Passengers on another available UA flight or on another carrier or combination of carriers, or via ground transportation, or may refund, in its sole discretion, any unused portions of the Ticket in the form of a travel certificate or travel credit."
+        supports: [exceptions]
+      - text: "UA shall have no obligation to honor another carrier’s ticket that does not reflect a confirmed reservation on UA, unless the issuing carrier reissues the ticket for any changes in routing."
+        supports: [exceptions]
+      - text: "If local or international laws regulate a Schedule Change, Force Majeure or Irregular Operations, then the procedures in Rule 24 will not be applied."
+        supports: [exceptions]
+  - id: s2
+    source: ua-customer-service-plan
+    quotes:
+      - text: "We’ll give you the most up-to-date information about your rebooking options through united.com, the United app, at airport kiosks, or through our airport and contact center agents."
+        supports: [how_to_claim.steps.0]
+      - text: "We’ll get you on the next flight we have with available seats in the same cabin you’re traveling in at no additional cost."
+        supports: [summary, entitlement.amount, how_to_claim.steps.1]
+      - text: "If your same-day cancellation or delay is caused by something within our control and a United flight is unavailable until the next day, ask us and United will book you on a partner airline’s flight via our existing interline agreements at no additional cost if they have seats available for United customers in your ticketed cabin."
+        supports: [entitlement.amount, exceptions, how_to_claim.steps.2]
+      - text: "If you are outside the U.S., relevant local laws may also apply."
+        supports: [exceptions]
+lead_character: capybara
+tags: [missed-connection, rebooking, delay, united]
+last_verified: null
+verified_by: null
+review_by: null
+history:
+  - { version: 1, status: draft, date: 2026-10-05 }

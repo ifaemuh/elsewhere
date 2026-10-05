@@ -1,0 +1,28 @@
+rule: ua-missed-connection-rebooking
+cases:
+  - name: United-caused missed connection on one ticket
+    situation: { flight.carrier_iata: UA, event.type: missed_connection, flight.single_ticket: true, event.cause: controllable }
+    outcome: applies
+  - name: cause not known yet still applies
+    situation: { flight.carrier_iata: UA, event.type: missed_connection, flight.single_ticket: true, event.cause: unknown }
+    outcome: applies
+  - name: cause not entered yet
+    situation: { flight.carrier_iata: UA, event.type: missed_connection, flight.single_ticket: true }
+    outcome: may_apply
+    missing_facts: [event.cause]
+  - name: ticket type not known yet
+    situation: { flight.carrier_iata: UA, event.type: missed_connection, event.cause: controllable }
+    outcome: may_apply
+    missing_facts: [flight.single_ticket]
+  - name: separate tickets
+    situation: { flight.carrier_iata: UA, event.type: missed_connection, flight.single_ticket: false, event.cause: controllable }
+    outcome: does_not_apply
+  - name: cause outside United's control
+    situation: { flight.carrier_iata: UA, event.type: missed_connection, flight.single_ticket: true, event.cause: uncontrollable }
+    outcome: does_not_apply
+  - name: another carrier
+    situation: { flight.carrier_iata: AA, event.type: missed_connection, flight.single_ticket: true, event.cause: controllable }
+    outcome: does_not_apply
+  - name: a plain delay is not a missed connection
+    situation: { flight.carrier_iata: UA, event.type: delay, flight.single_ticket: true, event.cause: controllable }
+    outcome: does_not_apply
