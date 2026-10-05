@@ -1,34 +1,60 @@
 {
   "name": "@elsewhere/web",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": "24.x"
+  },
   "scripts": {
     "dev": "next dev --port 3000",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "e2e": "playwright test",
+    "eval:extraction": "node --conditions=react-server --import tsx scripts/eval-extraction.mts",
+    "eval:replay": "node --conditions=react-server --import tsx scripts/eval-replay.mts",
+    "predev": "npm run rules:build -w @elsewhere/rules",
+    "prebuild": "npm run rules:build -w @elsewhere/rules",
+    "pretypecheck": "npm run rules:build -w @elsewhere/rules"
   },
   "dependencies": {
-    "@elsewhere/shared": "*",
+    "@elsewhere/rules": "^0.0.1",
     "@radix-ui/react-slot": "^1.1.2",
-    "@supabase/ssr": "^0.5.2",
-    "@supabase/supabase-js": "^2.49",
+    "@supabase/ssr": "0.12.7",
+    "@supabase/supabase-js": "^2.117.2",
+    "@vercel/firewall": "1.2.5",
+    "ai": "^7.0.127",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^0.460.0",
-    "next": "^15",
-    "react": "^19",
-    "react-dom": "^19",
-    "tailwind-merge": "^2.5.5"
+    "next": "16.3.8",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "resend": "^6.32.0",
+    "server-only": "0.0.1",
+    "stripe": "23.0.0",
+    "tailwind-merge": "^2.5.5",
+    "twilio": "^6.1.2",
+    "workflow": "^5.0.1",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
-    "@tailwindcss/postcss": "^4.0.0",
+    "@electric-sql/pglite": "^0.5.8",
+    "@playwright/test": "1.63.0",
+    "@tailwindcss/postcss": "4.3.3",
     "@types/node": "^22",
-    "@types/react": "^19",
-    "@types/react-dom": "^19",
-    "tailwindcss": "^4.0.0",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.1.1",
+    "@workflow/vitest": "5.0.1",
+    "standardwebhooks": "^1.1.1",
+    "tailwindcss": "4.3.3",
+    "tsx": "^4.19.2",
     "tw-animate-css": "^1.2.0",
-    "typescript": "^5.5"
+    "typescript": "^5.5",
+    "vite": "^8.3.2",
+    "vitest": "5.0.3"
   }
 }

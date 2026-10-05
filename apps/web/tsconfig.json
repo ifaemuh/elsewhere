@@ -7,13 +7,13 @@
     "moduleResolution": "bundler",
     "jsx": "preserve",
     "plugins": [{ "name": "next" }],
-    "paths": {
-      "@/*": ["./*"]
-    },
+    "paths": { "@/*": ["./*"] },
     "noEmit": true,
     "allowJs": true,
-    "incremental": true
+    "incremental": true,
+    "declaration": false,
+    "declarationMap": false
   },
-  "include": ["**/*.ts", "**/*.tsx", "next-env.d.ts", ".next/types/**/*.ts"],
+  "include": ["**/*.ts", "**/*.tsx", "scripts/*.mts", "next-env.d.ts", ".next/types/**/*.ts"],
   "exclude": ["node_modules"]
 }

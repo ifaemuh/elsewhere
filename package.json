@@ -6,10 +6,7 @@
   "workspaces": ["apps/*", "packages/*"],
   "scripts": {
     "dev": "turbo dev",
-    "dev:mobile-preview": "node scripts/mobile-preview-test.mjs",
-    "audit:media": "node scripts/audit-media.mjs",
     "build": "turbo build",
-    "lint": "turbo lint",
     "typecheck": "turbo typecheck",
     "test": "turbo test"
   },
@@ -18,7 +15,7 @@
     "typescript": "^5.5"
   },
   "overrides": {
-    "react": "19.1.0",
-    "react-dom": "19.1.0"
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
   }
 }
