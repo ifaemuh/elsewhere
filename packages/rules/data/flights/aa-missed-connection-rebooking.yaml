@@ -1,0 +1,68 @@
+id: aa-missed-connection-rebooking
+version: 1
+status: draft
+domain: flights
+jurisdiction: carrier:AA
+title: "Missed your connection on American Airlines? They rebook you on their next flight with seats, at no extra cost"
+summary: >-
+  American's customer service plan says that when a delay could cause you to miss your connection, it rebooks you on its
+  next flight with available seats at no additional cost. If it caused the disruption and none of its flights are
+  available until the next day, it rebooks you on a partner airline at no additional cost.
+applies_when:
+  all:
+    - fact: flight.carrier_iata
+      eq: AA
+    - fact: event.type
+      in: [missed_connection]
+    - fact: flight.single_ticket
+      eq: true
+entitlement:
+  kind: rebooking
+  amount:
+    flight: "next American Airlines flight with available seats"
+    cost: "no additional cost"
+    cabin: "your originally ticketed cabin or class, with your original form of payment"
+    partner_airline: "if no American flights are available until the next day and the disruption is caused by American, a partner airline with available seats, at no additional cost"
+  timing: "On the next American Airlines flight with available seats"
+how_to_claim:
+  steps:
+    - "Ask American Airlines staff to rebook you on the next flight with available seats. It is at no additional cost."
+    - "If no American flights are available until the next day, ask whether the disruption was caused by American. If it was, ask to be rebooked on a partner airline."
+    - "If you don't accept the alternative arrangements, or none were available, ask for a refund of the remaining ticket value and any optional fees."
+  templates: []
+exceptions:
+  - "The partner-airline rebooking applies only if no American flights are available until the next day and the disruption is caused by American."
+  - "You are rebooked in your originally ticketed cabin or class, with your original form of payment."
+  - "If you don't accept American's alternative arrangements, or none were available, it refunds the remaining ticket value and any optional fees under its involuntary refunds policy. American says it has no further contractual obligation beyond that."
+  - "American's contract says its schedule is not guaranteed and it is not liable if you don't make your connection."
+  - "On a codeshare flight operated by another airline, check with that airline."
+sources:
+  - id: s1
+    source: aa-customer-service-plan
+    quotes:
+      - text: "When your flight is canceled, significantly delayed, or a delay could cause you to miss your connection, we’ll rebook you on our next flight with available seats at no additional cost."
+        supports: [summary, applies_when, entitlement, how_to_claim.steps.0]
+      - text: "If no American Airlines flights are available until the next day, we’ll rebook you on one of our partner airlines at no additional cost."
+        supports: [summary, entitlement.amount, exceptions, how_to_claim.steps.1]
+  - id: s2
+    source: aa-contract-of-carriage
+    quotes:
+      - text: "When your flight is canceled or a delay could cause you to miss your connection, we'll rebook you on the next American Airlines flight with available seats at no additional cost."
+        supports: [summary, applies_when, entitlement, how_to_claim.steps.0]
+      - text: "If no American flights are available until the next day, and the disruption is caused by us, we’ll rebook you on one of our partner airlines with available seats at no additional cost."
+        supports: [summary, entitlement.amount, exceptions, how_to_claim.steps.1]
+      - text: "We’ll rebook you in your originally ticketed cabin or class with your original form of payment."
+        supports: [entitlement.amount, exceptions]
+      - text: "If your flight was delayed or canceled and you don’t accept our alternative arrangements, or none were available, we'll refund the remaining ticket value and any optional fees according to our involuntary refunds policy. Beyond that, we have no further contractual obligation."
+        supports: [exceptions, how_to_claim.steps.2]
+      - text: "We're late or you don't make your connection"
+        supports: [exceptions]
+      - text: "If you're on a codeshare flight operated by one of our partners, check with that airline."
+        supports: [exceptions]
+lead_character: capybara
+tags: [missed-connection, rebooking, delay, american-airlines]
+last_verified: null
+verified_by: null
+review_by: null
+history:
+  - { version: 1, status: draft, date: 2026-10-05 }
