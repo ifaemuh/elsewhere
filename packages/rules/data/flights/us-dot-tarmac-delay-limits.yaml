@@ -1,0 +1,108 @@
+id: us-dot-tarmac-delay-limits
+version: 1
+status: draft
+domain: flights
+jurisdiction: US-DOT
+title: "Stuck on the plane at a US airport? Food, water and a chance to get off are owed after set hours"
+summary: >-
+  During a tarmac delay at a US airport, the airline must update you on the delay once it passes 30 minutes, give you
+  food and drinking water no later than 2 hours in, and a chance to get off before 3 hours (domestic flights, US
+  airlines) or 4 hours (international flights), unless a safety, security or air traffic control exception applies.
+applies_when:
+  all:
+    - fact: event.type
+      in: [tarmac_delay]
+    - fact: event.at_us_airport
+      eq: true
+    - any:
+        - fact: flight.touches_us
+          eq: true
+        - fact: flight.carrier_is_us
+          eq: true
+    - fact: event.delay_minutes
+      gt: 30
+entitlement:
+  kind: care
+  amount:
+    food_and_water: "adequate food and potable water no later than two hours after the start of the tarmac delay"
+    chance_to_deplane_domestic_flights: "the opportunity to deplane before the tarmac delay exceeds three hours in duration"
+    chance_to_deplane_international_flights: "the opportunity to deplane before the tarmac delay exceeds four hours in duration"
+    notice_to_deplane: "timely notify the passengers on board the aircraft that the passengers have the opportunity to deplane"
+    lavatories_and_medical_care: "operable lavatory facilities, as well as adequate medical attention if needed, during a tarmac delay"
+    status_updates: "notify the passengers on board the aircraft during a tarmac delay regarding the status of the delay when the tarmac delay exceeds 30 minutes"
+  timing: "The airline's clock starts when the tarmac delay starts: the aircraft is on the ground with passengers and they have no opportunity to deplane. Food and water are due no later than two hours in. The chance to deplane is due before the delay exceeds three hours (domestic flights) or four hours (international flights)."
+how_to_claim:
+  steps:
+    - "The airline must tell you the status of the delay once it passes 30 minutes. If no food or water has come by the two-hour mark of the delay, ask the crew for it. The airline's duty is to provide it by then unless the pilot-in-command decides safety or security prevents it."
+    - "If the airline tells you that you may get off, decide whether to leave. The airline does not have to let you back on the plane, and your checked bags may stay on it."
+    - "If you have not been offered a chance to get off before the delay passes 3 hours (domestic flights) or 4 hours (international flights), ask the crew. The airline must offer it unless an exception below applies."
+    - "Write down the airline, flight number, airport, date and how long the delay lasted. If the airline fell short of its tarmac delay plan, you can complain to the U.S. Department of Transportation, which can take enforcement action."
+  templates: []
+exceptions:
+  - "The three-hour limit for domestic flights is a duty of a covered U.S. airline. A covered foreign airline owes the four-hour limit."
+  - "On a departing flight, the airline does not have to let you deplane at 3 or 4 hours if the flight has begun to return to a place where passengers can get off no later than three hours (domestic flights) or four hours (international flights) after the main aircraft door closed."
+  - "The deplaning limit also does not apply if the pilot-in-command decides that deplaning at a suitable disembarkation point would jeopardize passenger safety or security, or that a safety or security reason keeps the aircraft from leaving its position, or if air traffic control advises that returning to deplane would significantly disrupt airport operations."
+  - "The airline does not have to provide food and water if the pilot-in-command decides that safety or security considerations preclude it."
+  - "Only for tarmac delays at US airports. A delay at a foreign airport is not covered, even on a flight to the US."
+  - "Does not apply to a foreign airline's flight that diverts to the United States when it was scheduled between two foreign points, or to foreign airline charters that operate to and from the United States if no new passengers are picked up in the United States."
+  - "Which airline's plan governs: for a code-share flight it is the plan of the airline under whose code the service is marketed, unless that airline's contract of carriage says the operating airline's plan governs."
+  - "An airline may set shorter limits than these in its own plan. Check the plan, which the airline must post on its website."
+  - "Only covers airlines operating with at least one aircraft designed for 30 or more seats."
+sources:
+  - id: s1
+    source: ecfr-14-cfr-259
+    quotes:
+      - text: "Tarmac delay means the period of time when an aircraft is on the ground with passengers and the passengers have no opportunity to deplane."
+        supports: [applies_when, entitlement.timing, how_to_claim.steps.1]
+      - text: "For all domestic flights, each covered U.S. air carrier shall provide a passenger on a flight experiencing a tarmac delay at a U.S. airport the opportunity to deplane before the tarmac delay exceeds three hours in duration, subject to the exceptions in paragraph (c)(3) of this section;"
+        supports: [summary, entitlement.amount, entitlement.timing, how_to_claim.steps.2, exceptions]
+      - text: "For all international flights, each covered carrier shall provide a passenger on a flight experiencing a tarmac delay at a U.S. airport the opportunity to deplane before the tarmac delay exceeds four hours in duration, subject to the exceptions in paragraph (c)(3) of this section;"
+        supports: [summary, entitlement.amount, entitlement.timing, how_to_claim.steps.2, exceptions]
+      - text: "A covered U.S. carrier that experiences a tarmac delay at a U.S. airport must comply with paragraphs (c)(1) and (2) of this section, and a covered foreign air carrier must comply with paragraph (c)(2) of this section, unless:"
+        supports: [exceptions]
+      - text: "For departing flights, the flight begins to return to a suitable disembarkation point no later than three hours (for domestic flights) or four hours (for international flights) after the main aircraft door is closed in order to deplane passengers."
+        supports: [exceptions]
+      - text: "The pilot-in-command determines that deplaning passengers at a suitable disembarkation point would jeopardize passenger safety or security, or there is a safety related or security related reason why the aircraft cannot leave its position on the tarmac to deplane passengers; or"
+        supports: [exceptions]
+      - text: "Air traffic control advises the pilot-in-command that returning to a suitable disembarkation point to deplane passengers would significantly disrupt airport operations;"
+        supports: [exceptions]
+      - text: "For all flights during a tarmac delay, each covered carrier must provide adequate food and potable water no later than two hours after the start of the tarmac delay, unless the pilot-in-command determines that safety or security considerations preclude such service;"
+        supports: [summary, entitlement.amount, entitlement.timing, how_to_claim.steps.0, exceptions]
+      - text: "For all flights, each covered carrier must ensure operable lavatory facilities, as well as adequate medical attention if needed, during a tarmac delay;"
+        supports: [entitlement.amount]
+      - text: "For all departing flights and diversions, each time the opportunity to deplane exists at a suitable disembarkation point, each covered carrier must timely notify the passengers on board the aircraft that the passengers have the opportunity to deplane;"
+        supports: [entitlement.amount]
+      - text: "For all flights, each covered carrier must notify the passengers on board the aircraft during a tarmac delay regarding the status of the delay when the tarmac delay exceeds 30 minutes, and thereafter each covered carrier may provide subsequent updates, including flight status changes, as the carrier deems appropriate;"
+        supports: [summary, applies_when, entitlement.amount, how_to_claim.steps.0]
+      - text: "Each covered carrier, as defined by § 259.3, shall adopt a Contingency Plan for Lengthy Tarmac Delays for its scheduled and public charter flights at each U.S. large hub airport, medium hub airport, small hub airport, and non-hub airport at which it operates or markets such air service, except as specified in § 259.2, and shall adhere to its plan's terms."
+        supports: [summary, applies_when, exceptions]
+      - text: "The tarmac delay contingency plan of the carrier under whose code the service is marketed governs, if different from the operating carrier, unless the marketing carrier specifies in its contract of carriage that the operating carrier's plan governs."
+        supports: [exceptions]
+      - text: "At any time, a carrier may amend its Contingency Plan for Lengthy Tarmac Delays to decrease the time for aircraft to remain on the tarmac for domestic flights covered in paragraph (c)(1) of this section, for aircraft to remain on the tarmac for international flights covered in paragraph (c)(2) of this section, for aircraft to begin to return to a suitable disembarkation point covered in paragraph (c)(3)(i) of this section, and for providing food and water covered in paragraph (c)(4) of this section."
+        supports: [exceptions]
+      - text: "A carrier's failure to comply with the assurances required by this part and contained in its Contingency Plan for Lengthy Tarmac Delays will be considered to be an unfair and deceptive practice within the meaning of 49 U.S.C. 41712 that is subject to enforcement action by the Department."
+        supports: [how_to_claim.steps.3]
+      - text: "This part does not apply to foreign air carrier charters that operate to and from the United States if no new passengers are picked up in the United States. Section 259.4 does not apply to a flight that diverts to the United States when the flight is operated by a foreign air carrier and scheduled to operate between two foreign points."
+        supports: [exceptions]
+      - text: "Covered carrier means a certificated carrier, a commuter carrier, or a foreign air carrier operating to, from or within the United States, conducting scheduled passenger service or public charter service with at least one aircraft having a designed seating capacity of 30 or more seats."
+        supports: [exceptions]
+      - text: "Each U.S. air carrier that has a website and each foreign air carrier that has a website marketed to U.S. consumers, and that is required to adopt a contingency plan for lengthy tarmac delays, shall post its current contingency plan on its website in easily accessible form."
+        supports: [exceptions]
+  - id: s2
+    source: dot-tarmac-delays
+    quotes:
+      - text: "applies only to tarmac delays that occur at U.S. airports."
+        supports: [applies_when, exceptions]
+      - text: "Although passengers who experience an extended tarmac delay at a foreign airport while flying to the United States may be protected from extended tarmac delays by the laws of another nation, they are not protected from extended tarmac delays by U.S. law."
+        supports: [exceptions]
+      - text: "No. Passengers should be aware that if they choose to get off the airplane during a tarmac delay, airlines are not required to let them back on the airplane."
+        supports: [how_to_claim.steps.1]
+      - text: "If passengers decide to exit the aircraft during a tarmac delay and the aircraft eventually takes off for its intended destination, the airline may not be required to offload any passenger’s checked bags before the plane takes off."
+        supports: [how_to_claim.steps.1]
+lead_character: raccoon
+tags: [tarmac-delay, food, water, deplane, dot]
+last_verified: null
+verified_by: null
+review_by: null
+history:
+  - { version: 1, status: draft, date: 2026-10-02 }
