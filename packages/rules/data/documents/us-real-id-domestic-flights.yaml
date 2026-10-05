@@ -1,0 +1,57 @@
+id: us-real-id-domestic-flights
+version: 1
+status: draft
+domain: documents
+jurisdiction: US-TSA
+title: "Flying within the US? Bring a REAL ID or another acceptable form of ID"
+summary: >-
+  TSA says U.S. travelers must be REAL ID compliant to board domestic flights. A passport or another acceptable form
+  of identification may be used instead. TSA's page says travelers without an acceptable form of ID must pay a $45 fee.
+applies_when:
+  all:
+    - fact: flight.is_domestic_us
+      eq: true
+    - fact: passenger.has_real_id
+      eq: false
+entitlement:
+  kind: requirement
+  amount:
+    accepted_id: a REAL ID-compliant driver's license or ID, a passport, or another acceptable form of identification
+    fee_without_acceptable_id_usd: 45
+how_to_claim:
+  steps:
+    - "Check whether your driver's license or ID has a star (and/or flag) or says Enhanced. If it does, it is REAL ID compliant."
+    - "If it doesn't, bring a passport. TSA says a passport may be used instead of a REAL ID driver's license or ID to board domestic flights."
+    - "If you have neither, check TSA's list of acceptable forms of identification for another one you hold."
+    - "If you have no acceptable ID, TSA says you must pay a $45 fee (TSA ConfirmID). Otherwise, visit your state or territory's DMV to get a REAL ID."
+  templates: []
+exceptions:
+  - "TSA's page describes this for U.S. travelers. It doesn't say whether other travelers are treated differently."
+  - "TSA's page does not list the other acceptable forms of identification. It links to a separate TSA page for that list."
+sources:
+  - id: s1
+    source: tsa-real-id
+    quotes:
+      - text: "Starting May 2025, U.S. travelers must be REAL ID compliant to board domestic flights and access certain federal facilities."
+        supports: [summary, applies_when, entitlement]
+      - text: "A passport is an acceptable form of identification and may be used in lieu of a REAL ID Drivers License or ID to board domestic flights and visit federal facilities."
+        supports: [summary, applies_when, entitlement.amount, how_to_claim.steps.1]
+      - text: "Does your Drivers License / ID have a star (and/or flag) or say \"Enhanced\"?"
+        supports: [how_to_claim.steps.0]
+      - text: "You're REAL ID ready! You will need this ID to board domestic flights and may need this or another acceptable form of identification to visit federal facilities."
+        supports: [how_to_claim.steps.0, entitlement]
+      - text: "These alternate forms of identification may be used in lieu of a REAL ID Drivers License or ID at the airport to board domestic flights and when visiting federal facilities."
+        supports: [summary, entitlement.amount, how_to_claim.steps.2, exceptions]
+      - text: "TSA ConfirmID Alert: Travelers without an acceptable form of ID must pay a $45 fee."
+        supports: [summary, entitlement.amount, how_to_claim.steps.3]
+      - text: "Important: if you want to board domestic flights or visit federal facilities, you must have a REAL ID or another acceptable form of identification."
+        supports: [summary, applies_when, how_to_claim.steps.3]
+      - text: "to visit your local DMV to learn more."
+        supports: [how_to_claim.steps.3]
+lead_character: owl
+tags: [documents, real-id]
+last_verified: null
+verified_by: null
+review_by: null
+history:
+  - { version: 1, status: draft, date: 2026-10-05 }
