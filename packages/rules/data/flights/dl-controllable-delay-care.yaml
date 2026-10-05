@@ -1,0 +1,117 @@
+id: dl-controllable-delay-care
+version: 1
+status: draft
+domain: flights
+jurisdiction: "carrier:DL"
+title: "Delayed, cancelled or misconnected by Delta? Ask for a meal after 3 hours, and a hotel if stuck overnight"
+summary: >-
+  Delta's Customer Service Plan promises care when a delay, misconnect or cancellation is within Delta's control: a meal
+  or meal vouchers if you wait 3 or more hours beyond the scheduled departure time, and a hotel and ground transportation
+  if you are inconvenienced overnight while away from your home or destination. It does not promise this when the cause is outside Delta's control.
+applies_when:
+  all:
+    - fact: flight.marketing_carrier_iata
+      eq: DL
+    - fact: flight.touches_us
+      eq: true
+    - fact: event.cause
+      in: [controllable, unknown]
+    - any:
+        - all:
+            - fact: event.type
+              in: [delay]
+            - fact: event.departure_delay_minutes
+              gte: 180
+        - fact: event.type
+          in: [cancellation, missed_connection]
+entitlement:
+  kind: care
+  amount:
+    meal: "a meal or meal vouchers, if a cancellation or delay results in waiting 3 or more hours beyond the scheduled departure time"
+    hotel: "complimentary hotel accommodations at Delta-contracted facilities, based on availability, if you are inconvenienced overnight while away from your home or destination (no minimum wait is stated)"
+    ground_transportation: "complimentary ground transportation to and from the hotel, if you are inconvenienced overnight while away from your home or destination"
+    hotel_not_available: "if no Delta-contracted hotel is available and you book your own, Delta will reimburse reasonable costs for your hotel room and ground transportation to and from the hotel; if accommodations are unavailable, Delta will compensate you upon request with a credit commensurate in value with the Delta-contracted hotel rate"
+    condition: "only when the delay, misconnect or cancellation is within Delta's control"
+how_to_claim:
+  steps:
+    - "Ask a Delta agent at the airport for a meal or meal voucher once the delay or cancellation means a wait of 3 or more hours."
+    - "If you are stuck overnight away from home or your destination, ask Delta for a hotel at a Delta-contracted facility and ground transportation to and from it."
+    - "If no Delta-contracted hotel is available and you book your own room, keep the receipts for the room and the ground transportation and ask Delta to reimburse reasonable costs. If no accommodations are available at all, ask Delta for a credit commensurate in value with the Delta-contracted hotel rate."
+    - "Ask Delta to confirm the cause of the delay, misconnect or cancellation, because this care promise applies only when it is within Delta's control."
+    - "If you believe an airline has not fulfilled its commitment, contact the airline first to ensure it gives you what is owed."
+  templates: [airline_care_request]
+exceptions:
+  - "Delta promises this care only when the delay, misconnect or cancellation is within Delta's control. Delta's Domestic Conditions of Carriage count these as force majeure, for which Delta has no liability for amenities: weather conditions or acts of God; riots, civil unrest, embargoes, war, hostilities, or unsettled international conditions; strikes, work stoppages, slowdowns, lockout, or any other labor-related dispute; government regulation, demand, directive or requirement; shortages of labor, fuel, or facilities; and any other condition beyond Delta's control or any fact not reasonably foreseen by Delta. A staffing shortage may therefore not count as Delta's fault."
+  - "The meal promise depends on a wait of 3 or more hours beyond the scheduled departure time. For a cancellation, Delta's DOT dashboard listing describes it as a meal or meal cash/voucher \"when the cancellation results in a wait of 3 hours or more for a new flight\". For a missed connection, the plan's wording is the same 3 or more hours beyond the scheduled departure time."
+  - "The hotel promise has no minimum wait. It applies whenever you are inconvenienced overnight while away from your home or destination, and is based on availability at Delta-contracted facilities."
+  - "The plan applies to Delta's covered flights operating to, from, or within the U.S. Delta's Domestic Conditions of Carriage (travel entirely within the U.S.) say their terms apply to flights operated by the Delta Connection and Delta Shuttle carriers, and to codeshare flights marketed by Delta. For interline flights operated by other carriers, the conditions of carriage of the operating carrier apply. For an international flight sold under a Delta flight number but operated by a partner airline, these Delta documents don't say whether the plan's care applies."
+  - "Delta's Domestic Conditions of Carriage, which apply only to travel entirely within the United States, are narrower than the plan: they provide amenities only when travel is interrupted for more than 4 hours after the scheduled departure time, a voucher for one night's lodging only when the delay is between 10:00 pm and 6:00 am, a travel voucher of up to $100 USD if accommodations are not available, and list no meal. Federal rules require a carrier to adopt a Customer Service Plan and adhere to the plan's terms, so the plan is what Delta has committed to."
+  - "Under the same Rule 19B conditions (domestic travel, more than 4 hours, not force majeure), the contract gives ground transportation to the destination airport, in lieu of lodging or other amenities, when a flight is diverted to an alternative airport within listed city groups, and amenities for passengers with special needs. The plan's care promise above does not name diversions."
+sources:
+  - id: s1
+    source: dl-customer-service-plan
+    quotes:
+      - text: "The Delta Air Lines Customer Service Plan applies to our covered flights operating to, from, or within the U.S."
+        supports: [applies_when, exceptions]
+      - text: "When a delay, misconnect, or cancellation is within Delta’s control, we will:"
+        supports: [summary, applies_when, entitlement.amount, how_to_claim.steps.3, exceptions]
+      - text: "Provide a meal or meal vouchers, if a cancellation or delay results in waiting 3 or more hours beyond the scheduled departure time."
+        supports: [summary, applies_when, entitlement.amount, how_to_claim.steps.0, exceptions]
+      - text: "Provide complimentary hotel accommodations at Delta-contracted facilities, based on availability, as well as complimentary ground transportation to and from the hotel, if you are inconvenienced overnight while away from your home or destination."
+        supports: [summary, entitlement.amount, how_to_claim.steps.1, exceptions]
+      - text: "If a Delta-contracted hotel accommodation is unavailable and you book your own accommodations while inconvenienced overnight away from your home or destination, Delta will reimburse reasonable costs for your hotel room and ground transportation to and from the hotel."
+        supports: [entitlement.amount, how_to_claim.steps.2]
+      - text: "If accommodations are unavailable, we will compensate you upon request with a credit commensurate in value with the Delta-contracted hotel rate."
+        supports: [entitlement.amount, how_to_claim.steps.2]
+  - id: s2
+    source: dl-contract-of-carriage
+    quotes:
+      - text: "This document is Delta's Domestic Conditions of Carriage. It applies only to travel entirely within the United States of America"
+        supports: [exceptions]
+      - text: "The terms of transportation applicable to Delta specified in these Conditions of Carriage apply to flights operated by the Delta Connection and Delta Shuttle carriers, and to codeshare flights marketed by Delta."
+        supports: [applies_when, exceptions]
+      - text: "For interline flights operated by other Carriers, the conditions of carriage of the operating Carrier will apply."
+        supports: [exceptions]
+      - text: "Except as provided above, Delta shall have no liability if the flight cancellation, diversion or delay was due to force majeure."
+        supports: [exceptions]
+      - text: "Weather conditions or acts of God;"
+        supports: [exceptions]
+      - text: "Riots, civil unrest, embargoes, war, hostilities, or unsettled international conditions;"
+        supports: [exceptions]
+      - text: "Strikes, work stoppages, slowdowns, lockout, or any other labor-related dispute;"
+        supports: [exceptions]
+      - text: "Government regulation, demand, directive or requirement;"
+        supports: [exceptions]
+      - text: "Shortages of labor, fuel, or facilities; or"
+        supports: [exceptions]
+      - text: "Any other condition beyond Delta’s control or any fact not reasonably foreseen by Delta."
+        supports: [exceptions]
+      - text: "However, when a passenger’s travel is interrupted for more than 4 hours after the scheduled departure time as a result of flight cancellation or delay on the date of travel other than from force majeure, Delta will provide the passenger with the following additional amenities during the delay:"
+        supports: [exceptions]
+      - text: "If overnight accommodations are available at Delta contracted facilities, Delta will provide the passenger with a voucher for one night’s lodging when the delay is during the period of 10:00 pm to 6:00 am."
+        supports: [exceptions]
+      - text: "If accommodations are not available, Delta will provide the passenger with a voucher that may be applied to future travel on Delta equal in value to the contracted hotel rate, up to $100 USD."
+        supports: [exceptions]
+      - text: "In lieu of lodging or other amenities, Delta will furnish ground transportation to the destination airport if a passenger’s flight is diverted to an alternative airport and if the destination on the ticket and the diverted airport destination are within the following city groups:"
+        supports: [exceptions]
+      - text: "Delta will provide such additional or alternative amenities as are necessary to maintain the safety and/or welfare of customers with special needs such as unaccompanied children and Persons with a Disability."
+        supports: [exceptions]
+  - id: s3
+    source: ecfr-14-cfr-259
+    quotes:
+      - text: "Each covered carrier must adopt a Customer Service Plan applicable to its scheduled flights as specified in paragraphs (b)(1) through (14) of this section and adhere to the plan's terms."
+        supports: [exceptions]
+  - id: s4
+    source: dot-customer-service-dashboard
+    quotes:
+      - text: "Meal or meal cash/voucher when the cancellation results in a wait of 3 hours or more for a new flight"
+        supports: [exceptions]
+      - text: "DOT will hold airlines accountable if they fail to fulfill a customer service commitment. If you believe an airline has not fulfilled its commitment, contact the airline first to ensure it gives you what is owed."
+        supports: [how_to_claim.steps.4]
+lead_character: capybara
+tags: [delta, delay, cancellation, missed-connection, meal, hotel, care]
+last_verified: null
+verified_by: null
+review_by: null
+history:
+  - { version: 1, status: draft, date: 2026-10-05 }
