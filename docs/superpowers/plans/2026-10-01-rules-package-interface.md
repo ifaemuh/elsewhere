@@ -24,7 +24,10 @@ first, in its own commit.
     never from the bare package.**
 - **Dependencies:** `zod@^4.6`, `yaml@^2.9`. Dev: `tsx@^4.19`, `@types/node@^22`.
 - **Tests:** `node --import tsx --test test/**/*.test.ts` (the same runner foundry uses).
-- **Scripts:** `test`, `typecheck` (`tsc --noEmit`), `rules:build`, `rules:check-quotes`.
+- **Scripts:** `test`, `typecheck` (`tsc --noEmit`), `build` (alias of `rules:build`),
+  `rules:build`, `rules:check-quotes`, `rules:declarations` (Open Terms Archive declarations
+  from `sources.yaml`), `rules:fetch-ecfr` (eCFR text into the versions repo), `rules:stale`
+  (rules due for re-verification), `rules:verify` (the founder's approval step).
 - **Field naming:** rule objects keep the YAML's snake_case keys exactly. No camelCase
   transform anywhere, so a rule file, `dist/rules.json`, and the API projection all use
   the same names.
@@ -79,7 +82,7 @@ export interface RuleSourceRef {
 }
 
 export interface Rule {
-  id: string;                  // kebab-case, stable for the rule's life
+  id: string;                  // kebab-case, stable for the rule's life; ids `facts`, `search`, `changes`, `match`, `terms` are reserved (app routes)
   version: number;             // integer >= 1
   status: RuleStatus;
   domain: Domain;
@@ -123,6 +126,8 @@ export interface Source {
   detector: Detector;
 }
 
+export const RESERVED_RULE_IDS: readonly ['facts', 'search', 'changes', 'match', 'terms'];
+// ids `facts`, `search`, `changes`, `match`, `terms` are reserved (app routes)
 export const JURISDICTION_PATTERN =
   /^(US-DOT|US-FTC|US-TSA|US-STATE|EU-261|UK-261|carrier:[A-Z0-9]{2}|issuer:[a-z0-9-]+|country:[A-Z]{2})$/;
 
@@ -146,6 +151,11 @@ export const FACTS: {
   'event.delay_minutes': FactDef;        // number
   'event.notice_days': FactDef;          // number
   'event.cause': FactDef;                // enum: controllable, uncontrollable, unknown
+  'event.reroute_departs_early_minutes': FactDef;     // number — cancellation/schedule_change: minutes before the scheduled departure that the offered re-routing leaves (0 if at/after, or none offered; a schedule change's changed flight counts as an offer; if none meets the departure limit, report any)
+  'event.reroute_arrival_delay_minutes': FactDef;     // number — cancellation/schedule_change: minutes after the original arrival that the offered re-routing arrives (0 if earlier; none offered = 1440+)
+  'event.departure_delay_minutes': FactDef;           // number — delay: minutes after scheduled departure that the disrupted flight leaves or is expected to leave (that flight only; if expected and actual differ, report the longer)
+  'event.departure_moved_earlier_minutes': FactDef;   // number — schedule_change: minutes earlier than scheduled that the flight now departs (0 if not earlier)
+  'event.at_us_airport': FactDef;        // boolean — the disruption happened at a US airport (incl. territories); tarmac_delay: where the aircraft was held
   'flight.carrier_iata': FactDef;        // string
   'flight.carrier_is_us': FactDef;       // boolean
   'flight.touches_us': FactDef;          // boolean
@@ -156,8 +166,11 @@ export const FACTS: {
   'flight.departs_uk': FactDef;          // boolean
   'flight.distance_km': FactDef;         // number
   'flight.single_ticket': FactDef;       // boolean
+  'flight.leg_distance_km': FactDef;     // number — great-circle km between the disrupted flight's own departure and arrival airports
+  'flight.departs_iceland_norway_switzerland': FactDef; // boolean — the disrupted flight departs Iceland, Norway or Switzerland
   'flight.departs_us': FactDef;          // boolean
   'passenger.accepted_alternative': FactDef;            // boolean
+  'passenger.volunteered': FactDef;                     // boolean — gave up a seat by answering the airline's call for volunteers (14 CFR 250.2b)
   'passenger.nationality': FactDef;                     // string (ISO 3166 alpha-2)
   'passenger.passport_months_valid_after_return': FactDef; // number
   'passenger.has_real_id': FactDef;                     // boolean
@@ -165,7 +178,11 @@ export const FACTS: {
   'trip.destination_country': FactDef;   // string (ISO 3166 alpha-2)
   'trip.booked_via': FactDef;            // enum: direct, ota
   'trip.hours_since_booking': FactDef;   // number
-  'trip.days_until_departure': FactDef;  // number
+  'trip.hours_booked_before_departure': FactDef; // number — hours between when the booking was made and the first flight's scheduled departure
+  'trip.journey_departs_eu': FactDef;    // boolean — the passenger's journey in this direction starts at an EU airport (outbound and return are separate journeys)
+  'trip.journey_arrives_eu': FactDef;    // boolean — the journey in this direction ends at an EU airport
+  'trip.touches_us': FactDef;            // boolean — any flight on the booking departs from or arrives at a US airport
+  'trip.booked_with_us_carrier': FactDef; // boolean — the airline the booking was made with is a US airline
   'trip.itinerary_domestic_us': FactDef;  // boolean — every flight on the ticket is within the US (14 CFR 260 "domestic itinerary")
   'trip.us_foreign_nonstop_minutes': FactDef; // number — scheduled minutes of the ticket's nonstop flight between the US and a foreign point
   'lodging.kind': FactDef;               // enum: hotel, short_term_rental
@@ -173,6 +190,24 @@ export const FACTS: {
 };
 
 export type FactName = keyof typeof FACTS;
+
+// Amendment (2026-10-02, Track A Task 21 legal review): adds event.reroute_departs_early_minutes,
+// event.reroute_arrival_delay_minutes, event.departure_delay_minutes, event.departure_moved_earlier_minutes,
+// flight.leg_distance_km, flight.departs_iceland_norway_switzerland, trip.journey_departs_eu and
+// trip.journey_arrives_eu. Descriptions: flight.* facts describe the disrupted flight (missed_connection: the flight
+// whose delay caused the miss); flight.distance_km runs from the journey's first departure to its final destination;
+// flight.departs_eu/arrives_eu use the Commission's definition of the EU; cancellation = booked flight not operated (including
+// when dropped and the passenger moved to a different flight) or took off and returned without continuing (same flight at another
+// time = schedule_change; only this passenger kept off = see denied_boarding); event.notice_days may be fractional and is not rounded up. Round 2: event.reroute_* also cover schedule_change
+// (the changed flight counts as an offer, alongside any other); event.departure_delay_minutes reports the longer of expected and actual.
+
+// Amendment (2026-10-02, Track A Task 20 legal review): descriptions in src/facts.ts also define
+// event.type `denied_boarding` (oversold flight, confirmed reservation; not documents/conduct/
+// safety/cancellation), event.delay_minutes for denied_boarding (planned arrival of the offered
+// replacement vs the original, at the first stopover >4h or final destination; no replacement
+// offered = 240+), trip.booked_via `ota` (any online agency, travel agent or other third party),
+// and say "including territories and possessions" on every US-airport fact.
+// trip.days_until_departure is removed (replaced by trip.hours_booked_before_departure).
 export type Situation = Partial<Record<FactName, Primitive>>;
 
 /** Throws FactValueError if a value doesn't fit its FactDef. */
@@ -286,8 +321,13 @@ export function checkQuotes(rules: Rule[], sourceTexts: Record<string, string>):
 export function checkSupports(rule: Rule): string[];
 ```
 
-`npm run rules:check-quotes -- --versions <dir> [--write-needs-review]` exits 1 on any
-issue. With `--write-needs-review`, it sets `status: needs_review` on each failing
+`npm run rules:check-quotes -- --versions <dir> [--write-needs-review] [--base-ref <ref>]`
+exits 1 on any issue (0 clean, 2 usage, 3 rules or base-ref failed to load, 4 crash, 5 a
+flip could not be written). A quote matches only at token boundaries: where it starts or
+ends on a letter or digit, the neighbouring character in the source must not be one.
+With `--base-ref` (CI mode), a quote that is new or changed since the merge-base with `<ref>`
+must be found, and an unchanged quote fails only when its rule is `verified`; otherwise it
+is printed as a warning. Without it, every issue fails. With `--write-needs-review`, it sets `status: needs_review` on each failing
 `verified` rule's file and appends a history entry (same version, `needs_review`, today,
 note naming the failing source). The nightly backstop uses this, then opens a PR.
 
@@ -308,7 +348,19 @@ note naming the failing source). The nightly backstop uses this, then opens a PR
 
 ## Index (`src/index.ts`) and core (`src/core.ts`)
 
-`src/index.ts` re-exports everything above. Nothing else is public.
+`src/index.ts` re-exports everything above. Nothing else is public: "everything else is
+internal" means every export of the package other than those listed here and above. These
+are public too, and the tracks may rely on them:
+
+- From `facts`: `FactValueError` (thrown by `validateSituation`; track C's situation
+  builder catches it), `FACT_NAMES`, `isFactName`, `factValueFits`, `describeFact`.
+- From `schema`: `RESERVED_RULE_IDS`, `RULE_STATUSES`, `DOMAINS`, `CHARACTERS`,
+  `ENTITLEMENT_KINDS`, `SOURCE_KINDS`, `JURISDICTION_PATTERN`, `RuleSchema`, `SourceSchema`.
+- From `load` (index only): `RulesValidationError`, `loadRules`, `loadSources`.
+
+Everything else (the CLI scripts, `containsQuote`, `partitionCiIssues`, `quoteFingerprints`,
+`guardTruncated`, `fetchEcfrPart`, the history and declaration helpers) is internal to the
+package.
 
 `src/core.ts` re-exports everything above except `src/load.ts` (`loadRules`, `loadSources`,
 `RulesValidationError`) and the values `buildLibrary` and `changesFromHistory`. A test walks

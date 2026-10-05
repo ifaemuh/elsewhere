@@ -1,15 +1,21 @@
 name: Rules CI
 
+# The required check is "Rules CI / rules". It has no path filter: a path-filtered required
+# check never reports on PRs that skip it, which blocks them forever. Instead the first job
+# decides whether the PR touches anything relevant and the checks report success when it does not.
 on:
   pull_request:
-    paths:
-      - 'packages/rules/**'
-      - '.github/workflows/rules-*.yml'
-      - '.github/workflows/sources-track.yml'
   push:
     branches: [main]
     paths:
       - 'packages/rules/**'
+      - '.github/workflows/**'
+      - 'package.json'
+      - 'package-lock.json'
+  # For manual runs only. A dispatched run does not satisfy the required "Rules CI / rules"
+  # check on a PR; only the pull_request run does. (A PR opened with github.token gets a
+  # pull_request run that waits for a maintainer's "Approve workflows to run".)
+  workflow_dispatch: {}
 
 permissions:
   contents: read
@@ -19,31 +25,107 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Holds SOURCES_REPOS_TOKEN. It runs no code from the PR: it only reads the diff, then fetches
+  # the versions repo and hands it to the next job as an artifact.
+  versions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      relevant: ${{ steps.scope.outputs.relevant }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Does this change touch the rules library?
+        id: scope
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          if [ "$EVENT" != "pull_request" ]; then
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          changed=$(git diff --name-only --no-renames "origin/$BASE_REF...HEAD")
+          if grep -Eq '^(packages/rules/|\.github/workflows/|package\.json$|package-lock\.json$|tsconfig[^/]*\.json$)' <<<"$changed"; then
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "relevant=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No rules-library files changed; Rules CI passes without running."
+          fi
+
+      - name: Check out versions
+        if: ${{ steps.scope.outputs.relevant == 'true' }}
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: ifaemuh/elsewhere-sources-versions
+          token: ${{ secrets.SOURCES_REPOS_TOKEN }}
+          path: sources-versions
+          persist-credentials: false
+
+      - name: Hand the tracked texts to the next job
+        if: ${{ steps.scope.outputs.relevant == 'true' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: sources-versions
+          path: |
+            sources-versions
+            !sources-versions/.git
+          retention-days: 1
+          if-no-files-found: error
+
+  # Runs the PR's code. It has no secrets: the token never reaches this job.
   rules:
+    needs: versions
+    # Always run, so a failed or skipped versions job cannot leave this required check "skipped"
+    # (which branch protection counts as passing). The first step fails it instead.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - name: The versions job must have succeeded
+        if: ${{ needs.versions.result != 'success' }}
+        run: |
+          echo "::error::The versions job did not succeed (${{ needs.versions.result }}); failing the required check."
+          exit 1
+
+      - if: ${{ needs.versions.outputs.relevant == 'true' }}
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
+          persist-credentials: false
 
-      - uses: actions/setup-node@v4
+      - if: ${{ needs.versions.outputs.relevant == 'true' }}
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: npm
 
-      - run: npm ci
-      - run: npm test -w @elsewhere/rules
-      - run: npm run typecheck -w @elsewhere/rules
-      - run: npm run rules:build -w @elsewhere/rules
-
-      - name: Check out versions
-        uses: actions/checkout@v4
+      - if: ${{ needs.versions.outputs.relevant == 'true' }}
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          repository: ifaemuh/elsewhere-sources-versions
-          token: ${{ secrets.SOURCES_REPOS_TOKEN }}
-          path: .sources-versions
-          persist-credentials: false
+          name: sources-versions
+          path: sources-versions
 
-      - name: Every quote must be in its source's tracked text
-        run: npm run rules:check-quotes -w @elsewhere/rules -- --versions "$GITHUB_WORKSPACE/.sources-versions"
+      - if: ${{ needs.versions.outputs.relevant == 'true' }}
+        run: npm ci -w @elsewhere/rules --ignore-scripts
+      - if: ${{ needs.versions.outputs.relevant == 'true' }}
+        run: npm test -w @elsewhere/rules
+      - if: ${{ needs.versions.outputs.relevant == 'true' }}
+        run: npm run typecheck -w @elsewhere/rules
+      - if: ${{ needs.versions.outputs.relevant == 'true' }}
+        run: npm run rules:build -w @elsewhere/rules
+
+      # Quotes the change adds or edits must be found. Unchanged quotes fail only on verified
+      # rules, so the backstop's needs_review PR can merge. The base is the PR target, the
+      # previous main tip on a push, and main for a dispatched run on the backstop branch.
+      - name: Every new or changed quote must be in its source's tracked text
+        if: ${{ needs.versions.outputs.relevant == 'true' }}
+        env:
+          BASE_REF: >-
+            ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref)
+            || github.event_name == 'push' && github.event.before
+            || 'origin/main' }}
+        run: npm run rules:check-quotes -w @elsewhere/rules -- --versions "$GITHUB_WORKSPACE/sources-versions" --base-ref "$BASE_REF"

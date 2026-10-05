@@ -11,11 +11,15 @@ whenever you are unsure. Its "Changing a verified rule" section is the rule for 
 
 1. **New commits in `ifaemuh/elsewhere-sources-versions`.** Each commit records a new
    version of one source:
-   - Open Terms Archive commits are titled like "Record new changes of <service>'s
-     <terms type>" or "First record of …". The file is `<service>/<terms type>.md`.
+   - Open Terms Archive commits are titled like "Record new changes of <service> <terms
+     type>", "First record of …", or "Apply technical or declaration upgrade on …". Do not
+     rely on titles: map every commit by the changed file path, `<service>/<terms type>.md`.
+     A technical or declaration upgrade can rewrite a file without the source changing;
+     the diff decides (usually no-impact).
    - eCFR commits are titled "Record eCFR changes: title-14-part-260, …". The files are
      `eCFR/title-<T>-part-<P>.md`.
-   Ignore "First record" commits: nothing was quoted from a document before it existed.
+   Ignore "First record" commits (path-mapped the same way): nothing was quoted from a
+   document before it existed.
 2. **Every Monday, the Federal Register** (see the last section).
 
 ## For each new source version
@@ -44,7 +48,8 @@ whenever you are unsure. Its "Changing a verified rule" section is the rule for 
    - **substantive.** What the source says about this rule changed: an amount, threshold,
      deadline, scope, or exception, or the text the rule relies on was removed. Update the
      affected fields and quotes from the new text. Increment `version` by 1, set
-     `status: needs_review`, and append one entry to the end of `history`:
+     `status: needs_review` (a version bump always comes with `needs_review`; a rule is never
+     left `verified` at a new version), and append one entry to the end of `history`:
      `- { version: <new version>, status: needs_review, date: <today>, note: "<what changed, one line>" }`.
      The note is at most 200 characters.
    - **Already `needs_review`.** You may update quotes and fields and append a history
@@ -109,7 +114,7 @@ is skipped, and title the issue with each week covered.
 Fetch:
 
 ```
-https://www.federalregister.gov/api/v1/documents.json?conditions[agencies][]=transportation-department&conditions[term]=airline+passengers&conditions[type][]=RULE&conditions[type][]=PRORULE&conditions[publication_date][gte]=<7 days ago, YYYY-MM-DD>&order=newest&per_page=50&fields[]=title&fields[]=type&fields[]=publication_date&fields[]=effective_on&fields[]=html_url
+https://www.federalregister.gov/api/v1/documents.json?conditions[agencies][]=transportation-department&conditions[term]=airline+passengers&conditions[type][]=RULE&conditions[type][]=PRORULE&conditions[publication_date][gte]=<7 days ago, YYYY-MM-DD>&conditions[publication_date][lte]=<this Monday minus 1 day, YYYY-MM-DD>&order=newest&per_page=50&fields[]=title&fields[]=type&fields[]=publication_date&fields[]=effective_on&fields[]=html_url
 ```
 
 For each result about refunds, delays, cancellations, denied boarding, baggage, tarmac

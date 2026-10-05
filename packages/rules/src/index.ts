@@ -6,7 +6,7 @@ export type {
 } from './schema';
 export {
   RULE_STATUSES, DOMAINS, CHARACTERS, ENTITLEMENT_KINDS, SOURCE_KINDS,
-  JURISDICTION_PATTERN, RuleSchema, SourceSchema,
+  JURISDICTION_PATTERN, RESERVED_RULE_IDS, RuleSchema, SourceSchema,
 } from './schema';
 export type { MatchOutcome, MatchResult } from './match';
 export { matchRule, matchRules } from './match';
