@@ -5,7 +5,7 @@ import { model as defaultModel, NO_TRAINING } from '@/lib/ai/models';
 import { groundBooking, normalizeBooking, type NormalizedBooking } from './normalize';
 
 export const ExtractedSegmentSchema = z.object({
-  carrier_iata: z.string().describe('Two-character IATA airline code, e.g. "TP"'),
+  carrier_iata: z.string().describe('Two-character IATA airline code printed with the flight number the passenger booked under, e.g. "TP". On a codeshare ("AA 6123 operated by British Airways") use the booked code (AA), never the operating airline\'s'),
   flight_number: z.string().describe('Flight number digits only, e.g. "204"'),
   origin_iata: z.string().describe('Three-letter IATA departure airport code'),
   destination_iata: z.string().describe('Three-letter IATA arrival airport code'),

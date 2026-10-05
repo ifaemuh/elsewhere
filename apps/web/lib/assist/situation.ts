@@ -152,7 +152,7 @@ export function buildSituation(input: SituationInput): Situation {
   // code printed with the flight number on the ticket: it differs on regional and codeshare flights.
   if (operator) s['flight.carrier_iata'] = operator;
   const marketing = input.segment.carrierIata?.toUpperCase();
-  if (marketing?.length === 2) s['flight.marketing_carrier_iata'] = marketing;
+  if (marketing && /^[A-Z0-9]{2}$/.test(marketing)) s['flight.marketing_carrier_iata'] = marketing;
   const carrierIsUs = isUsCarrier(operator);
   const carrierIsEu = isEuCarrier(operator);
   if (carrierIsUs !== null) s['flight.carrier_is_us'] = carrierIsUs;
