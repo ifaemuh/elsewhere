@@ -1,0 +1,16 @@
+rule: us-ftc-lodging-total-price
+no_does_not_apply: >-
+  16 CFR 464.1 defines short-term lodging as "a hotel, motel, inn, short-term rental, vacation rental, or other place
+  of lodging", and sets no other scope. lodging.kind has only hotel and short_term_rental, so every value it can take
+  is covered and no situation gives does_not_apply.
+cases:
+  - name: hotel stay
+    situation: { lodging.kind: hotel }
+    outcome: applies
+  - name: short-term rental
+    situation: { lodging.kind: short_term_rental }
+    outcome: applies
+  - name: kind of lodging not known yet
+    situation: {}
+    outcome: may_apply
+    missing_facts: [lodging.kind]
