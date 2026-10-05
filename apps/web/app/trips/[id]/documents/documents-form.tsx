@@ -22,7 +22,7 @@ export function DocumentsForm({ tripId, passportCountry, passportExpires, keepOn
         </label>
       </div>
       <fieldset className="text-sm">
-        <legend className="font-medium">Is your driver’s license or state ID REAL ID (it has a star)?</legend>
+        <legend className="font-medium">Will you fly with a REAL ID card (a license or state ID with a star or flag, or one that says “Enhanced”), a passport, or another ID TSA accepts?</legend>
         <div className="mt-2 flex gap-4">
           {['yes', 'no', 'unsure'].map((value) => (
             <label key={value} className="flex items-center gap-2">
