@@ -1,6 +1,6 @@
 id: us-dot-tarmac-delay-limits
 version: 1
-status: draft
+status: verified
 domain: flights
 jurisdiction: US-DOT
 title: "Stuck on the plane at a US airport? Food, water and a chance to get off are owed after set hours"
@@ -101,8 +101,9 @@ sources:
         supports: [how_to_claim.steps.1]
 lead_character: raccoon
 tags: [tarmac-delay, food, water, deplane, dot]
-last_verified: null
-verified_by: null
-review_by: null
+last_verified: 2026-10-05
+verified_by: ifaemuh
+review_by: 2027-01-03
 history:
   - { version: 1, status: draft, date: 2026-10-02 }
+  - { version: 1, status: verified, date: 2026-10-05 }

@@ -1,6 +1,6 @@
 id: aa-controllable-delay-care
 version: 1
-status: draft
+status: verified
 domain: flights
 jurisdiction: carrier:AA
 title: "American Airlines delayed or cancelled your flight? If it's their doing, ask for a meal credit, hotel and transport"
@@ -117,8 +117,9 @@ sources:
         supports: [exceptions]
 lead_character: capybara
 tags: [delay, cancellation, missed-connection, hotel, meal, care, american-airlines]
-last_verified: null
-verified_by: null
-review_by: null
+last_verified: 2026-10-05
+verified_by: ifaemuh
+review_by: 2027-01-03
 history:
   - { version: 1, status: draft, date: 2026-10-05 }
+  - { version: 1, status: verified, date: 2026-10-05 }

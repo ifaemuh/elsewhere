@@ -1,6 +1,6 @@
 id: eu261-delay-compensation
 version: 1
-status: draft
+status: verified
 domain: flights
 jurisdiction: EU-261
 title: "Reached your destination 3+ hours late on an EU flight? The airline may owe you EUR 250 to 600"
@@ -260,8 +260,9 @@ sources:
         supports: [exceptions]
 lead_character: pigeon
 tags: [eu261, delay, compensation, eu, flights]
-last_verified: null
-verified_by: null
-review_by: null
+last_verified: 2026-10-05
+verified_by: ifaemuh
+review_by: 2027-01-03
 history:
   - { version: 1, status: draft, date: 2026-10-02 }
+  - { version: 1, status: verified, date: 2026-10-05 }

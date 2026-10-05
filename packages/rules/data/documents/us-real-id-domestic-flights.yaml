@@ -1,6 +1,6 @@
 id: us-real-id-domestic-flights
 version: 1
-status: draft
+status: verified
 domain: documents
 jurisdiction: US-TSA
 title: "Flying within the US? Bring a REAL ID or another acceptable form of ID"
@@ -54,8 +54,9 @@ sources:
         supports: [exceptions]
 lead_character: owl
 tags: [documents, real-id]
-last_verified: null
-verified_by: null
-review_by: null
+last_verified: 2026-10-05
+verified_by: ifaemuh
+review_by: 2027-01-03
 history:
   - { version: 1, status: draft, date: 2026-10-05 }
+  - { version: 1, status: verified, date: 2026-10-05 }

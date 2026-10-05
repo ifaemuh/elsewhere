@@ -1,6 +1,6 @@
 id: us-dot-refund-service-not-provided
 version: 1
-status: draft
+status: verified
 domain: flights
 jurisdiction: US-DOT
 title: "Paid for a seat, Wi-Fi or another extra you didn't get? The airline owes you a refund"
@@ -65,8 +65,9 @@ sources:
         supports: [entitlement.amount]
 lead_character: pigeon
 tags: [refund, ancillary-fees, seat, wifi, dot]
-last_verified: null
-verified_by: null
-review_by: null
+last_verified: 2026-10-05
+verified_by: ifaemuh
+review_by: 2027-01-03
 history:
   - { version: 1, status: draft, date: 2026-10-02 }
+  - { version: 1, status: verified, date: 2026-10-05 }

@@ -1,6 +1,6 @@
 id: dl-controllable-delay-care
 version: 1
-status: draft
+status: verified
 domain: flights
 jurisdiction: "carrier:DL"
 title: "Delayed, cancelled or misconnected by Delta? Ask for a meal after 3 hours, and a hotel if stuck overnight"
@@ -110,8 +110,9 @@ sources:
         supports: [how_to_claim.steps.4]
 lead_character: capybara
 tags: [delta, delay, cancellation, missed-connection, meal, hotel, care]
-last_verified: null
-verified_by: null
-review_by: null
+last_verified: 2026-10-05
+verified_by: ifaemuh
+review_by: 2027-01-03
 history:
   - { version: 1, status: draft, date: 2026-10-05 }
+  - { version: 1, status: verified, date: 2026-10-05 }
