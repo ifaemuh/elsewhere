@@ -84,6 +84,10 @@ own commit, then write the rule.
 Create `test/data-cases/<id>.yaml` with at least one `applies`, one `may_apply`, and one
 `does_not_apply` case. Put cases on both sides of every threshold (179 and 180 minutes).
 
+If the rule's scope covers every value its facts can take (for example, every `lodging.kind`), no
+situation gives `does_not_apply`. Then set `no_does_not_apply: <why>` at the top of the file instead of
+inventing a condition the source doesn't impose. The reviewer checks the reason.
+
 ```yaml
 rule: us-dot-refund-cancelled-flight
 cases:
