@@ -85,6 +85,12 @@ export const FACTS = {
     description: "The passenger's journey in this direction ends at an airport in the EU (same journey definition).",
   },
   'flight.carrier_iata': { type: 'string', description: 'Two-character IATA code of the operating carrier. Flight facts describe the disrupted flight; for missed_connection, the flight whose delay caused the miss.' },
+  'flight.marketing_carrier_iata': {
+    type: 'string',
+    description:
+      'Two-character IATA code of the airline whose flight number is on the passenger\'s ticket for the disrupted flight (the marketing carrier). ' +
+      'Differs from flight.carrier_iata on regional and codeshare flights. Flight facts describe the disrupted flight; for missed_connection, the flight whose delay caused the miss.',
+  },
   'flight.carrier_is_us': { type: 'boolean', description: 'The operating carrier is a US airline. Flight facts describe the disrupted flight; for missed_connection, the flight whose delay caused the miss.' },
   'flight.touches_us': { type: 'boolean', description: 'The flight departs from or arrives at a US airport (including territories and possessions), as scheduled; a diversion does not count. Flight facts describe the disrupted flight; for missed_connection, the flight whose delay caused the miss.' },
   'flight.is_domestic_us': { type: 'boolean', description: 'Both airports are in the United States (including territories and possessions). Flight facts describe the disrupted flight; for missed_connection, the flight whose delay caused the miss.' },
@@ -113,6 +119,11 @@ export const FACTS = {
   'passenger.payment_card_issuer': { type: 'string', description: 'Issuer of the card used to pay, kebab-case (e.g. chase).' },
   'trip.destination_country': { type: 'string', description: 'ISO 3166 alpha-2 code of the destination country.' },
   'trip.booked_via': { type: 'enum', values: ['direct', 'ota'], description: 'Booked with the airline or hotel directly, or through an online travel agency, travel agent or other third party.' },
+  'trip.ticket_charged_by': {
+    type: 'enum',
+    values: ['airline', 'ticket_agent'],
+    description: 'Who charged the passenger for the flight ticket, as shown on the card or bank statement (the merchant of record): the airline, or a ticket agent such as a travel agent or online travel agency.',
+  },
   'trip.hours_since_booking': { type: 'number', description: 'Hours since the booking was made.' },
   'trip.hours_booked_before_departure': {
     type: 'number',
