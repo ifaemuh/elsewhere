@@ -1,0 +1,35 @@
+rule: wn-controllable-delay-care
+cases:
+  - name: Southwest-caused delay of exactly 180 minutes
+    situation: { flight.carrier_iata: WN, event.type: delay, event.cause: controllable, event.delay_minutes: 180 }
+    outcome: applies
+  - name: delay of 179 minutes is under the threshold
+    situation: { flight.carrier_iata: WN, event.type: delay, event.cause: controllable, event.delay_minutes: 179 }
+    outcome: does_not_apply
+  - name: cancellation, cause not known, 240 minutes late
+    situation: { flight.carrier_iata: WN, event.type: cancellation, event.cause: unknown, event.delay_minutes: 240 }
+    outcome: applies
+  - name: cancellation, 179 minutes late
+    situation: { flight.carrier_iata: WN, event.type: cancellation, event.cause: controllable, event.delay_minutes: 179 }
+    outcome: does_not_apply
+  - name: cause not known yet is not the same as unknown
+    situation: { flight.carrier_iata: WN, event.type: delay, event.delay_minutes: 200 }
+    outcome: may_apply
+    missing_facts: [event.cause]
+  - name: delay length not known yet
+    situation: { flight.carrier_iata: WN, event.type: delay, event.cause: controllable }
+    outcome: may_apply
+    missing_facts: [event.delay_minutes]
+  - name: carrier not known yet
+    situation: { event.type: delay, event.cause: controllable, event.delay_minutes: 200 }
+    outcome: may_apply
+    missing_facts: [flight.carrier_iata]
+  - name: weather delay, uncontrollable
+    situation: { flight.carrier_iata: WN, event.type: delay, event.cause: uncontrollable, event.delay_minutes: 300 }
+    outcome: does_not_apply
+  - name: another carrier
+    situation: { flight.carrier_iata: AA, event.type: delay, event.cause: controllable, event.delay_minutes: 300 }
+    outcome: does_not_apply
+  - name: a delayed bag is not a flight delay
+    situation: { flight.carrier_iata: WN, event.type: bag_delayed, event.cause: controllable, event.delay_minutes: 300 }
+    outcome: does_not_apply
