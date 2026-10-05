@@ -80,6 +80,11 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Allow Chrome's sandbox on the runner
+        # Ubuntu 24.04 runners restrict unprivileged user namespaces, so Puppeteer's Chrome
+        # cannot start its sandbox. Lifting the restriction keeps the sandbox on.
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
       - name: Track web sources with Open Terms Archive
         working-directory: ota
         env:

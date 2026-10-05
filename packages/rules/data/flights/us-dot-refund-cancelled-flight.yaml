@@ -1,0 +1,77 @@
+id: us-dot-refund-cancelled-flight
+version: 1
+status: draft
+domain: flights
+jurisdiction: US-DOT
+title: "Flight to, from or within the US cancelled? You're owed your money back, not a voucher"
+summary: >-
+  If an airline cancels a flight to, from or within the US and you don't accept a rebooking or any voucher or credit,
+  the airline owes you a full, prompt refund of the airfare, including taxes and ancillary fees, to your original
+  form of payment.
+applies_when:
+  all:
+    - fact: event.type
+      in: [cancellation]
+    - fact: flight.touches_us
+      eq: true
+    - fact: passenger.accepted_alternative
+      eq: false
+entitlement:
+  kind: refund
+  amount:
+    fare: full airfare including any taxes and ancillary fees
+    form: original form of payment unless you agree to a cash equivalent
+    processing_fee_retained: false
+  timing: "within 7 business days for credit card purchases, within 20 calendar days for cash, check, debit card or other forms of purchase, counted from the earliest date the refund was requested as set forth in 14 CFR 260.6(a)(2)"
+how_to_claim:
+  steps:
+    - "Decline the rebooking and any voucher, credit, or other compensation the airline offers instead of a refund."
+    - "If the refund doesn't arrive on its own, ask the airline for a full refund of the fare in writing. If you booked through a ticket agent, ask the agent."
+    - "Check that the money returns to your original form of payment. If you rejected an offer, the refund is due within 7 business days (credit card) or 20 calendar days (other payments) after you rejected it."
+  templates: [airline_refund_request]
+exceptions:
+  - "Not owed if you accept the rebooking on an alternative flight, or accept a voucher, credit, or other compensation offered as an alternative to a refund."
+  - "A carrier cannot treat you as having accepted a voucher, credit or other compensation unless you affirmatively agree to it."
+  - "Covers nonrefundable tickets too. If a travel agent or online travel agency charged your card, the agent handles the refund, and the airline must tell the agent without delay whether you're eligible."
+sources:
+  - id: s1
+    source: ecfr-14-cfr-260
+    quotes:
+      - text: "A covered carrier that is the merchant of record must provide a full and prompt refund of the airfare, including any taxes and ancillary fees, as set forth in paragraph (a)(2) of this section to a consumer that holds a nonrefundable ticket on a scheduled flight to, from, or within the United States for any cancelled flight or significantly delayed or changed flight where the consumer chooses not to:"
+        supports: [summary, applies_when, entitlement.amount, exceptions]
+      - text: "A flight is canceled and a consumer is not offered an alternative flight or any voucher, credit, or other form of compensation by the air carrier or foreign air carrier pursuant to paragraph (c) of this section;"
+        supports: [applies_when, entitlement]
+      - text: "A consumer rejects the significantly delayed or changed flight, rebooking on an alternative flight, or any voucher, credit, or other form of compensation offered by the covered carrier pursuant to paragraph (c) of this section;"
+        supports: [applies_when, exceptions, how_to_claim.steps.0]
+      - text: "A covered carrier must not deem a consumer to have accepted an offer for travel credits, vouchers, or other compensation in lieu of a refund under § 260.6(c) unless the consumer affirmatively agrees to the alternative form of compensation."
+        supports: [exceptions, how_to_claim.steps.0]
+      - text: "Covered carrier means an air carrier or a foreign air carrier operating to, from, or within the United States, conducting scheduled passenger service."
+        supports: [applies_when]
+      - text: "Prompt refund means refunds made within 7 business days after the earliest date the refund was requested as set forth in § 260.6(a)(2) as required by 14 CFR 374.3 for credit card purchases and within 20 calendar days after the earliest date the refund was requested as set forth in § 260.6(a)(2) for cash, check, debit card, or other forms of purchases."
+        supports: [entitlement.timing, how_to_claim.steps.2]
+      - text: "the refund must be issued promptly in the original form of payment (i.e., money is returned to an individual using whatever payment method the individual used to make the original payment, such as a check, credit card, debit card, cash, or airline miles) unless the consumer agrees to receive the refunds in a different form of payment that is a cash equivalent as defined in § 260.2."
+        supports: [entitlement.amount, how_to_claim.steps.2]
+      - text: "Carriers may not retain a processing fee for issuing refunds that are due."
+        supports: [entitlement.amount]
+      - text: "In situations where a ticket agent is the merchant of record for the transaction, after receiving a refund request by a consumer through the ticket agent, the carrier that canceled or significantly delayed or changed the flight must inform the ticket agent without delay whether the consumer is eligible for a refund under this section"
+        supports: [exceptions, how_to_claim.steps.1]
+      - text: "Airfare including nonrefundable airfare for a flight that is cancelled or significantly changed"
+        supports: [exceptions]
+      - text: "In situations where a ticket agent is responsible for providing the refund to the consumer pursuant to 14 CFR 399.80(l) and the ticket agent does not possess the funds of the consumer, that carrier that has the funds must promptly transfer the funds to the ticket agent."
+        supports: [exceptions]
+  - id: s2
+    source: dot-refunds
+    quotes:
+      - text: "A refund is due within 7 business days after you reject an offer if you paid for the ticket with a credit card, and within 20 calendar days after you reject the offer if you paid for the ticket with another form of payment, such as a check or cash."
+        supports: [how_to_claim.steps.2]
+      - text: "Merchants of record are responsible for issuing refunds when they are due."
+        supports: [exceptions]
+      - text: "A “merchant of record” is the entity that is shown in the financial charge statement for the ticket purchase, such as your debit or credit card charge statement."
+        supports: [exceptions]
+lead_character: pigeon
+tags: [refund, cancellation, airfare, voucher, dot]
+last_verified: null
+verified_by: null
+review_by: null
+history:
+  - { version: 1, status: draft, date: 2026-10-02 }
