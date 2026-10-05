@@ -3424,16 +3424,16 @@ Claude-Session: https://claude.ai/code/session_01CZeaGyqM4LkMDPkaein2Sc"
 
 ---
 
-### Task 13: Acceptance in ChatGPT developer mode and as a Claude custom connector
+### Task 13: Acceptance in ChatGPT developer mode and as a Claude custom connector (Muse optional)
 
 Outward-facing and founder-run: connecting tools to the founder's accounts. Needs the production domain and the first 10 verified rules, including `us-dot-refund-cancelled-flight`.
 
 **Files:**
-- Modify: `docs/superpowers/acceptance/track-d.md`
+- Modify: `docs/superpowers/acceptance/track-d.md`, `docs/superpowers/acceptance/muse-scenarios.md`
 
 **Interfaces:**
 - Consumes: production `https://<domain>/api/mcp`.
-- Produces: a recorded pass/fail for the spec's acceptance question in both clients.
+- Produces: a recorded pass/fail for the spec's acceptance question in ChatGPT and Claude, plus Muse if the optional steps run.
 
 - [ ] **Step 1: ChatGPT (founder's Pro account)**
 
@@ -3447,7 +3447,25 @@ Pass if the answer (a) called `match_situation` or `search_rules`/`get_rule`, (b
 
 **Customize → Connectors → + → Add custom connector**, paste `https://<domain>/api/mcp`, no auth. Ask the same question in a new chat with the connector enabled. Same four pass criteria.
 
-- [ ] **Step 3: Confirm analytics**
+- [ ] **Step 3 (optional): Muse (founder's US account)**
+
+A side check, not a gate: skip it and Step 4 unless the founder wants Muse results.
+
+Meta's Muse agent lets a user add a remote MCP server as a custom connector, and Meta doesn't review custom connectors (secondary sources, checked 2026-10-04; confirm in Muse's Help Center before starting). In the Muse app or at muse.ai, send:
+
+> Create a custom connector for the Elsewhere travel rules MCP server at https://<domain>/api/mcp. It uses Streamable HTTP and needs no authentication.
+
+Answer any transport or auth questions the same way, ask Muse to test the connector and save it, and in Muse's settings let the connector's read-only tools run without approval. Ask the same question in a new chat. Same four pass criteria.
+
+Then run `docs/superpowers/acceptance/muse-scenarios.md`: every Run A with the connector off, then every Run B with it on, and fill in its results table. Decline every send Muse offers; the scenarios are made up.
+
+- [ ] **Step 4 (optional, only after Step 3): Put Muse's servers under the platform rate limit**
+
+Every Muse user's calls come from Muse's cloud machines, so they would share one per-IP `rules-mcp-anon` limit (30/min) unless the range is in `MCP_PLATFORM_CIDRS`. From the Vercel request logs for `/api/mcp` during Step 3 (Vercel MCP or `vercel logs`), note the client IPs and run `whois <ip>` on each.
+- If they belong to Meta (AS32934), add the published Meta range(s) containing them to `MCP_PLATFORM_CIDRS` for Production, after the `rules-mcp-platform` Firewall rule exists (the code fails open without it), and redeploy.
+- If they belong to a general cloud provider, don't add them: that range would give every tenant of that cloud the platform limit. Record the finding instead.
+
+- [ ] **Step 5: Confirm analytics**
 
 With the Supabase MCP `execute_sql`:
 ```sql
@@ -3457,9 +3475,9 @@ where surface = 'mcp'
 order by created_at desc
 limit 10;
 ```
-Expected: rows from both sessions, with `client_name` showing each client.
+Expected: rows from each client you tested, with `client_name` showing each one.
 
-- [ ] **Step 4: Record and commit**
+- [ ] **Step 6: Record and commit**
 
 Append to `docs/superpowers/acceptance/track-d.md`:
 ```markdown
@@ -3468,16 +3486,20 @@ Append to `docs/superpowers/acceptance/track-d.md`:
 |---|---|---|---|---|---|---|
 | ChatGPT developer mode | | | | | | |
 | Claude custom connector | | | | | | |
+| Muse custom connector | | | | | | |
+
+- Muse with/without (muse-scenarios.md): Run A <n>/16 correct, Run B <n>/16 correct
+- Muse source IPs: <ips> → <owner> → <range added to MCP_PLATFORM_CIDRS, or not added and why>
 ```
 Fill in each row from what happened, then:
 ```bash
-git add docs/superpowers/acceptance/track-d.md
-git commit -m "Record ChatGPT and Claude acceptance of the rules MCP server
+git add docs/superpowers/acceptance/track-d.md docs/superpowers/acceptance/muse-scenarios.md
+git commit -m "Record ChatGPT, Claude and Muse acceptance of the rules MCP server
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01CZeaGyqM4LkMDPkaein2Sc"
 ```
-If either client fails a criterion, fix it with a TDD change in `lib/mcp/` (usually instruction or description wording in `instructions.ts` / `tools.ts`), redeploy, and re-run that client's step.
+If any client fails a criterion, fix it with a TDD change in `lib/mcp/` (usually instruction or description wording in `instructions.ts` / `tools.ts`), redeploy, and re-run that client's step.
 
 ---
 
@@ -3548,7 +3570,7 @@ Claude-Session: https://claude.ai/code/session_01CZeaGyqM4LkMDPkaein2Sc"
 
 ---
 
-### Task 15: Directory submissions — ChatGPT and Anthropic (after all 30 rules are verified)
+### Task 15: Directory submissions — ChatGPT and Anthropic, Muse optional (after all 30 rules are verified)
 
 Gated: start only when 30 rules are `verified`, so reviewers see a complete product. Outward-facing; the founder submits.
 
@@ -3558,7 +3580,7 @@ Gated: start only when 30 rules are `verified`, so reviewers see a complete prod
 
 **Interfaces:**
 - Consumes: production deployment; privacy policy page (Track C); `/rules/terms` (Task 11).
-- Produces: two submissions under review.
+- Produces: two submissions under review (three if the optional Muse step runs).
 
 - [ ] **Step 1: Check prerequisites**
 
@@ -3597,7 +3619,11 @@ Per OpenAI's submission guide (developers.openai.com/apps-sdk/deploy/submission,
 
 Per Anthropic's guidance (claude.com/docs/connectors/building/submission and the directory FAQ, checked 2026-10-01): submit the remote server through the submission portal in Claude.ai admin settings. Requirements this server already meets: every tool has a title and `readOnlyHint` (missing annotations are the most common rejection), no auth needed. Provide the privacy policy URL, the terms URL, and setup and usage instructions (the server URL plus the five tools in one paragraph each). Track status in the submissions dashboard; escalations go to mcp-review@anthropic.com.
 
-- [ ] **Step 4: Record and commit**
+- [ ] **Step 4 (optional): Muse connector program**
+
+Meta takes connector applications at muse.ai/platform and admits developers in waves; reports as of 2026-10-04 disagree on whether submissions are open, so check the page first. If open, apply with what its form reportedly asks for: the hosted MCP endpoint `https://<domain>/api/mcp` with no authentication, the five tools in one paragraph each, the positive test cases from Step 2 as example prompts, the website, support, privacy and terms URLs, and payment status "free". Attach the Run B results from `muse-scenarios.md` as evidence. If submissions are closed, record the date checked and join any waitlist.
+
+- [ ] **Step 5: Record and commit**
 
 Append to `docs/superpowers/acceptance/track-d.md`:
 ```markdown
@@ -3606,10 +3632,11 @@ Append to `docs/superpowers/acceptance/track-d.md`:
 |---|---|---|---|
 | ChatGPT | | | |
 | Anthropic | | | |
+| Muse | | | |
 ```
 ```bash
 git add apps/web/public/.well-known/openai-apps-challenge docs/superpowers/acceptance/track-d.md
-git commit -m "Submit the rules MCP server to the ChatGPT and Anthropic directories
+git commit -m "Submit the rules MCP server to the ChatGPT, Anthropic and Muse directories
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01CZeaGyqM4LkMDPkaein2Sc"
