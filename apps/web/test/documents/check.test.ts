@@ -44,6 +44,10 @@ describe('documentRulesCover', () => {
   it('is true for a domestic trip, which REAL ID covers', () => {
     expect(documentRulesCover(rules, { 'flight.is_domestic_us': true })).toBe(true);
   });
+  it('is false with no destination, even though destination rules exist and only may apply', () => {
+    expect(documentRulesCover(rules, { 'flight.is_domestic_us': false })).toBe(false);
+    expect(documentRulesCover(rules, {})).toBe(false);
+  });
   it('counts a rule that may apply because facts are missing', () => {
     expect(documentRulesCover(rules, { 'trip.destination_country': 'PT' })).toBe(true);
   });

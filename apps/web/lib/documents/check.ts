@@ -66,9 +66,11 @@ export function requiredMonths(rule: Rule): number | null {
 export const NO_COVERAGE_DETAIL = 'Elsewhere has no verified entry rules for this trip yet.';
 
 /**
- * True when at least one verified document rule fits the trip itself (destination, domestic or not),
+ * True when at least one verified document rule fits the trip itself (destination, domestic or not), and a trip with no destination is not covered unless it is known to be domestic,
  * whatever any member has entered. An empty library, or one that covers only other destinations, is false.
  */
 export function documentRulesCover(rules: Rule[], tripSituation: Situation): boolean {
+  // With no destination every destination rule only "may apply"; that is not coverage. A known domestic trip is covered by REAL ID rules.
+  if (tripSituation['trip.destination_country'] === undefined && tripSituation['flight.is_domestic_us'] !== true) return false;
   return matchRules(rules.filter((rule) => rule.domain === 'documents'), tripSituation, { statuses: ['verified'] }).length > 0;
 }
