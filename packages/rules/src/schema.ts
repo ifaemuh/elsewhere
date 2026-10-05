@@ -95,6 +95,9 @@ export const JURISDICTION_PATTERN =
 
 const KEBAB = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
+// Ids the web app serves as fixed routes next to /api/rules/<id> and /rules/<id>.
+export const RESERVED_RULE_IDS = ['facts', 'search', 'changes', 'match', 'terms'] as const;
+
 const PrimitiveSchema = z.union([z.string(), z.number(), z.boolean()]);
 const FactSchema = z.enum(FACT_NAMES);
 
@@ -120,7 +123,10 @@ const ConditionGroupSchema: z.ZodType<ConditionGroup> = z.lazy(() =>
 );
 
 const RuleObjectSchema = z.strictObject({
-  id: z.string().regex(KEBAB, 'must be kebab-case'),
+  id: z
+    .string()
+    .regex(KEBAB, 'must be kebab-case')
+    .refine((id) => !(RESERVED_RULE_IDS as readonly string[]).includes(id), 'is reserved for an app route'),
   version: z.number().int().min(1),
   status: z.enum(RULE_STATUSES),
   domain: z.enum(DOMAINS),

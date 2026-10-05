@@ -25,7 +25,7 @@
 
 **Depends on:**
 - **Every C1 task.** The schema, clients, proxy, `getLibrary()`, the cast, sign-in, trips, the trip pass, and the Stripe webhook must all exist.
-- **Track A, including its Task 18 contract amendment,** which adds the facts `flight.departs_us` and `flight.scheduled_duration_minutes`.
+- **Track A, including its Task 18 contract amendment** (adds `flight.departs_us`) **and contract 30b549f** (adds the itinerary facts `trip.itinerary_domestic_us` and `trip.us_foreign_nonstop_minutes`, and removes `flight.scheduled_duration_minutes`).
 - **Track A's rule conventions,** which C2 relies on. C2's tests pin them with fixtures. Report gaps to Track A; do not edit rules here.
   - A document-requirement rule encodes the failing condition, so `applies` means action is needed.
   - Its minimum is in `entitlement.amount.min_months_valid_after_return`.
@@ -3200,7 +3200,7 @@ describe('documentSituation', () => {
 
 `apps/web/test/documents/check.test.ts`:
 ```ts
-import type { Rule, RulesLibrary } from '@elsewhere/rules';
+import type { Rule, RulesLibrary } from '@elsewhere/rules/core';
 import { describe, expect, it } from 'vitest';
 import fixture from '../fixtures/rules-library.json';
 import { checkMember, requiredMonths } from '@/lib/documents/check';
@@ -3276,7 +3276,7 @@ Expected: FAIL, with modules not found.
 
 `apps/web/lib/documents/facts.ts`:
 ```ts
-import type { Situation } from '@elsewhere/rules';
+import type { Situation } from '@elsewhere/rules/core';
 
 export function monthsBetween(fromIso: string, toIso: string): number {
   const from = new Date(`${fromIso.slice(0, 10)}T00:00:00Z`);
@@ -3311,7 +3311,7 @@ export function documentSituation(input: DocumentInput): Situation {
 
 `apps/web/lib/documents/check.ts`:
 ```ts
-import { matchRules, type Rule, type Situation } from '@elsewhere/rules';
+import { matchRules, type Rule, type Situation } from '@elsewhere/rules/core';
 
 export interface MemberCheck {
   result: 'ok' | 'action_needed' | 'unknown';
@@ -4897,6 +4897,19 @@ EOF
 
 ### Task 10: From a flight event to rule facts, and the one question to ask
 
+> **Controller note (2026-10-02), contract 30b549f.** 14 CFR 260 sets its significant-change and
+> delayed-bag thresholds per itinerary, so `flight.scheduled_duration_minutes` is gone. Change the
+> code below as follows, and add tests for each bullet:
+> - `SituationInput.booking` gains `segments: { originCountry: string | null; destinationCountry: string | null; scheduledOut: string | null; scheduledIn: string | null }[]`, covering every segment on the same booking (ticket).
+> - Set `trip.itinerary_domestic_us` to `false` when any segment has a known country outside `US_JURISDICTION`. Set it to `true` only when every segment's countries are known and all are in `US_JURISDICTION`. Otherwise leave it unset.
+> - Set `trip.us_foreign_nonstop_minutes` to the scheduled minutes of the segment with exactly one end in `US_JURISDICTION` on the same journey as the event's segment. When the booking has both an outbound and a return US–foreign segment, use the one nearest in time to the event's segment. Leave it unset when no such segment has both scheduled times.
+> - Delete the `flight.scheduled_duration_minutes` line.
+> - Tests must cover:
+>   - a domestic connection on an international ticket gives `itinerary_domestic_us: false` while `flight.is_domestic_us: true`
+>   - a US-only ticket gives `true`
+>   - an unknown country leaves the fact unset
+>   - a round trip picks the same-direction US–foreign segment
+
 **Files:**
 - Create: `apps/web/lib/assist/regions.ts`, `apps/web/lib/assist/carriers.ts`, `apps/web/lib/assist/situation.ts`, `apps/web/lib/assist/questions.ts`, `apps/web/test/assist/situation.test.ts`, `apps/web/test/assist/scenarios.test.ts`, `apps/web/test/assist/questions.test.ts`
 
@@ -4972,7 +4985,7 @@ describe('buildSituation', () => {
 
 `apps/web/test/assist/scenarios.test.ts`. These are the old mock trip guides, ported as situation-to-expected-rules cases. The source is `git show archive/mobile-expo-2026-10:apps/api/lib/assist/mock-trip-guides.ts`.
 ```ts
-import { matchRules, type Rule, type RulesLibrary } from '@elsewhere/rules';
+import { matchRules, type Rule, type RulesLibrary } from '@elsewhere/rules/core';
 import { describe, expect, it } from 'vitest';
 import fixture from '../fixtures/rules-library.json';
 import { buildSituation, type SituationInput } from '@/lib/assist/situation';
@@ -5053,7 +5066,7 @@ describe('ported trip-guide scenarios', () => {
 
 `apps/web/test/assist/questions.test.ts`:
 ```ts
-import type { MatchResult } from '@elsewhere/rules';
+import type { MatchResult } from '@elsewhere/rules/core';
 import { describe, expect, it } from 'vitest';
 import { answerValue, nextQuestion } from '@/lib/assist/questions';
 
@@ -5121,7 +5134,7 @@ export const EU_CARRIERS = new Set([
 
 `apps/web/lib/assist/situation.ts`:
 ```ts
-import type { Primitive, Situation } from '@elsewhere/rules';
+import type { Primitive, Situation } from '@elsewhere/rules/core';
 import { EU_CARRIERS, US_CARRIERS } from './carriers';
 import { EU261_SCOPE, UK, US_JURISDICTION } from './regions';
 
@@ -5177,7 +5190,7 @@ export function buildSituation(input: SituationInput): Situation {
 
 `apps/web/lib/assist/questions.ts`:
 ```ts
-import type { MatchResult, Primitive } from '@elsewhere/rules';
+import type { MatchResult, Primitive } from '@elsewhere/rules/core';
 
 export interface PlannerQuestion {
   fact: string;
@@ -5281,7 +5294,7 @@ The citation check matches every money amount and every duration in an `owed` it
 
 `apps/web/test/assist/citation-check.test.ts`:
 ```ts
-import type { Rule, RulesLibrary } from '@elsewhere/rules';
+import type { Rule, RulesLibrary } from '@elsewhere/rules/core';
 import { describe, expect, it } from 'vitest';
 import fixture from '../fixtures/rules-library.json';
 import { checkCitations } from '@/lib/assist/citation-check';
@@ -5328,7 +5341,7 @@ describe('checkCitations', () => {
 
 `apps/web/test/assist/playbook.test.ts`:
 ```ts
-import type { Rule, RulesLibrary } from '@elsewhere/rules';
+import type { Rule, RulesLibrary } from '@elsewhere/rules/core';
 import { describe, expect, it } from 'vitest';
 import fixture from '../fixtures/rules-library.json';
 import { generatePlaybook } from '@/lib/assist/playbook';
@@ -5424,7 +5437,7 @@ export type Playbook = z.infer<typeof PlaybookSchema>;
 
 `apps/web/lib/assist/citation-check.ts`:
 ```ts
-import type { Rule } from '@elsewhere/rules';
+import type { Rule } from '@elsewhere/rules/core';
 import type { Playbook } from './playbook-schema';
 
 export interface CitationIssue {
@@ -5478,7 +5491,7 @@ export function checkCitations(playbook: Playbook, allowed: Rule[], extraNumbers
 
 `apps/web/lib/assist/template.ts`:
 ```ts
-import type { Rule } from '@elsewhere/rules';
+import type { Rule } from '@elsewhere/rules/core';
 import type { Playbook } from './playbook-schema';
 
 /** Built only from verified rule text, so it needs no citation check. */
@@ -5500,7 +5513,7 @@ export function templatePlaybook({ eventSummary, applying, reviewing }: { eventS
 `apps/web/lib/assist/playbook.ts`:
 ```ts
 import 'server-only';
-import type { Rule, Situation } from '@elsewhere/rules';
+import type { Rule, Situation } from '@elsewhere/rules/core';
 import { generateText, Output, type LanguageModel } from 'ai';
 import { model as defaultModel, NO_TRAINING } from '@/lib/ai/models';
 import { checkCitations } from './citation-check';
@@ -5731,7 +5744,7 @@ Expected: FAIL, with modules not found.
 
 `apps/web/lib/assist/assess.ts`:
 ```ts
-import { matchRules, type Primitive, type Rule, type Situation } from '@elsewhere/rules';
+import { matchRules, type Primitive, type Rule, type Situation } from '@elsewhere/rules/core';
 import { nextQuestion, type PlannerQuestion } from './questions';
 import { buildSituation } from './situation';
 
@@ -5805,7 +5818,7 @@ export function assess(input: AssessmentInput): Assessment {
 
 Add a pure test for `assess` to `apps/web/test/assist/assess.test.ts`, using the C1 fixture library:
 ```ts
-import type { Rule, RulesLibrary } from '@elsewhere/rules';
+import type { Rule, RulesLibrary } from '@elsewhere/rules/core';
 import fixture from '../fixtures/rules-library.json';
 import { assess } from '@/lib/assist/assess';
 
@@ -5831,7 +5844,7 @@ describe('assess', () => {
 `apps/web/lib/assist/incidents.ts`:
 ```ts
 import 'server-only';
-import type { Primitive } from '@elsewhere/rules';
+import type { Primitive } from '@elsewhere/rules/core';
 import { appUrl } from '@/lib/env';
 import { incidentNotice, questionNotice, reviewHoldNotice } from '@/lib/notify/templates';
 import { queueNotifications } from '@/lib/notify/queue';

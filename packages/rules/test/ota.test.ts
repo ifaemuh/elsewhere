@@ -43,6 +43,10 @@ test('overrides must point at ota sources and PDFs take no selectors', () => {
   assert.throws(() => buildDeclarations(sources, { 'b-coc': { select: 'main' } }), RulesValidationError);
 });
 
+test('an override key that is not a source at all is rejected', () => {
+  assert.throws(() => buildDeclarations(sources, { 'no-such-source': { select: 'main' } }), RulesValidationError);
+});
+
 test('rules:declarations writes one file per service and prunes stale ones', () => {
   const dir = mkdtempSync(join(tmpdir(), 'decl-'));
   const sourcesFile = join(dir, 'sources.yaml');

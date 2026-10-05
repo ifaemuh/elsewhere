@@ -1,6 +1,6 @@
 export type FetchLike = (
   url: string,
-  init?: { headers?: Record<string, string> },
+  init?: { headers?: Record<string, string>; signal?: AbortSignal },
 ) => Promise<{ ok: boolean; status: number; text(): Promise<string>; json(): Promise<unknown> }>;
 
 const API = 'https://www.ecfr.gov/api/versioner/v1';
@@ -39,8 +39,17 @@ export function ecfrXmlToText(xml: string): string {
     .trim();
 }
 
-async function getJson<T>(fetchImpl: FetchLike, url: string): Promise<T> {
-  const response = await fetchImpl(url);
+export const ECFR_TIMEOUT_MS = 60_000;
+
+/** Refuse a replacement body under half the size of the one on record: eCFR occasionally returns a cut-off document. */
+export function guardTruncated(previous: string, next: string): void {
+  if (previous.length > 0 && next.length < previous.length * 0.5) {
+    throw new Error(`new eCFR text is ${next.length} chars against ${previous.length} on record (under 50%); treating it as truncated and keeping the old text`);
+  }
+}
+
+async function getJson<T>(fetchImpl: FetchLike, url: string, timeoutMs: number): Promise<T> {
+  const response = await fetchImpl(url, { signal: AbortSignal.timeout(timeoutMs) });
   if (!response.ok) throw new Error(`eCFR ${response.status} for ${url}`);
   return (await response.json()) as T;
 }
@@ -52,18 +61,23 @@ export interface EcfrPart {
 }
 
 /** Current text of one CFR part, as of the title's latest published date. */
-export async function fetchEcfrPart(ref: { title: number; part: number }, fetchImpl: FetchLike = fetch): Promise<EcfrPart> {
-  const titles = await getJson<{ titles: { number: number; up_to_date_as_of: string }[] }>(fetchImpl, `${API}/titles.json`);
+export async function fetchEcfrPart(
+  ref: { title: number; part: number },
+  fetchImpl: FetchLike = fetch,
+  { timeoutMs = ECFR_TIMEOUT_MS }: { timeoutMs?: number } = {},
+): Promise<EcfrPart> {
+  const titles = await getJson<{ titles: { number: number; up_to_date_as_of: string }[] }>(fetchImpl, `${API}/titles.json`, timeoutMs);
   const asOf = titles.titles.find((t) => t.number === ref.title)?.up_to_date_as_of;
   if (!asOf) throw new Error(`eCFR has no title ${ref.title}`);
 
   const versions = await getJson<{ meta?: { latest_amendment_date?: string } }>(
     fetchImpl,
     `${API}/versions/title-${ref.title}.json?part=${ref.part}`,
+    timeoutMs,
   );
 
   const url = `${API}/full/${asOf}/title-${ref.title}.xml?part=${ref.part}`;
-  const response = await fetchImpl(url, { headers: { 'Accept-Encoding': 'gzip' } });
+  const response = await fetchImpl(url, { headers: { 'Accept-Encoding': 'gzip' }, signal: AbortSignal.timeout(timeoutMs) });
   if (!response.ok) throw new Error(`eCFR ${response.status} for ${url}`);
   const amendedOn = versions.meta?.latest_amendment_date;
   if (!amendedOn) throw new Error(`eCFR versions response for title ${ref.title} part ${ref.part} has no latest_amendment_date`);

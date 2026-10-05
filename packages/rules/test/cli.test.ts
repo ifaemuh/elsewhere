@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -137,6 +137,132 @@ test('rules:check-quotes reports sources with no tracked text', () => {
   assert.match(result.stdout, /source_missing/);
 });
 
+test('rules:check-quotes --write-needs-review never flips a rule for a missing source', () => {
+  const dataDir = fixtureData();
+  const before = new Map(['flights/fx-missed-connection-single-ticket.yaml', 'flights/fx-us-refund-cancelled-flight.yaml'].map((f) => [f, readFileSync(join(dataDir, f), 'utf8')]));
+  const args = [...fixtureArgs(dataDir), '--versions', mkdtempSync(join(tmpdir(), 'empty-')), '--write-needs-review'];
+  const result = run('check-quotes.ts', args);
+  assert.equal(result.status, 1);
+  assert.match(result.stdout, /source_missing/);
+  assert.match(result.stdout, /\d+ quote\(s\) not checked because their source text is missing/);
+  assert.doesNotMatch(result.stdout, /status set to needs_review/);
+  for (const [f, text] of before) assert.equal(readFileSync(join(dataDir, f), 'utf8'), text);
+});
+
+test('rules:check-quotes flips on not_found only and names only that source', () => {
+  const dataDir = fixtureData();
+  const versions = fixtureVersions();
+  // fx-carrier-coc present but quote broken; fx-dot-refunds text missing entirely
+  const coc = join(versions, 'Example Air/Conditions of Carriage.md');
+  writeFileSync(coc, readFileSync(coc, 'utf8').replace('no extra charge', 'a $75 fee'));
+  rmSync(join(versions, 'eCFR/title-14-part-260.md'));
+  const file = join(dataDir, 'flights/fx-missed-connection-single-ticket.yaml');
+  const text = readFileSync(file, 'utf8');
+  // add a second source ref so one rule has both failure kinds
+  const doc = parseDocument(text);
+  const refs = doc.get('sources') as any;
+  refs.add(doc.createNode({ id: 's2', source: 'fx-dot-refunds', quotes: [{ text: 'prompt refund', supports: ['summary'] }] }));
+  writeFileSync(file, doc.toString({ lineWidth: 0 }));
+  const result = run('check-quotes.ts', [...fixtureArgs(dataDir), '--versions', versions, '--write-needs-review']);
+  assert.equal(result.status, 1, result.stderr);
+  const after = parse(readFileSync(file, 'utf8'));
+  assert.equal(after.status, 'needs_review');
+  assert.equal(after.history.at(-1).note, 'quote not found in fx-carrier-coc');
+});
+
+test('rules:check-quotes exits 4 on an unexpected error, distinct from issues (1)', () => {
+  const versions = fixtureVersions();
+  // a directory where the source text should be: existsSync passes, readFileSync throws EISDIR
+  const coc = join(versions, 'Example Air/Conditions of Carriage.md');
+  rmSync(coc);
+  mkdirSync(coc);
+  const result = run('check-quotes.ts', [...fixtureArgs(fixtureData()), '--versions', versions]);
+  assert.equal(result.status, 4, result.stdout + result.stderr);
+  assert.match(result.stderr, /EISDIR/);
+});
+
 test('rules:check-quotes requires --versions', () => {
   assert.equal(run('check-quotes.ts', []).status, 2);
+});
+
+/** A git repo whose first commit holds the fixture rules under data/, so --base-ref has something to diff against. */
+function gitFixture(): { dataDir: string; git: (...args: string[]) => void } {
+  const repo = mkdtempSync(join(tmpdir(), 'repo-'));
+  const dataDir = join(repo, 'data');
+  cpSync(join(FIXTURES, 'rules'), join(dataDir, 'flights'), { recursive: true });
+  const git = (...args: string[]) => {
+    const r = spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', '-c', 'commit.gpgsign=false', ...args], { cwd: repo, encoding: 'utf8' });
+    assert.equal(r.status, 0, r.stderr);
+  };
+  git('init', '-q', '-b', 'main');
+  git('add', '-A');
+  git('commit', '-q', '-m', 'base');
+  git('switch', '-q', '-c', 'pr');
+  return { dataDir, git };
+}
+
+const ciArgs = (dataDir: string, versions: string) => [...fixtureArgs(dataDir), '--versions', versions, '--base-ref', 'main'];
+
+test('rules:check-quotes --base-ref: a flagged (needs_review) rule with unchanged quotes warns and passes', () => {
+  const { dataDir } = gitFixture();
+  const versions = fixtureVersions();
+  const coc = join(versions, 'Example Air/Conditions of Carriage.md');
+  writeFileSync(coc, readFileSync(coc, 'utf8').replace('no extra charge', 'a $75 fee'));
+  const file = join(dataDir, 'flights/fx-missed-connection-single-ticket.yaml');
+  const strict = run('check-quotes.ts', [...fixtureArgs(dataDir), '--versions', versions]);
+  assert.equal(strict.status, 1);
+  // still verified: unchanged but verified, so it blocks
+  assert.equal(run('check-quotes.ts', ciArgs(dataDir, versions)).status, 1);
+  // flip it, as the backstop PR does
+  const flip = run('check-quotes.ts', [...fixtureArgs(dataDir), '--versions', versions, '--write-needs-review']);
+  assert.match(readFileSync(file, 'utf8'), /^status: needs_review$/m);
+  assert.equal(flip.status, 1);
+  const ci = run('check-quotes.ts', ciArgs(dataDir, versions));
+  assert.equal(ci.status, 0, ci.stdout + ci.stderr);
+  assert.match(ci.stdout, /warning \(unchanged quote, not blocking\): fx-missed-connection-single-ticket: not_found/);
+  assert.match(ci.stdout, /No blocking issues/);
+});
+
+test('rules:check-quotes --base-ref: a changed quote must be found even on a needs_review rule', () => {
+  const { dataDir } = gitFixture();
+  const versions = fixtureVersions();
+  const file = join(dataDir, 'flights/fx-missed-connection-single-ticket.yaml');
+  writeFileSync(file, readFileSync(file, 'utf8').replace('at no extra charge.', 'at no extra charge today.').replace('status: verified', 'status: needs_review')
+    .replace(/(history:\n(?: {2}.*\n)*)/, '$1  - { version: 1, status: needs_review, date: 2026-10-08, note: "x" }\n'));
+  const result = run('check-quotes.ts', ciArgs(dataDir, versions));
+  assert.equal(result.status, 1, result.stdout + result.stderr);
+  assert.match(result.stdout, /fx-missed-connection-single-ticket: not_found/);
+});
+
+test('rules:check-quotes --base-ref: a brand-new rule file has every quote checked', () => {
+  const { dataDir } = gitFixture();
+  const versions = fixtureVersions();
+  const source = join(dataDir, 'flights/fx-24h-free-cancellation.yaml');
+  const copy = readFileSync(source, 'utf8').replaceAll('fx-24h-free-cancellation', 'fx-new-copy');
+  writeFileSync(join(dataDir, 'flights/fx-new-copy.yaml'), copy.replace(/(text: ")[^"]+/, '$1this sentence is nowhere'));
+  const result = run('check-quotes.ts', ciArgs(dataDir, versions));
+  assert.equal(result.status, 1, result.stdout + result.stderr);
+  assert.match(result.stdout, /fx-new-copy: not_found/);
+});
+
+test('rules:check-quotes --base-ref with an unknown ref exits 3', () => {
+  const { dataDir } = gitFixture();
+  const result = run('check-quotes.ts', [...fixtureArgs(dataDir), '--versions', fixtureVersions(), '--base-ref', 'no-such-ref']);
+  assert.equal(result.status, 3, result.stdout + result.stderr);
+});
+
+test('rules:check-quotes --write-needs-review keeps flagging the other rules when one file cannot be written (#18)', () => {
+  const dataDir = fixtureData();
+  const versions = fixtureVersions();
+  const coc = join(versions, 'Example Air/Conditions of Carriage.md');
+  writeFileSync(coc, readFileSync(coc, 'utf8').replace('no extra charge', 'a $75 fee'));
+  const refunds = join(versions, 'eCFR/title-14-part-260.md');
+  writeFileSync(refunds, readFileSync(refunds, 'utf8').replace('prompt refund', 'delayed credit'));
+  chmodSync(join(dataDir, 'flights/fx-missed-connection-single-ticket.yaml'), 0o444);
+  const result = run('check-quotes.ts', [...fixtureArgs(dataDir), '--versions', versions, '--write-needs-review']);
+  chmodSync(join(dataDir, 'flights/fx-missed-connection-single-ticket.yaml'), 0o644);
+  if (process.getuid?.() === 0) return; // root ignores file modes
+  assert.equal(result.status, 5, result.stdout + result.stderr);
+  assert.match(result.stderr, /fx-missed-connection-single-ticket: could not set needs_review/);
+  assert.match(readFileSync(join(dataDir, 'flights/fx-us-refund-cancelled-flight.yaml'), 'utf8'), /^status: needs_review$/m);
 });
