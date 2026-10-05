@@ -1,0 +1,78 @@
+id: us-dot-24-hour-cancellation
+version: 1
+status: draft
+domain: flights
+jurisdiction: US-DOT
+title: "Booked directly a week or more ahead? The airline must hold your fare or let you cancel free for 24 hours"
+summary: >-
+  If you book a flight directly with an airline at least a week before departure, the airline's customer service plan
+  must let you either hold the reservation at the quoted fare without paying, or cancel it without penalty, for at
+  least 24 hours after you book. The airline chooses which of the two it offers.
+applies_when:
+  all:
+    - any:
+        - fact: trip.touches_us
+          eq: true
+        - fact: trip.booked_with_us_carrier
+          eq: true
+    - fact: trip.booked_via
+      eq: direct
+    - fact: trip.hours_since_booking
+      lte: 24
+    - fact: trip.hours_booked_before_departure
+      gte: 168
+entitlement:
+  kind: refund
+  amount:
+    airline_chooses: "Allowing reservations to be held at the quoted fare without payment, or cancelled without penalty"
+    minimum_period: "at least twenty-four hours after the reservation is made"
+    if_payment_is_required_with_the_reservation: "it must allow the consumer to cancel the payment and reservation within 24 hours and receive a full refund"
+  timing: "for at least twenty-four hours after the reservation is made, if the reservation is made one week or more prior to a flight's departure. The airline's duty starts when the reservation is made."
+how_to_claim:
+  steps:
+    - "Check your airline's Customer Service Plan on its website. It shows whether the airline holds reservations for 24 hours or lets you cancel them without penalty for 24 hours."
+    - "Count the 24 hours from the moment you made the reservation. If the airline requires payment when you book, cancel within those 24 hours and ask for a full refund."
+    - "If the airline holds reservations instead, you can leave the reservation unpaid at the quoted fare for those 24 hours."
+  templates: [airline_refund_request]
+exceptions:
+  - "The airline decides whether to hold the reservation or let you cancel. It is not required to offer both."
+  - "Only for reservations made one week or more before the flight's departure."
+  - "Does not apply to tickets booked through an online travel agency, travel agent or other third party. Those agents are free to offer the same or similar terms. If you booked through one, contact it directly for the refund before contacting the airline."
+  - "Does not require the airline to change your ticket free of charge, for example to a different date or to correct a misspelled name."
+  - "Covers the scheduled flights of carriers with at least one aircraft designed for 30 or more seats. Public charter flights are not covered."
+sources:
+  - id: s1
+    source: ecfr-14-cfr-259
+    quotes:
+      - text: "Allowing reservations to be held at the quoted fare without payment, or cancelled without penalty, for at least twenty-four hours after the reservation is made if the reservation is made one week or more prior to a flight's departure;"
+        supports: [summary, applies_when, entitlement.amount, entitlement.timing, how_to_claim.steps.0, how_to_claim.steps.1, how_to_claim.steps.2, exceptions]
+      - text: "Each covered carrier must adopt a Customer Service Plan applicable to its scheduled flights as specified in paragraphs (b)(1) through (14) of this section and adhere to the plan's terms."
+        supports: [summary, applies_when, how_to_claim.steps.0, exceptions]
+      - text: "Covered carrier means a certificated carrier, a commuter carrier, or a foreign air carrier operating to, from or within the United States, conducting scheduled passenger service or public charter service with at least one aircraft having a designed seating capacity of 30 or more seats."
+        supports: [applies_when, exceptions]
+      - text: "This part applies to all the flights of a certificated or commuter air carrier if the carrier operates scheduled passenger service or public charter service using any aircraft originally designed to have a passenger capacity of 30 or more seats, and to all flights to and from the U.S. of a foreign air carrier if the carrier operates scheduled passenger service or public charter service to and from the U.S. using any aircraft originally designed to have a passenger capacity of 30 or more seats, except as otherwise provided in this part."
+        supports: [applies_when, exceptions]
+      - text: "Each U.S. air carrier that has a website and each foreign air carrier that has a website marketed to U.S. consumers, and that is required to adopt a customer service plan, shall post its current customer service plan on its website in easily accessible form."
+        supports: [how_to_claim.steps.0]
+  - id: s2
+    source: dot-refunds
+    quotes:
+      - text: "Airlines are not required to offer both a hold and a refund option."
+        supports: [summary, exceptions, how_to_claim.steps.0]
+      - text: "If an airline requires payment with a reservation, it must allow the consumer to cancel the payment and reservation within 24 hours and receive a full refund."
+        supports: [entitlement.amount, how_to_claim.steps.1]
+      - text: "No, the 24-hour refund/reservation requirement for airlines does not apply to tickets booked through online travel agencies, travel agents, or other third-party agents."
+        supports: [applies_when, exceptions]
+      - text: "If you purchased your ticket through an online travel agency (or other agent), you should contact the travel agent directly to obtain a refund before contacting the airline."
+        supports: [exceptions]
+      - text: "airlines are not required to make changes to a ticket free of charge (for example - change your ticket to a different date or correct a misspelled name on the reservation)"
+        supports: [exceptions]
+      - text: "However, these agents are free to apply the same or similar procedures to provide equivalent or similar customer service."
+        supports: [exceptions]
+lead_character: owl
+tags: [24-hour, hold, cancel, refund, booking, dot]
+last_verified: null
+verified_by: null
+review_by: null
+history:
+  - { version: 1, status: draft, date: 2026-10-02 }

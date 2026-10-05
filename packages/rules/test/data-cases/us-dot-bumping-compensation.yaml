@@ -1,0 +1,60 @@
+rule: us-dot-bumping-compensation
+cases:
+  - name: domestic, replacement arrives exactly 1 hour late (no compensation)
+    situation: { event.type: denied_boarding, flight.departs_us: true, passenger.volunteered: false, trip.itinerary_domestic_us: true, event.delay_minutes: 60 }
+    outcome: does_not_apply
+  - name: domestic, replacement arrives 59 minutes late
+    situation: { event.type: denied_boarding, flight.departs_us: true, passenger.volunteered: false, trip.itinerary_domestic_us: true, event.delay_minutes: 59 }
+    outcome: does_not_apply
+  - name: domestic, replacement arrives 61 minutes late (200% tier starts)
+    situation: { event.type: denied_boarding, flight.departs_us: true, passenger.volunteered: false, trip.itinerary_domestic_us: true, event.delay_minutes: 61 }
+    outcome: applies
+  - name: domestic, replacement arrives 119 minutes late (still the 200% tier)
+    situation: { event.type: denied_boarding, flight.departs_us: true, passenger.volunteered: false, trip.itinerary_domestic_us: true, event.delay_minutes: 119 }
+    outcome: applies
+  - name: domestic, replacement arrives exactly 120 minutes late (400% tier starts)
+    situation: { event.type: denied_boarding, flight.departs_us: true, passenger.volunteered: false, trip.itinerary_domestic_us: true, event.delay_minutes: 120 }
+    outcome: applies
+  - name: international, replacement arrives exactly 1 hour late (no compensation)
+    situation: { event.type: denied_boarding, flight.departs_us: true, passenger.volunteered: false, trip.itinerary_domestic_us: false, event.delay_minutes: 60 }
+    outcome: does_not_apply
+  - name: international, replacement arrives 61 minutes late (200% tier starts)
+    situation: { event.type: denied_boarding, flight.departs_us: true, passenger.volunteered: false, trip.itinerary_domestic_us: false, event.delay_minutes: 61 }
+    outcome: applies
+  - name: international, replacement arrives 119 minutes late (still the 200% tier)
+    situation: { event.type: denied_boarding, flight.departs_us: true, passenger.volunteered: false, trip.itinerary_domestic_us: false, event.delay_minutes: 119 }
+    outcome: applies
+  - name: international, replacement arrives 239 minutes late (still the 200% tier)
+    situation: { event.type: denied_boarding, flight.departs_us: true, passenger.volunteered: false, trip.itinerary_domestic_us: false, event.delay_minutes: 239 }
+    outcome: applies
+  - name: international, replacement arrives exactly 240 minutes late (400% tier starts)
+    situation: { event.type: denied_boarding, flight.departs_us: true, passenger.volunteered: false, trip.itinerary_domestic_us: false, event.delay_minutes: 240 }
+    outcome: applies
+  - name: flight leaves a foreign airport
+    situation: { event.type: denied_boarding, flight.departs_us: false, passenger.volunteered: false, event.delay_minutes: 300 }
+    outcome: does_not_apply
+  - name: whether the flight leaves the US is not known yet
+    situation: { event.type: denied_boarding, passenger.volunteered: false, event.delay_minutes: 300 }
+    outcome: may_apply
+    missing_facts: [flight.departs_us]
+  - name: replacement arrival time not known yet
+    situation: { event.type: denied_boarding, flight.departs_us: true, passenger.volunteered: false }
+    outcome: may_apply
+    missing_facts: [event.delay_minutes]
+  - name: delay is not denied boarding
+    situation: { event.type: delay, flight.departs_us: true, passenger.volunteered: false, event.delay_minutes: 300 }
+    outcome: does_not_apply
+  - name: event type not known yet
+    situation: { flight.departs_us: true, passenger.volunteered: false, event.delay_minutes: 300 }
+    outcome: may_apply
+    missing_facts: [event.type]
+  - name: international, replacement arrives 59 minutes late
+    situation: { event.type: denied_boarding, flight.departs_us: true, passenger.volunteered: false, trip.itinerary_domestic_us: false, event.delay_minutes: 59 }
+    outcome: does_not_apply
+  - name: volunteered for the seat
+    situation: { event.type: denied_boarding, flight.departs_us: true, passenger.volunteered: true, event.delay_minutes: 300 }
+    outcome: does_not_apply
+  - name: whether they volunteered is not known yet
+    situation: { event.type: denied_boarding, flight.departs_us: true, event.delay_minutes: 300 }
+    outcome: may_apply
+    missing_facts: [passenger.volunteered]
