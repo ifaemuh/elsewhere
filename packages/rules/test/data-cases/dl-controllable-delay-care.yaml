@@ -1,35 +1,41 @@
 rule: dl-controllable-delay-care
 cases:
-  - name: 3 hour delay caused by Delta
-    situation: { flight.carrier_iata: DL, flight.touches_us: true, event.type: delay, event.cause: controllable, event.delay_minutes: 180 }
+  - name: departure delayed exactly 3 hours, Delta's fault
+    situation: { flight.marketing_carrier_iata: DL, flight.touches_us: true, event.type: delay, event.cause: controllable, event.departure_delay_minutes: 180 }
     outcome: applies
-  - name: cancellation, cause not yet known, 5 hours
-    situation: { flight.carrier_iata: DL, flight.touches_us: true, event.type: cancellation, event.cause: unknown, event.delay_minutes: 300 }
-    outcome: applies
-  - name: one minute short of the 3 hour threshold
-    situation: { flight.carrier_iata: DL, flight.touches_us: true, event.type: delay, event.cause: controllable, event.delay_minutes: 179 }
+  - name: departure delayed 179 minutes
+    situation: { flight.marketing_carrier_iata: DL, flight.touches_us: true, event.type: delay, event.cause: controllable, event.departure_delay_minutes: 179 }
     outcome: does_not_apply
-  - name: delay length not known yet
-    situation: { flight.carrier_iata: DL, flight.touches_us: true, event.type: delay, event.cause: controllable }
+  - name: delay with cause not yet known
+    situation: { flight.marketing_carrier_iata: DL, flight.touches_us: true, event.type: delay, event.cause: unknown, event.departure_delay_minutes: 240 }
+    outcome: applies
+  - name: delay with only the arrival delay known
+    situation: { flight.marketing_carrier_iata: DL, flight.touches_us: true, event.type: delay, event.cause: controllable, event.delay_minutes: 240 }
     outcome: may_apply
-    missing_facts: [event.delay_minutes]
-  - name: cause not stated at all
-    situation: { flight.carrier_iata: DL, flight.touches_us: true, event.type: delay, event.delay_minutes: 240 }
+    missing_facts: [event.departure_delay_minutes]
+  - name: controllable cancellation, no minutes given
+    situation: { flight.marketing_carrier_iata: DL, flight.touches_us: true, event.type: cancellation, event.cause: controllable }
+    outcome: applies
+  - name: controllable missed connection
+    situation: { flight.marketing_carrier_iata: DL, flight.touches_us: true, event.type: missed_connection, event.cause: controllable }
+    outcome: applies
+  - name: cause not stated
+    situation: { flight.marketing_carrier_iata: DL, flight.touches_us: true, event.type: cancellation }
     outcome: may_apply
     missing_facts: [event.cause]
-  - name: touches the US not known yet
-    situation: { flight.carrier_iata: DL, event.type: delay, event.cause: controllable, event.delay_minutes: 240 }
+  - name: weather cancellation
+    situation: { flight.marketing_carrier_iata: DL, flight.touches_us: true, event.type: cancellation, event.cause: uncontrollable }
+    outcome: does_not_apply
+  - name: another marketing carrier
+    situation: { flight.marketing_carrier_iata: UA, flight.touches_us: true, event.type: cancellation, event.cause: controllable }
+    outcome: does_not_apply
+  - name: marketing carrier not known yet
+    situation: { flight.touches_us: true, event.type: cancellation, event.cause: controllable }
     outcome: may_apply
-    missing_facts: [flight.touches_us]
-  - name: weather delay
-    situation: { flight.carrier_iata: DL, flight.touches_us: true, event.type: delay, event.cause: uncontrollable, event.delay_minutes: 400 }
-    outcome: does_not_apply
-  - name: another carrier
-    situation: { flight.carrier_iata: UA, flight.touches_us: true, event.type: delay, event.cause: controllable, event.delay_minutes: 400 }
-    outcome: does_not_apply
+    missing_facts: [flight.marketing_carrier_iata]
   - name: flight does not touch the US
-    situation: { flight.carrier_iata: DL, flight.touches_us: false, event.type: delay, event.cause: controllable, event.delay_minutes: 400 }
+    situation: { flight.marketing_carrier_iata: DL, flight.touches_us: false, event.type: cancellation, event.cause: controllable }
     outcome: does_not_apply
-  - name: missed connection is not this rule
-    situation: { flight.carrier_iata: DL, flight.touches_us: true, event.type: missed_connection, event.cause: controllable, event.delay_minutes: 400 }
+  - name: schedule change is not covered
+    situation: { flight.marketing_carrier_iata: DL, flight.touches_us: true, event.type: schedule_change, event.cause: controllable }
     outcome: does_not_apply
