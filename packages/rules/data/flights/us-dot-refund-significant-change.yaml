@@ -1,6 +1,6 @@
 id: us-dot-refund-significant-change
 version: 1
-status: draft
+status: verified
 domain: flights
 jurisdiction: US-DOT
 title: "Flight delayed or changed, arriving 3+ hours late (6+ international)? Skip it and take the refund"
@@ -95,8 +95,9 @@ sources:
         supports: [exceptions]
 lead_character: pigeon
 tags: [refund, delay, schedule-change, airfare, dot]
-last_verified: null
-verified_by: null
-review_by: null
+last_verified: 2026-10-05
+verified_by: ifaemuh
+review_by: 2027-01-03
 history:
   - { version: 1, status: draft, date: 2026-10-02 }
+  - { version: 1, status: verified, date: 2026-10-05 }

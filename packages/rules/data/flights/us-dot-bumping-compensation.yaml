@@ -1,6 +1,6 @@
 id: us-dot-bumping-compensation
 version: 1
-status: draft
+status: verified
 domain: flights
 jurisdiction: US-DOT
 title: "Bumped against your will from an oversold flight leaving the US? The airline owes you cash or a check"
@@ -125,8 +125,9 @@ sources:
         supports: [exceptions]
 lead_character: raccoon
 tags: [bumping, denied-boarding, oversold, compensation, dot]
-last_verified: null
-verified_by: null
-review_by: null
+last_verified: 2026-10-05
+verified_by: ifaemuh
+review_by: 2027-01-03
 history:
   - { version: 1, status: draft, date: 2026-10-02 }
+  - { version: 1, status: verified, date: 2026-10-05 }

@@ -1,6 +1,6 @@
 id: us-dot-refund-cancelled-flight
 version: 1
-status: draft
+status: verified
 domain: flights
 jurisdiction: US-DOT
 title: "Flight to, from or within the US cancelled? You're owed your money back, not a voucher"
@@ -70,8 +70,9 @@ sources:
         supports: [exceptions]
 lead_character: pigeon
 tags: [refund, cancellation, airfare, voucher, dot]
-last_verified: null
-verified_by: null
-review_by: null
+last_verified: 2026-10-05
+verified_by: ifaemuh
+review_by: 2027-01-03
 history:
   - { version: 1, status: draft, date: 2026-10-02 }
+  - { version: 1, status: verified, date: 2026-10-05 }

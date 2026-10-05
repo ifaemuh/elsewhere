@@ -1,6 +1,6 @@
 id: us-dot-bag-fee-refund-delayed-bag
 version: 1
-status: draft
+status: verified
 domain: flights
 jurisdiction: US-DOT
 title: "Bag lost or badly delayed? The airline owes you the bag fee back"
@@ -97,8 +97,9 @@ sources:
         supports: [entitlement.amount]
 lead_character: pigeon
 tags: [refund, baggage, bag-fee, delayed-bag, lost-bag, dot]
-last_verified: null
-verified_by: null
-review_by: null
+last_verified: 2026-10-05
+verified_by: ifaemuh
+review_by: 2027-01-03
 history:
   - { version: 1, status: draft, date: 2026-10-02 }
+  - { version: 1, status: verified, date: 2026-10-05 }

@@ -1,6 +1,6 @@
 id: us-dot-ticket-agent-refund
 version: 1
-status: draft
+status: verified
 domain: flights
 jurisdiction: US-DOT
 title: "Booked via a travel agent, flight cancelled or significantly changed? The agent that charged you owes the refund"
@@ -120,8 +120,9 @@ sources:
         supports: [exceptions]
 lead_character: pigeon
 tags: [refund, cancellation, delay, schedule-change, airfare, ticket-agent, ota, dot]
-last_verified: null
-verified_by: null
-review_by: null
+last_verified: 2026-10-05
+verified_by: ifaemuh
+review_by: 2027-01-03
 history:
   - { version: 1, status: draft, date: 2026-10-05 }
+  - { version: 1, status: verified, date: 2026-10-05 }

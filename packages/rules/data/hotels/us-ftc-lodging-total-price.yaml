@@ -1,6 +1,6 @@
 id: us-ftc-lodging-total-price
 version: 1
-status: draft
+status: verified
 domain: hotels
 jurisdiction: US-FTC
 title: "Hotel or rental price shown? The total price must include mandatory fees (government charges may be left out)"
@@ -65,8 +65,9 @@ sources:
         supports: [exceptions]
 lead_character: pigeon
 tags: [hotel, short-term-rental, fees, total-price, junk-fees, ftc]
-last_verified: null
-verified_by: null
-review_by: null
+last_verified: 2026-10-05
+verified_by: ifaemuh
+review_by: 2027-01-03
 history:
   - { version: 1, status: draft, date: 2026-10-05 }
+  - { version: 1, status: verified, date: 2026-10-05 }

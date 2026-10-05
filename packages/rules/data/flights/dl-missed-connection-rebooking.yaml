@@ -1,6 +1,6 @@
 id: dl-missed-connection-rebooking
 version: 1
-status: draft
+status: verified
 domain: flights
 jurisdiction: "carrier:DL"
 title: "Missed a connection on Delta? Delta says it will rebook you at no additional cost"
@@ -80,8 +80,9 @@ sources:
         supports: [how_to_claim.steps.3]
 lead_character: capybara
 tags: [delta, missed-connection, misconnect, rebooking]
-last_verified: null
-verified_by: null
-review_by: null
+last_verified: 2026-10-05
+verified_by: ifaemuh
+review_by: 2027-01-03
 history:
   - { version: 1, status: draft, date: 2026-10-05 }
+  - { version: 1, status: verified, date: 2026-10-05 }

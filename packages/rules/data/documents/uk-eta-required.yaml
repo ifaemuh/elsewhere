@@ -1,6 +1,6 @@
 id: uk-eta-required
 version: 1
-status: draft
+status: verified
 domain: documents
 jurisdiction: country:GB
 title: "Visiting the UK on a US, Canadian or Australian passport? You usually need an ETA before you go"
@@ -70,8 +70,9 @@ sources:
         supports: [how_to_claim.steps.4]
 lead_character: owl
 tags: [documents, uk-eta, entry-permit]
-last_verified: null
-verified_by: null
-review_by: null
+last_verified: 2026-10-05
+verified_by: ifaemuh
+review_by: 2027-01-03
 history:
   - { version: 1, status: draft, date: 2026-10-05 }
+  - { version: 1, status: verified, date: 2026-10-05 }

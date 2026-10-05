@@ -1,6 +1,6 @@
 id: wn-controllable-delay-care
 version: 1
-status: draft
+status: verified
 domain: flights
 jurisdiction: "carrier:WN"
 title: "Southwest caused your delay, cancellation or missed connection? Its plan commits to rebooking, a meal and maybe a hotel"
@@ -128,8 +128,9 @@ sources:
         supports: [how_to_claim.steps.5]
 lead_character: capybara
 tags: [delay, cancellation, care, meals, hotel, southwest, controllable, missed-connection]
-last_verified: null
-verified_by: null
-review_by: null
+last_verified: 2026-10-05
+verified_by: ifaemuh
+review_by: 2027-01-03
 history:
   - { version: 1, status: draft, date: 2026-10-05 }
+  - { version: 1, status: verified, date: 2026-10-05 }

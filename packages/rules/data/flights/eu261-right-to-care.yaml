@@ -1,6 +1,6 @@
 id: eu261-right-to-care
 version: 1
-status: draft
+status: verified
 domain: flights
 jurisdiction: EU-261
 title: "Flight cancelled or badly delayed? The airline must feed you and, if needed, house you"
@@ -241,8 +241,9 @@ sources:
         supports: [summary, how_to_claim.steps.0]
 lead_character: capybara
 tags: [eu261, care, assistance, delay, cancellation, eu, flights]
-last_verified: null
-verified_by: null
-review_by: null
+last_verified: 2026-10-05
+verified_by: ifaemuh
+review_by: 2027-01-03
 history:
   - { version: 1, status: draft, date: 2026-10-02 }
+  - { version: 1, status: verified, date: 2026-10-05 }
