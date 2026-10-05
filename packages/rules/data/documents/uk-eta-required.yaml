@@ -6,7 +6,7 @@ jurisdiction: country:GB
 title: "Visiting the UK on a US, Canadian or Australian passport? You usually need an ETA before you go"
 summary: >-
   Most visitors to the UK, Jersey, Guernsey or the Isle of Man need an ETA or a visa, depending on nationality and why
-  they're coming. You usually need an ETA rather than a visa from the USA, Australia or Canada. It costs £20, each
+  they're coming. You usually need an ETA rather than a visa if you're from the USA, Australia or Canada. It costs £20, each
   traveler needs one, and it does not guarantee entry.
 applies_when:
   all:
@@ -26,7 +26,7 @@ how_to_claim:
     - "Apply for an ETA for every person in your group, including babies and children. You can apply for other people."
     - "Apply on the UK government's site. Other websites may charge more, so avoid sites that imitate government services."
     - "If you are only passing through border control at a UK airport on your way onward, you still need an ETA. Check with your airline if you are not sure."
-    - "The page has an online check for whether you have an ETA and when your ETA expires."
+    - "If you think you already have an ETA, check online on the UK government's site that you have one and when it expires."
   templates: []
 exceptions:
   - "You may need a visa instead of an ETA, depending on your reason for visiting. The page says what you need depends on your nationality and why you're coming."
