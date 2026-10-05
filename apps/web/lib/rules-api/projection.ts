@@ -1,0 +1,62 @@
+import type { Rule, RulesLibrary } from '@elsewhere/rules/core';
+import { needsReviewSince } from '@/lib/rules/accessors';
+import { rulePageUrl } from './links';
+import type { Citation, LinkAttribution, PublicRule, PublicStatus, RuleSummary } from './types';
+
+export function isPublic(rule: Rule): boolean {
+  return rule.status !== 'draft';
+}
+
+/** The schema only requires replaced_by to name an existing rule, which may still be a draft. */
+function replacementIsPublic(rule: Rule, library: RulesLibrary): boolean {
+  return library.rules.some((r) => r.id === rule.replaced_by && isPublic(r));
+}
+
+/** Public rules for the artifact shape: a replaced_by that points at a draft is dropped. */
+export function publicArtifactRules(library: RulesLibrary): Rule[] {
+  return library.rules.filter(isPublic).map((rule) => {
+    if (rule.replaced_by === undefined || replacementIsPublic(rule, library)) return rule;
+    const { replaced_by: _dropped, ...rest } = rule;
+    return rest as Rule;
+  });
+}
+
+export function citationsFor(rule: Rule, library: RulesLibrary): Citation[] {
+  return rule.sources.flatMap((ref) => {
+    const source = library.sources[ref.source];
+    if (!source) return [];
+    return ref.quotes.map((quote) => ({ url: source.url, kind: source.kind, quote: quote.text }));
+  });
+}
+
+export function toPublicRule(rule: Rule, library: RulesLibrary, attribution: LinkAttribution): PublicRule {
+  if (!isPublic(rule)) throw new Error(`Refusing to project draft rule ${rule.id}`);
+  const pub: PublicRule = {
+    id: rule.id,
+    version: rule.version,
+    status: rule.status as PublicStatus,
+    domain: rule.domain,
+    jurisdiction: rule.jurisdiction,
+    title: rule.title,
+    summary: rule.summary,
+    entitlement: rule.entitlement,
+    how_to_claim: { steps: rule.how_to_claim.steps },
+    exceptions: rule.exceptions,
+    citations: citationsFor(rule, library),
+    last_verified: rule.last_verified,
+    review_by: rule.review_by,
+    page_url: rulePageUrl(rule.id, attribution),
+  };
+  if (rule.status === 'needs_review') {
+    pub.notice = `Being re-checked since ${(needsReviewSince(rule) ?? 'recently')} after a source change.`;
+  }
+  if (rule.status === 'retired' && rule.replaced_by && replacementIsPublic(rule, library)) {
+    pub.replaced_by = rule.replaced_by;
+  }
+  return pub;
+}
+
+export function toRuleSummary(rule: Rule, library: RulesLibrary, attribution: LinkAttribution): RuleSummary {
+  const { id, title, summary, status, domain, jurisdiction, page_url, notice } = toPublicRule(rule, library, attribution);
+  return { id, title, summary, status, domain, jurisdiction, page_url, ...(notice ? { notice } : {}) };
+}
