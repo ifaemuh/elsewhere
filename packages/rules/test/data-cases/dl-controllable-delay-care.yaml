@@ -39,3 +39,6 @@ cases:
   - name: schedule change is not covered
     situation: { flight.marketing_carrier_iata: DL, flight.touches_us: true, event.type: schedule_change, event.cause: controllable }
     outcome: does_not_apply
+  - name: weather missed connection
+    situation: { flight.marketing_carrier_iata: DL, flight.touches_us: true, event.type: missed_connection, event.cause: uncontrollable }
+    outcome: does_not_apply

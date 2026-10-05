@@ -41,12 +41,12 @@ how_to_claim:
     - "If you believe an airline has not fulfilled its commitment, contact the airline first to ensure it gives you what is owed."
   templates: [airline_care_request]
 exceptions:
-  - "Delta promises this care only when the delay, misconnect or cancellation is within Delta's control. Delta's Conditions of Carriage count these as force majeure, for which Delta has no liability for amenities: weather conditions or acts of God; riots, civil unrest, embargoes, war, hostilities, or unsettled international conditions; strikes, work stoppages, slowdowns, lockout, or any other labor-related dispute; government regulation, demand, directive or requirement; shortages of labor, fuel, or facilities; and any other condition beyond Delta's control or any fact not reasonably foreseen by Delta. A staffing shortage may therefore not count as Delta's fault."
-  - "The meal promise depends on a wait of 3 or more hours beyond the scheduled departure time. For a cancellation or missed connection, this is the wait for your new departure, not the length of the delay shown on the original flight."
+  - "Delta promises this care only when the delay, misconnect or cancellation is within Delta's control. Delta's Domestic Conditions of Carriage count these as force majeure, for which Delta has no liability for amenities: weather conditions or acts of God; riots, civil unrest, embargoes, war, hostilities, or unsettled international conditions; strikes, work stoppages, slowdowns, lockout, or any other labor-related dispute; government regulation, demand, directive or requirement; shortages of labor, fuel, or facilities; and any other condition beyond Delta's control or any fact not reasonably foreseen by Delta. A staffing shortage may therefore not count as Delta's fault."
+  - "The meal promise depends on a wait of 3 or more hours beyond the scheduled departure time. For a cancellation, Delta's DOT dashboard listing describes it as a meal or meal cash/voucher \"when the cancellation results in a wait of 3 hours or more for a new flight\". For a missed connection, the plan's wording is the same 3 or more hours beyond the scheduled departure time."
   - "The hotel promise has no minimum wait. It applies whenever you are inconvenienced overnight while away from your home or destination, and is based on availability at Delta-contracted facilities."
-  - "The plan applies to Delta's covered flights operating to, from, or within the U.S. Delta's Conditions of Carriage say their terms apply to flights operated by the Delta Connection and Delta Shuttle carriers, and to codeshare flights marketed by Delta. For interline flights operated by other carriers, the conditions of carriage of the operating carrier apply."
+  - "The plan applies to Delta's covered flights operating to, from, or within the U.S. Delta's Domestic Conditions of Carriage (travel entirely within the U.S.) say their terms apply to flights operated by the Delta Connection and Delta Shuttle carriers, and to codeshare flights marketed by Delta. For interline flights operated by other carriers, the conditions of carriage of the operating carrier apply. For an international flight sold under a Delta flight number but operated by a partner airline, these Delta documents don't say whether the plan's care applies."
   - "Delta's Domestic Conditions of Carriage, which apply only to travel entirely within the United States, are narrower than the plan: they provide amenities only when travel is interrupted for more than 4 hours after the scheduled departure time, a voucher for one night's lodging only when the delay is between 10:00 pm and 6:00 am, a travel voucher of up to $100 USD if accommodations are not available, and list no meal. Federal rules require a carrier to adopt a Customer Service Plan and adhere to the plan's terms, so the plan is what Delta has committed to."
-  - "Delta's Conditions of Carriage separately provide ground transportation to the destination airport when a flight is diverted to an alternative airport within certain city groups, and amenities for passengers with special needs. The plan's care promise above does not name diversions."
+  - "Under the same Rule 19B conditions (domestic travel, more than 4 hours, not force majeure), the contract gives ground transportation to the destination airport, in lieu of lodging or other amenities, when a flight is diverted to an alternative airport within listed city groups, and amenities for passengers with special needs. The plan's care promise above does not name diversions."
 sources:
   - id: s1
     source: dl-customer-service-plan
@@ -92,7 +92,7 @@ sources:
         supports: [exceptions]
       - text: "If accommodations are not available, Delta will provide the passenger with a voucher that may be applied to future travel on Delta equal in value to the contracted hotel rate, up to $100 USD."
         supports: [exceptions]
-      - text: "Delta will furnish ground transportation to the destination airport if a passenger’s flight is diverted to an alternative airport and if the destination on the ticket and the diverted airport destination are within the following city groups:"
+      - text: "In lieu of lodging or other amenities, Delta will furnish ground transportation to the destination airport if a passenger’s flight is diverted to an alternative airport and if the destination on the ticket and the diverted airport destination are within the following city groups:"
         supports: [exceptions]
       - text: "Delta will provide such additional or alternative amenities as are necessary to maintain the safety and/or welfare of customers with special needs such as unaccompanied children and Persons with a Disability."
         supports: [exceptions]
@@ -104,6 +104,8 @@ sources:
   - id: s4
     source: dot-customer-service-dashboard
     quotes:
+      - text: "Meal or meal cash/voucher when the cancellation results in a wait of 3 hours or more for a new flight"
+        supports: [exceptions]
       - text: "DOT will hold airlines accountable if they fail to fulfill a customer service commitment. If you believe an airline has not fulfilled its commitment, contact the airline first to ensure it gives you what is owed."
         supports: [how_to_claim.steps.4]
 lead_character: capybara
