@@ -177,3 +177,16 @@ test('copying the fixtures into a domain layout still loads', () => {
   cpSync(join(FIXTURES, 'rules'), join(dir, 'flights'), { recursive: true });
   assert.equal(loadRules({ dataDir: dir, sources: sources() }).length, 5);
 });
+
+test('replaced_by cannot point at the rule itself', () => {
+  const retired = fixtureYaml('fx-us-refund-cancelled-flight')
+    .replace('status: verified', 'status: retired\nreplaced_by: fx-us-refund-cancelled-flight')
+    .replace(/history:\n[\s\S]*$/, 'history:\n  - { version: 1, status: retired, date: 2026-12-01 }\n');
+  const dir = tempData({ 'fx-us-refund-cancelled-flight.yaml': retired });
+  assert.match(issues(() => loadRules({ dataDir: dir, sources: sources() })), /replaced_by: a rule cannot replace itself/);
+});
+
+test('a .yml file in data/ is rejected instead of silently skipped', () => {
+  const dir = tempData({ 'flights/fx-24h-free-cancellation.yml': fixtureYaml('fx-24h-free-cancellation') });
+  assert.match(issues(() => loadRules({ dataDir: dir, sources: sources() })), /fx-24h-free-cancellation\.yml.*use the \.yaml extension/);
+});

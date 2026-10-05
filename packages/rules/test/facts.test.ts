@@ -51,3 +51,8 @@ test('the EU261 rerouting, departure delay, leg distance and journey facts exist
   assert.throws(() => validateSituation({ 'trip.journey_departs_eu': 'yes' }), /expects a boolean/);
   assert.throws(() => validateSituation({ 'event.departure_delay_minutes': '4h' }), /expects a number/);
 });
+
+test('the marketing carrier and merchant-of-record facts exist', () => {
+  validateSituation({ 'flight.marketing_carrier_iata': 'AA', 'trip.ticket_charged_by': 'ticket_agent' });
+  assert.throws(() => validateSituation({ 'trip.ticket_charged_by': 'bank' }), /expects one of airline/);
+});

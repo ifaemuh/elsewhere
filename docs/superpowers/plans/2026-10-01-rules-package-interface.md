@@ -24,7 +24,10 @@ first, in its own commit.
     never from the bare package.**
 - **Dependencies:** `zod@^4.6`, `yaml@^2.9`. Dev: `tsx@^4.19`, `@types/node@^22`.
 - **Tests:** `node --import tsx --test test/**/*.test.ts` (the same runner foundry uses).
-- **Scripts:** `test`, `typecheck` (`tsc --noEmit`), `rules:build`, `rules:check-quotes`.
+- **Scripts:** `test`, `typecheck` (`tsc --noEmit`), `build` (alias of `rules:build`),
+  `rules:build`, `rules:check-quotes`, `rules:declarations` (Open Terms Archive declarations
+  from `sources.yaml`), `rules:fetch-ecfr` (eCFR text into the versions repo), `rules:stale`
+  (rules due for re-verification), `rules:verify` (the founder's approval step).
 - **Field naming:** rule objects keep the YAML's snake_case keys exactly. No camelCase
   transform anywhere, so a rule file, `dist/rules.json`, and the API projection all use
   the same names.
@@ -79,7 +82,7 @@ export interface RuleSourceRef {
 }
 
 export interface Rule {
-  id: string;                  // kebab-case, stable for the rule's life
+  id: string;                  // kebab-case, stable for the rule's life; ids `facts`, `search`, `changes`, `match`, `terms` are reserved (app routes)
   version: number;             // integer >= 1
   status: RuleStatus;
   domain: Domain;
@@ -123,6 +126,8 @@ export interface Source {
   detector: Detector;
 }
 
+export const RESERVED_RULE_IDS: readonly ['facts', 'search', 'changes', 'match', 'terms'];
+// ids `facts`, `search`, `changes`, `match`, `terms` are reserved (app routes)
 export const JURISDICTION_PATTERN =
   /^(US-DOT|US-FTC|US-TSA|US-STATE|EU-261|UK-261|carrier:[A-Z0-9]{2}|issuer:[a-z0-9-]+|country:[A-Z]{2})$/;
 
@@ -316,8 +321,13 @@ export function checkQuotes(rules: Rule[], sourceTexts: Record<string, string>):
 export function checkSupports(rule: Rule): string[];
 ```
 
-`npm run rules:check-quotes -- --versions <dir> [--write-needs-review]` exits 1 on any
-issue. With `--write-needs-review`, it sets `status: needs_review` on each failing
+`npm run rules:check-quotes -- --versions <dir> [--write-needs-review] [--base-ref <ref>]`
+exits 1 on any issue (0 clean, 2 usage, 3 rules or base-ref failed to load, 4 crash, 5 a
+flip could not be written). A quote matches only at token boundaries: where it starts or
+ends on a letter or digit, the neighbouring character in the source must not be one.
+With `--base-ref` (CI mode), a quote that is new or changed since the merge-base with `<ref>`
+must be found, and an unchanged quote fails only when its rule is `verified`; otherwise it
+is printed as a warning. Without it, every issue fails. With `--write-needs-review`, it sets `status: needs_review` on each failing
 `verified` rule's file and appends a history entry (same version, `needs_review`, today,
 note naming the failing source). The nightly backstop uses this, then opens a PR.
 
@@ -338,7 +348,19 @@ note naming the failing source). The nightly backstop uses this, then opens a PR
 
 ## Index (`src/index.ts`) and core (`src/core.ts`)
 
-`src/index.ts` re-exports everything above. Nothing else is public.
+`src/index.ts` re-exports everything above. Nothing else is public: "everything else is
+internal" means every export of the package other than those listed here and above. These
+are public too, and the tracks may rely on them:
+
+- From `facts`: `FactValueError` (thrown by `validateSituation`; track C's situation
+  builder catches it), `FACT_NAMES`, `isFactName`, `factValueFits`, `describeFact`.
+- From `schema`: `RESERVED_RULE_IDS`, `RULE_STATUSES`, `DOMAINS`, `CHARACTERS`,
+  `ENTITLEMENT_KINDS`, `SOURCE_KINDS`, `JURISDICTION_PATTERN`, `RuleSchema`, `SourceSchema`.
+- From `load` (index only): `RulesValidationError`, `loadRules`, `loadSources`.
+
+Everything else (the CLI scripts, `containsQuote`, `partitionCiIssues`, `quoteFingerprints`,
+`guardTruncated`, `fetchEcfrPart`, the history and declaration helpers) is internal to the
+package.
 
 `src/core.ts` re-exports everything above except `src/load.ts` (`loadRules`, `loadSources`,
 `RulesValidationError`) and the values `buildLibrary` and `changesFromHistory`. A test walks

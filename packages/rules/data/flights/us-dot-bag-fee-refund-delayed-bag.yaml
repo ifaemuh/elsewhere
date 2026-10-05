@@ -1,0 +1,104 @@
+id: us-dot-bag-fee-refund-delayed-bag
+version: 1
+status: draft
+domain: flights
+jurisdiction: US-DOT
+title: "Bag lost or badly delayed? The airline owes you the bag fee back"
+summary: >-
+  If your checked bag is lost, or not delivered within 12 hours of arrival (domestic trip), 15 hours (international
+  trip) or 30 hours (international trip with a non-stop flight between the US and another country over 12 hours), and
+  you file a Mishandled Baggage Report, the airline must promptly refund what you paid to check it.
+applies_when:
+  all:
+    - fact: flight.touches_us
+      eq: true
+    - any:
+        - fact: event.type
+          in: [bag_lost]
+        - all:
+            - fact: event.type
+              in: [bag_delayed]
+            - any:
+                - all:
+                    - fact: trip.itinerary_domestic_us
+                      eq: true
+                    - fact: event.delay_minutes
+                      gt: 720
+                - all:
+                    - fact: trip.itinerary_domestic_us
+                      eq: false
+                    - any:
+                        - fact: event.delay_minutes
+                          gt: 1800
+                        - all:
+                            - fact: trip.us_foreign_nonstop_minutes
+                              lte: 720
+                            - fact: event.delay_minutes
+                              gt: 900
+entitlement:
+  kind: refund
+  amount:
+    refund: the fee you paid to check the lost or significantly delayed bag
+    minimum: equal to or greater than the fee paid to transport the bag
+    form: original form of payment unless you agree to a cash equivalent
+    processing_fee_retained: false
+  timing: "within 7 business days for credit card purchases, within 20 calendar days for cash, check, debit card or other forms of purchase, counted from the earliest date the refund was requested as set forth in 14 CFR 260.6(a)(2)"
+how_to_claim:
+  steps:
+    - "File a Mishandled Baggage Report with the airline that operated your flight, or with the airline that operated the last segment if you flew several airlines."
+    - "Ask for a refund of the checked-bag fee for the lost or significantly delayed bag from the airline you paid it to. If a travel agent charged the fee, ask the airline that operated your last flight. Keep the receipt for the fee."
+    - "Check that the money returns to your original form of payment, within 7 business days for a credit card or 20 calendar days for other payments."
+  templates: [airline_refund_request]
+exceptions:
+  - "No refund obligation unless you file a Mishandled Baggage Report for the lost or delayed bag with the airline that operated the flight, or the last segment of a multiple-carrier itinerary."
+  - "When another airline received the report, that airline has to notify the airline responsible for the refund that the bag was lost or significantly delayed before the refund obligation applies."
+  - "Delay is counted from when you are given the opportunity to deplane at your final destination airport until the bag is delivered to a place you and the airline agreed on or you or someone acting for you picks it up there."
+  - "No refund if the delay resulted from your failure to pick up and recheck a bag at the first international entry point into the United States as required by U.S. Customs and Border Protection."
+  - "No refund if the delay resulted from your failure to pick up a checked bag that arrived on time at your ticketed final destination, when the carrier documents that this was your fault."
+  - "No refund if the delay resulted from your voluntary agreement to travel without the checked bag on the same flight, when you missed the minimum check-in time or were a standby passenger."
+  - "If your trip included a non-stop flight between the US and another country longer than 12 hours, the limit is 30 hours, even on a domestic connection. On any other international ticket the limit is 15 hours, also on domestic connections."
+  - "If you pay a baggage fee subscription, the refund is the lowest bag fee the airline charges another passenger of similar frequent flyer status and in the same class of service without the subscription."
+  - "Covers scheduled passenger service only."
+sources:
+  - id: s1
+    source: ecfr-14-cfr-260
+    quotes:
+      - text: "Significantly delayed checked bag means a checked bag not delivered to or picked up by the consumer or another person authorized to act on behalf of the consumer within 12 hours of the last flight segment's arrival for domestic itineraries, within 15 hours of the last flight segment's arrival for international itineraries with a non-stop flight segment between the United States and a foreign point that is 12 hours or less in duration, and within 30 hours of the last flight segment's arrival for international itineraries with a non-stop flight segment between the United States and a foreign point that is more than 12 hours in duration."
+        supports: [summary, applies_when, exceptions]
+      - text: "The 15-hour and 30-hour standards apply to domestic segments of international itineraries."
+        supports: [exceptions]
+      - text: "A covered carrier that is the merchant of record or, if a ticket agent is the merchant of record, the covered carrier that operated the flight or the last flight segment in a multiple-carrier itinerary, must provide a prompt refund to a consumer of any fee charged for transporting a lost bag or a significantly delayed checked bag, as defined in § 260.2 of this part and determined according to paragraph (a) of this section, subject to the conditions in paragraphs (b) and (c) of this section."
+        supports: [summary, applies_when, entitlement, how_to_claim.steps.1]
+      - text: "the length of delay is calculated from the time the passenger is given the opportunity to deplane from a flight at the passenger's final destination airport (the beginning of the delay) to the time that the carrier has delivered the bag to a location agreed upon by the passenger and carrier (e.g., passenger's home or hotel) or the time that the bag has been picked up by the passenger or another person acting on behalf of the passenger at the passenger's final destination airport (the end of the delay)."
+        supports: [applies_when, exceptions]
+      - text: "A covered carrier does not have an obligation to provide a refund of the fee for a lost or significantly delayed checked bag unless a passenger files a Mishandled Baggage Report (MBR) for the lost or delayed bag with the carrier that operated the flight, or for multiple-carrier itineraries, the carrier that operated the last segment of the consumer's itinerary."
+        supports: [summary, exceptions, how_to_claim.steps.0]
+      - text: "A covered carrier's obligation to provide a prompt refund of a baggage fee for a lost bag or a significantly delayed checked bag as defined in § 260.2 is conditioned upon the carrier that received the MBR notifying the carrier responsible for providing a prompt refund that the bag has been lost or significantly delayed."
+        supports: [exceptions]
+      - text: "The amount of the refund issued to a consumer must be a value equal to or greater than the fee that the consumer paid to transport his/her checked bag."
+        supports: [entitlement.amount, how_to_claim.steps.1]
+      - text: "A passenger's failure to pick up and recheck a bag at the first international entry point into the United States as required by U.S. Customs and Border Protection;"
+        supports: [exceptions]
+      - text: "A passenger's failure to pick up a checked bag that arrived on time at the passenger's ticketed final destination due to the fault of the passenger if documented by the carrier"
+        supports: [exceptions]
+      - text: "A passenger's voluntary agreement to travel without the checked bag on the same flight as described in paragraph (g) of this section."
+        supports: [exceptions]
+      - text: "A carrier may require a passenger who fails to meet the minimum check-in time requirement for a flight or is a standby passenger for a flight"
+        supports: [exceptions]
+      - text: "the carrier must refund the lowest amount of the baggage fee the carrier charges another passenger of similar frequent flyer status and in the same class of service without the subscription when a passenger subscribing to the program has a significantly delayed or lost bag."
+        supports: [exceptions]
+      - text: "Covered carrier means an air carrier or a foreign air carrier operating to, from, or within the United States, conducting scheduled passenger service."
+        supports: [applies_when, exceptions]
+      - text: "Prompt refund means refunds made within 7 business days after the earliest date the refund was requested as set forth in § 260.6(a)(2) as required by 14 CFR 374.3 for credit card purchases and within 20 calendar days after the earliest date the refund was requested as set forth in § 260.6(a)(2) for cash, check, debit card, or other forms of purchases."
+        supports: [entitlement.timing, how_to_claim.steps.2]
+      - text: "the refund must be issued promptly in the original form of payment (i.e., money is returned to an individual using whatever payment method the individual used to make the original payment, such as a check, credit card, debit card, cash, or airline miles) unless the consumer agrees to receive the refunds in a different form of payment that is a cash equivalent as defined in § 260.2."
+        supports: [entitlement.amount, how_to_claim.steps.2]
+      - text: "Carriers may not retain a processing fee for issuing refunds that are due."
+        supports: [entitlement.amount]
+lead_character: pigeon
+tags: [refund, baggage, bag-fee, delayed-bag, lost-bag, dot]
+last_verified: null
+verified_by: null
+review_by: null
+history:
+  - { version: 1, status: draft, date: 2026-10-02 }
