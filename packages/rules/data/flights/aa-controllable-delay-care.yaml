@@ -6,8 +6,8 @@ jurisdiction: carrier:AA
 title: "American Airlines delayed or cancelled your flight? If it's their doing, ask for a meal credit, hotel and transport"
 summary: >-
   When American causes a delay, cancellation or missed connection, its plan gives you on request a food credit if your
-  delay is 3 or more hours after your scheduled departure, and a hotel voucher plus transport if you're away from home
-  and not boarded before 11:59 p.m. Nothing is promised if the cause is beyond American's control, except after a diversion.
+  delay is 3 or more hours after your scheduled departure, and a hotel voucher plus transport if you're away from your city
+  of residence and not boarded before 11:59 p.m. Nothing is promised if the cause is beyond American's control, except after a diversion.
 applies_when:
   all:
     - fact: flight.marketing_carrier_iata
