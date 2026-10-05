@@ -20,7 +20,20 @@ export function checkMember(rules: Rule[], situation: Situation): MemberCheck[] 
       ? { result: 'action_needed', rule, detail: rule.title }
       : { result: 'unknown', rule, detail: `Hasn’t confirmed the details for: ${rule.title}` };
   });
+  if (hasPassportGap(documentRules, results.map((r) => r.rule_id), situation)) {
+    checks.push({ result: 'unknown', rule: null, detail: PASSPORT_GAP_DETAIL });
+  }
   return checks.length > 0 ? checks : [{ result: 'ok', rule: null, detail: 'No document issues found for this trip.' }];
+}
+
+/** Shown when a rule covers the trip but is scoped to other passports, so the member is never told "all clear". */
+export const PASSPORT_GAP_DETAIL = 'Elsewhere hasn’t verified the entry rules for your passport on this trip yet.';
+
+function hasPassportGap(documentRules: Rule[], matchedIds: string[], situation: Situation): boolean {
+  if (situation['passenger.nationality'] === undefined) return false;
+  const { 'passenger.nationality': _dropped, ...withoutNationality } = situation;
+  const unmatched = documentRules.filter((rule) => rule.status === 'verified' && !matchedIds.includes(rule.id));
+  return matchRules(unmatched, withoutNationality, { statuses: ['verified'] }).length > 0;
 }
 
 export function requiredMonths(rule: Rule): number | null {

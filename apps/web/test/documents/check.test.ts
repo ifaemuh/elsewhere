@@ -48,3 +48,46 @@ describe('documentRulesCover', () => {
     expect(documentRulesCover(rules, { 'trip.destination_country': 'PT' })).toBe(true);
   });
 });
+
+import { PASSPORT_GAP_DETAIL } from '@/lib/documents/check';
+
+describe('checkMember passport coverage gap', () => {
+  const base = rules.find((r) => r.id === 'fixture-passport-validity-pt')!;
+  const gated = (id: string, countries: string[]): Rule => ({
+    ...base,
+    id,
+    title: `Gated ${id}`,
+    applies_when: { all: [{ fact: 'trip.destination_country', in: ['GB'] }, { fact: 'passenger.nationality', in: countries }] },
+  } as Rule);
+  const eta = gated('gated-eta', ['US', 'CA', 'AU']);
+  const visa = gated('gated-visa', ['US', 'CA']);
+  const gb = { 'trip.destination_country': 'GB', 'flight.is_domestic_us': false };
+
+  it('gives an unlisted nationality the gap check and never ok', () => {
+    const checks = checkMember([eta], { ...gb, 'passenger.nationality': 'FR' });
+    expect(checks).toEqual([{ result: 'unknown', rule: null, detail: PASSPORT_GAP_DETAIL }]);
+  });
+  it('still gives a listed nationality action_needed', () => {
+    const checks = checkMember([eta], { ...gb, 'passenger.nationality': 'US' });
+    expect(checks).toMatchObject([{ result: 'action_needed', rule: { id: 'gated-eta' } }]);
+  });
+  it('keeps unknown with the rule when nationality is missing', () => {
+    const checks = checkMember([eta], gb);
+    expect(checks).toMatchObject([{ result: 'unknown', rule: { id: 'gated-eta' } }]);
+  });
+  it('leaves rules without a nationality condition as ok', () => {
+    const checks = checkMember(rules, { 'trip.destination_country': 'PT', 'passenger.passport_months_valid_after_return': 9, 'passenger.nationality': 'FR', 'flight.is_domestic_us': false });
+    expect(checks).toEqual([{ result: 'ok', rule: null, detail: 'No document issues found for this trip.' }]);
+  });
+  it('adds only one gap check for two gated rules', () => {
+    const checks = checkMember([eta, visa], { ...gb, 'passenger.nationality': 'FR' });
+    expect(checks).toHaveLength(1);
+    expect(checks[0].detail).toBe(PASSPORT_GAP_DETAIL);
+  });
+  it('coexists with action_needed from another rule', () => {
+    const checks = checkMember([eta, base], { 'trip.destination_country': 'GB', 'passenger.nationality': 'FR', 'flight.is_domestic_us': false });
+    expect(checks).toEqual([{ result: 'unknown', rule: null, detail: PASSPORT_GAP_DETAIL }]);
+    const both = checkMember([eta, { ...base, applies_when: { all: [{ fact: 'trip.destination_country', in: ['GB'] }] } } as Rule], { ...gb, 'passenger.nationality': 'FR' });
+    expect(both.map((c) => c.result).sort()).toEqual(['action_needed', 'unknown']);
+  });
+});
