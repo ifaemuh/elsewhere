@@ -1,0 +1,35 @@
+rule: dl-controllable-delay-care
+cases:
+  - name: 3 hour delay caused by Delta
+    situation: { flight.carrier_iata: DL, flight.touches_us: true, event.type: delay, event.cause: controllable, event.delay_minutes: 180 }
+    outcome: applies
+  - name: cancellation, cause not yet known, 5 hours
+    situation: { flight.carrier_iata: DL, flight.touches_us: true, event.type: cancellation, event.cause: unknown, event.delay_minutes: 300 }
+    outcome: applies
+  - name: one minute short of the 3 hour threshold
+    situation: { flight.carrier_iata: DL, flight.touches_us: true, event.type: delay, event.cause: controllable, event.delay_minutes: 179 }
+    outcome: does_not_apply
+  - name: delay length not known yet
+    situation: { flight.carrier_iata: DL, flight.touches_us: true, event.type: delay, event.cause: controllable }
+    outcome: may_apply
+    missing_facts: [event.delay_minutes]
+  - name: cause not stated at all
+    situation: { flight.carrier_iata: DL, flight.touches_us: true, event.type: delay, event.delay_minutes: 240 }
+    outcome: may_apply
+    missing_facts: [event.cause]
+  - name: touches the US not known yet
+    situation: { flight.carrier_iata: DL, event.type: delay, event.cause: controllable, event.delay_minutes: 240 }
+    outcome: may_apply
+    missing_facts: [flight.touches_us]
+  - name: weather delay
+    situation: { flight.carrier_iata: DL, flight.touches_us: true, event.type: delay, event.cause: uncontrollable, event.delay_minutes: 400 }
+    outcome: does_not_apply
+  - name: another carrier
+    situation: { flight.carrier_iata: UA, flight.touches_us: true, event.type: delay, event.cause: controllable, event.delay_minutes: 400 }
+    outcome: does_not_apply
+  - name: flight does not touch the US
+    situation: { flight.carrier_iata: DL, flight.touches_us: false, event.type: delay, event.cause: controllable, event.delay_minutes: 400 }
+    outcome: does_not_apply
+  - name: missed connection is not this rule
+    situation: { flight.carrier_iata: DL, flight.touches_us: true, event.type: missed_connection, event.cause: controllable, event.delay_minutes: 400 }
+    outcome: does_not_apply

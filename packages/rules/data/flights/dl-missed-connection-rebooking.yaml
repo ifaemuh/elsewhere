@@ -1,0 +1,74 @@
+id: dl-missed-connection-rebooking
+version: 1
+status: draft
+domain: flights
+jurisdiction: "carrier:DL"
+title: "Missed a connection on Delta? Delta says it will rebook you at no additional cost"
+summary: >-
+  When you misconnect, Delta's Customer Service Plan says it will rebook you on the next available Delta flight at no
+  additional cost, or on another airline it has a ticketing agreement with if no Delta flight is available. The plan does
+  not make this depend on the cause.
+applies_when:
+  all:
+    - fact: flight.carrier_iata
+      eq: DL
+    - fact: flight.touches_us
+      eq: true
+    - fact: event.type
+      in: [missed_connection]
+    - fact: flight.single_ticket
+      eq: true
+entitlement:
+  kind: rebooking
+  amount:
+    first_choice: "rebooking on the next available flight on Delta at no additional cost"
+    if_no_delta_flight: "an alternative flight operated by another airline with which Delta has a ticketing agreement, at no additional cost"
+    baggage: "Delta will make every reasonable effort to reroute your checked baggage on the same flight as you"
+how_to_claim:
+  steps:
+    - "Go to a Delta agent at the airport or contact Delta right away and say you have misconnected and need to be rebooked."
+    - "Ask to be put on the next available Delta flight to your destination at no additional cost. If no Delta flight is available, ask for a flight on another airline with which Delta has a ticketing agreement."
+    - "Ask that your checked baggage be rerouted onto the same flight as you."
+  templates: []
+exceptions:
+  - "The plan applies to Delta's covered flights operating to, from, or within the U.S."
+  - "The plan does not say what Delta does when you miss a connection on separate tickets. Delta's plan says that combining separate one-way tickets increases the likelihood of customer service failures such as missed connections, and this rule applies only when all flights are on one ticket or booking."
+  - "Delta's Conditions of Carriage say that Delta is not responsible or liable for making connections. They also say that after a change that will cause a passenger to miss connections, Delta will refund the unused ticket if you ask, or if you do not ask, transport you on its next flight with seats available in the class of service you bought."
+  - "Under the Conditions of Carriage, Delta may arrange travel on another carrier or by ground transportation only at its sole discretion and if acceptable to you, and may offer a lower class of service."
+  - "Delta's Domestic Conditions of Carriage apply only to travel entirely within the United States. For interline flights operated by other carriers, the operating carrier's conditions of carriage apply."
+sources:
+  - id: s1
+    source: dl-customer-service-plan
+    quotes:
+      - text: "The Delta Air Lines Customer Service Plan applies to our covered flights operating to, from, or within the U.S."
+        supports: [applies_when, exceptions]
+      - text: "When your flight has been significantly delayed, cancelled, or you have misconnected, we will rebook you on the next available flight on Delta at no additional cost."
+        supports: [summary, applies_when, entitlement.amount, how_to_claim.steps.0, how_to_claim.steps.1]
+      - text: "If a Delta flight is unavailable, we will arrange an alternative flight operated by another airline with which we have a ticketing agreement at no additional cost."
+        supports: [summary, entitlement.amount, how_to_claim.steps.1]
+      - text: "We will make every reasonable effort to reroute your checked baggage on the same flight as you."
+        supports: [entitlement.amount, how_to_claim.steps.2]
+      - text: "because this increases the likelihood that you could experience customer service failures such as lost baggage and missed connections."
+        supports: [exceptions]
+  - id: s2
+    source: dl-contract-of-carriage
+    quotes:
+      - text: "Delta is not responsible or liable for making connections"
+        supports: [exceptions]
+      - text: "change that will cause a passenger to miss connections"
+        supports: [exceptions]
+      - text: "If the passenger does not request cancellation and refund of the remaining portion of the ticket, Delta will transport the passenger to the destination on Delta’s next flight on which seats are available in the class of service originally purchased."
+        supports: [exceptions]
+      - text: "At Delta’s sole discretion and if acceptable to the passenger, Delta may arrange for the passenger to travel on another Carrier or via ground transportation. If acceptable to the passenger, Delta may provide transportation in a lower class of service, in which case the passenger may be entitled to a partial refund."
+        supports: [exceptions]
+      - text: "This document is Delta's Domestic Conditions of Carriage. It applies only to travel entirely within the United States of America"
+        supports: [exceptions]
+      - text: "For interline flights operated by other Carriers, the conditions of carriage of the operating Carrier will apply."
+        supports: [exceptions]
+lead_character: capybara
+tags: [delta, missed-connection, misconnect, rebooking]
+last_verified: null
+verified_by: null
+review_by: null
+history:
+  - { version: 1, status: draft, date: 2026-10-05 }

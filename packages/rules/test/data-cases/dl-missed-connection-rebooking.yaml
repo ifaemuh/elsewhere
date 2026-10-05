@@ -1,0 +1,28 @@
+rule: dl-missed-connection-rebooking
+cases:
+  - name: missed connection on one Delta ticket
+    situation: { flight.carrier_iata: DL, flight.touches_us: true, event.type: missed_connection, flight.single_ticket: true }
+    outcome: applies
+  - name: applies whatever the cause
+    situation: { flight.carrier_iata: DL, flight.touches_us: true, event.type: missed_connection, flight.single_ticket: true, event.cause: uncontrollable }
+    outcome: applies
+  - name: ticket setup not known yet
+    situation: { flight.carrier_iata: DL, flight.touches_us: true, event.type: missed_connection }
+    outcome: may_apply
+    missing_facts: [flight.single_ticket]
+  - name: touches the US not known yet
+    situation: { flight.carrier_iata: DL, event.type: missed_connection, flight.single_ticket: true }
+    outcome: may_apply
+    missing_facts: [flight.touches_us]
+  - name: separate tickets
+    situation: { flight.carrier_iata: DL, flight.touches_us: true, event.type: missed_connection, flight.single_ticket: false }
+    outcome: does_not_apply
+  - name: another carrier
+    situation: { flight.carrier_iata: AA, flight.touches_us: true, event.type: missed_connection, flight.single_ticket: true }
+    outcome: does_not_apply
+  - name: flight does not touch the US
+    situation: { flight.carrier_iata: DL, flight.touches_us: false, event.type: missed_connection, flight.single_ticket: true }
+    outcome: does_not_apply
+  - name: a plain delay is not a missed connection
+    situation: { flight.carrier_iata: DL, flight.touches_us: true, event.type: delay, flight.single_ticket: true }
+    outcome: does_not_apply
