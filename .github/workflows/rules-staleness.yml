@@ -1,0 +1,78 @@
+name: Rules staleness
+
+on:
+  schedule:
+    - cron: '0 13 * * 1'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  issues: write
+
+env:
+  WITHIN_DAYS: '14'
+
+concurrency:
+  group: rules-staleness
+  cancel-in-progress: false
+
+jobs:
+  staleness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci -w @elsewhere/rules --ignore-scripts
+
+      - name: List rules due within the window
+        run: |
+          # Fail the job on any error; an empty file means nothing is due.
+          npm run -s rules:stale -w @elsewhere/rules -- --within "$WITHIN_DAYS" > "$RUNNER_TEMP/stale.md"
+          if [ -s "$RUNNER_TEMP/stale.md" ]; then
+            echo "Rules due: $(wc -l < "$RUNNER_TEMP/stale.md" | tr -d ' ')"
+          fi
+
+      - name: Open, update or close the staleness issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh label create rules-staleness --force --color FBCA04 --description "Rules due for re-verification"
+          # One issue at a time: update the oldest open one; close any extras as duplicates.
+          # Capture first so a failed gh call fails the step under bash -e.
+          nums=$(gh issue list --label rules-staleness --state open --json number --jq 'sort_by(.number) | .[].number')
+          open=()
+          while IFS= read -r n; do if [ -n "$n" ]; then open+=("$n"); fi; done <<<"$nums"
+          existing="${open[0]:-}"
+          if [ ! -s "$RUNNER_TEMP/stale.md" ]; then
+            if [ "${#open[@]}" -eq 0 ]; then
+              echo "::notice::No rules are due within $WITHIN_DAYS days and no staleness issue is open; nothing to do."
+            fi
+            for n in "${open[@]}"; do
+              gh issue close "$n" --reason "not planned" --comment "Nothing is due in the next $WITHIN_DAYS days."
+            done
+            exit 0
+          fi
+          {
+            echo "These rules reach their review_by date within $WITHIN_DAYS days."
+            echo "Re-verify each one with packages/rules/RESEARCH.md, then run rules:verify."
+            echo
+            cat "$RUNNER_TEMP/stale.md"
+          } > "$RUNNER_TEMP/body.md"
+          if [ -n "$existing" ]; then
+            gh issue edit "$existing" --body-file "$RUNNER_TEMP/body.md"
+            echo "::notice::Updated open staleness issue #$existing instead of opening a new one."
+            for n in "${open[@]:1}"; do
+              gh issue close "$n" --reason "not planned" --comment "Duplicate of #$existing."
+            done
+          else
+            gh issue create --title "Rules due for re-verification" --label rules-staleness --body-file "$RUNNER_TEMP/body.md"
+          fi

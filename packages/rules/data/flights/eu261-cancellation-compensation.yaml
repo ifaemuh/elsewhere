@@ -1,0 +1,305 @@
+id: eu261-cancellation-compensation
+version: 1
+status: draft
+domain: flights
+jurisdiction: EU-261
+title: "Flight cancelled with under 14 days' notice? The airline may owe you EUR 250 to 600"
+summary: >-
+  If an airline cancels a flight EU rules cover (or moves it more than 1 hour earlier) and tells you less than 14 days before departure, the airline that
+  operated it must pay EUR 250, 400 or 600 by distance, unless it proves extraordinary circumstances or gave you
+  rerouting within the regulation's time limits. Choosing a refund or rerouting doesn't cost you this. If it doesn't
+  pay, ask.
+applies_when:
+  all:
+    - any:
+        - fact: trip.journey_departs_eu
+          eq: true
+        - fact: flight.departs_eu
+          eq: true
+        - fact: flight.departs_iceland_norway_switzerland
+          eq: true
+        - all:
+            - fact: trip.journey_arrives_eu
+              eq: true
+            - fact: flight.carrier_is_eu
+              eq: true
+        - all:
+            - fact: flight.arrives_eu
+              eq: true
+            - fact: flight.carrier_is_eu
+              eq: true
+    - any:
+        - fact: event.type
+          in: [cancellation]
+        - all:
+            - fact: event.type
+              in: [schedule_change]
+            - fact: event.departure_moved_earlier_minutes
+              gt: 60
+    - fact: event.notice_days
+      lt: 14
+    - any:
+        - all:
+            - fact: event.notice_days
+              lt: 7
+            - any:
+                - fact: event.reroute_departs_early_minutes
+                  gt: 60
+                - fact: event.reroute_arrival_delay_minutes
+                  gte: 120
+        - all:
+            - fact: event.notice_days
+              gte: 7
+            - any:
+                - fact: event.reroute_departs_early_minutes
+                  gt: 120
+                - fact: event.reroute_arrival_delay_minutes
+                  gte: 240
+    - fact: event.cause
+      in: [controllable, unknown]
+entitlement:
+  kind: compensation
+  amount:
+    flights_of_1500_km_or_less: "EUR 250 for all flights of 1500 kilometres or less"
+    intra_community_over_1500_km_and_other_1500_to_3500_km: "EUR 400 for all intra-Community flights of more than 1500 kilometres, and for all other flights between 1500 and 3500 kilometres"
+    all_other_flights: "EUR 600 for all flights not falling under (a) or (b)"
+    all_other_flights_means: "More than 3 500 km (non-EU countries), that is, flights over 3500 kilometres that are not intra-Community"
+    distance_basis: "In determining the distance, the basis shall be the last destination at which the denial of boarding or cancellation will delay the passenger's arrival after the scheduled time."
+    distance_method: "The distances given in paragraphs 1 and 2 shall be measured by the great circle route method."
+    payment_form: "paid in cash, by electronic bank transfer, bank orders or bank cheques or, with the signed agreement of the passenger, in travel vouchers and/or other services"
+how_to_claim:
+  steps:
+    - "Find out when the airline told you about the cancellation. If it told you 14 days (two weeks) or more before departure, no compensation is owed. The airline must prove whether and when you were personally told."
+    - "The airline that was to fly you (the operating airline) owes the compensation, even if you bought your ticket from someone else. If it doesn't offer the compensation, ask it."
+    - "When the airline tells you about the cancellation, it must explain the possible alternative transport. If it doesn't, ask. Note the planned times of any rerouting it offers: no compensation is owed if you were told 7 to 14 days ahead and it lets you leave no more than 2 hours early and arrive less than 4 hours late, or if you were told under 7 days ahead and it lets you leave no more than 1 hour early and arrive less than 2 hours late."
+    - "You can take a refund or rerouting and still claim compensation. A refund doesn't cost you the compensation, which depends on the length of your flight. If you choose rerouting, it depends on the length of your flight and on how late you reach your final destination."
+    - "Check the distance band for your journey, measured in a straight line (great circle): EUR 250 up to 1500 km; EUR 400 for flights inside the EU over 1500 km and other flights from 1500 to 3500 km; EUR 600 for other flights over 3500 km."
+    - "If the airline says extraordinary circumstances caused the cancellation, ask for the reason in writing. The airline must prove it, for example with extracts from logbooks or incident reports. If you don't get a satisfactory explanation, you can contact the national enforcement body."
+    - "The airline must pay in cash or by bank transfer. A voucher or other service is only allowed if you agree to it in writing, so you can say no."
+    - "Contract terms cannot waive or limit these rights, and accepting less because you weren't told your rights does not stop you from claiming more. Review the claim letter we drafted, add your booking and flight details, and send it to the airline yourself."
+    - "Always send your complaint to the airline first. If you get no reply within 2 months, or the reply is not satisfactory, you can complain to the national authority in the country where the incident took place."
+  templates: [eu261_claim_letter]
+exceptions:
+  - "Not owed if the airline told you at least two weeks (14 days) before the scheduled departure."
+  - "Not owed if the airline told you between two weeks and seven days before the scheduled departure and offered rerouting that let you leave no more than two hours before the scheduled departure and reach your final destination less than four hours after the scheduled arrival."
+  - "Not owed if the airline told you less than seven days before the scheduled departure and offered rerouting that let you leave no more than one hour before the scheduled departure and reach your final destination less than two hours after the scheduled arrival."
+  - "Not owed if the airline proves the cancellation was caused by extraordinary circumstances that could not have been avoided even if all reasonable measures had been taken. The European Commission's guidance gives these examples of extraordinary circumstances: air traffic management decisions, political instability, adverse weather conditions and security risks. It says these are not: most technical problems found during maintenance or caused by failure to maintain an aircraft, a collision of mobile boarding stairs with an aircraft, and strikes by the airline's own staff. A strike outside the airline may count. The airline must prove the link and that the cancellation could not have been avoided."
+  - "The airline may cut the compensation by 50% (EUR 125, 200 or 300) if it offered you rerouting that got you to your final destination no more than 2 hours (flights up to 1500 km), 3 hours (EU flights over 1500 km and other flights of 1500 to 3500 km) or 4 hours (all other flights) after the original arrival time."
+  - "Some changes count as a delay, not a cancellation, and then the delay rule applies instead. That is the case if you accepted rerouting to the airport of your original final destination or another destination you agreed, or if the airport you reached and your original final destination serve the same town, city or region."
+  - "You need a confirmed reservation on the flight, or to have been moved from a flight you had booked to another one. You do not have to check in for a cancelled flight."
+  - "Does not apply if a package tour is cancelled for reasons other than cancellation of the flight."
+  - "Not owed for free tickets or tickets at a reduced fare not available directly or indirectly to the public. Tickets issued under a frequent flyer or other commercial programme are covered."
+  - "Only covers passengers carried by motorised fixed wing aircraft."
+  - "A flight arriving in the EU from outside the EU is covered only if the operating airline is licensed in an EU member state (an EU airline). A flight leaving the EU is covered whatever the airline. If your flights are on one booking and the journey starts in the EU, every flight of it is covered, whatever the airline: the rules look at the whole journey to your final destination."
+  - "If your flight came into the EU from outside it, these rules don't apply if, in that non-EU country, you already received benefits or compensation and were also given assistance."
+  - "Your outbound and return flights count separately, even if they are on one booking. Each direction is its own journey."
+  - "EU here means the 27 EU countries, including Guadeloupe, French Guiana, Martinique, Mayotte, Reunion, Saint Barthelemy, Saint-Martin, the Azores, Madeira and the Canary Islands, but not the Faeroe Islands. The European Commission's guidance says the rules also apply to flights to and from Iceland, Norway and Switzerland; this rule covers flights leaving them."
+  - "Deadlines for taking a claim to court depend on each EU country's own rules."
+sources:
+  - id: s1
+    source: eurlex-261-2004
+    quotes:
+      - text: "to passengers departing from an airport located in the territory of a Member State to which the Treaty applies;"
+        supports: [summary, applies_when]
+      - text: "to passengers departing from an airport located in a third country to an airport situated in the territory of a Member State to which the Treaty applies, unless they received benefits or compensation and were given assistance in that third country, if the operating air carrier of the flight concerned is a Community carrier."
+        supports: [summary, applies_when, exceptions]
+      - text: '"Community carrier" means an air carrier with a valid operating licence granted by a Member State in accordance with the provisions of Council Regulation (EEC) No 2407/92 of 23 July 1992 on licensing of air carriers(5);'
+        supports: [applies_when, exceptions]
+      - text: '"operating air carrier" means an air carrier that performs or intends to perform a flight under a contract with a passenger or on behalf of another person, legal or natural, having a contract with that passenger;'
+        supports: [summary, how_to_claim.steps.1]
+      - text: "This Regulation shall apply to any operating air carrier providing transport to passengers covered by paragraphs 1 and 2. Where an operating air carrier which has no contract with the passenger performs obligations under this Regulation, it shall be regarded as doing so on behalf of the person having a contract with that passenger."
+        supports: [summary, how_to_claim.steps.1]
+      - text: "In order to ensure the effective application of this Regulation, the obligations that it creates should rest with the operating air carrier who performs or intends to perform a flight, whether with owned aircraft, under dry or wet lease, or on any other basis."
+        supports: [summary, how_to_claim.steps.1]
+      - text: '"cancellation" means the non-operation of a flight which was previously planned and on which at least one place was reserved.'
+        supports: [summary, applies_when]
+      - text: "In case of cancellation of a flight, the passengers concerned shall:"
+        supports: [summary, applies_when]
+      - text: "have the right to compensation by the operating air carrier in accordance with Article 7, unless:"
+        supports: [summary, applies_when, exceptions]
+      - text: "they are informed of the cancellation at least two weeks before the scheduled time of departure; or"
+        supports: [summary, applies_when, exceptions, how_to_claim.steps.0]
+      - text: "they are informed of the cancellation between two weeks and seven days before the scheduled time of departure and are offered re-routing, allowing them to depart no more than two hours before the scheduled time of departure and to reach their final destination less than four hours after the scheduled time of arrival; or"
+        supports: [summary, applies_when, exceptions, how_to_claim.steps.2]
+      - text: "they are informed of the cancellation less than seven days before the scheduled time of departure and are offered re-routing, allowing them to depart no more than one hour before the scheduled time of departure and to reach their final destination less than two hours after the scheduled time of arrival."
+        supports: [summary, applies_when, exceptions, how_to_claim.steps.2]
+      - text: "When passengers are informed of the cancellation, an explanation shall be given concerning possible alternative transport."
+        supports: [how_to_claim.steps.2]
+      - text: "An operating air carrier shall not be obliged to pay compensation in accordance with Article 7, if it can prove that the cancellation is caused by extraordinary circumstances which could not have been avoided even if all reasonable measures had been taken."
+        supports: [summary, applies_when, exceptions]
+      - text: "The burden of proof concerning the questions as to whether and when the passenger has been informed of the cancellation of the flight shall rest with the operating air carrier."
+        supports: [how_to_claim.steps.0, exceptions]
+      - text: "Where reference is made to this Article, passengers shall receive compensation amounting to:"
+        supports: [summary, entitlement.amount]
+      - text: "EUR 250 for all flights of 1500 kilometres or less;"
+        supports: [summary, entitlement.amount, how_to_claim.steps.4]
+      - text: "EUR 400 for all intra-Community flights of more than 1500 kilometres, and for all other flights between 1500 and 3500 kilometres;"
+        supports: [summary, entitlement.amount, how_to_claim.steps.4]
+      - text: "EUR 600 for all flights not falling under (a) or (b)."
+        supports: [summary, entitlement.amount, how_to_claim.steps.4]
+      - text: "In determining the distance, the basis shall be the last destination at which the denial of boarding or cancellation will delay the passenger's arrival after the scheduled time."
+        supports: [entitlement.amount, how_to_claim.steps.4]
+      - text: "The distances given in paragraphs 1 and 2 shall be measured by the great circle route method."
+        supports: [entitlement.amount, how_to_claim.steps.4]
+      - text: "The compensation referred to in paragraph 1 shall be paid in cash, by electronic bank transfer, bank orders or bank cheques or, with the signed agreement of the passenger, in travel vouchers and/or other services."
+        supports: [entitlement.amount, how_to_claim.steps.6]
+      - text: "When passengers are offered re-routing to their final destination on an alternative flight pursuant to Article 8, the arrival time of which does not exceed the scheduled arrival time of the flight originally booked"
+        supports: [exceptions]
+      - text: "by two hours, in respect of all flights of 1500 kilometres or less; or"
+        supports: [exceptions]
+      - text: "by three hours, in respect of all intra-Community flights of more than 1500 kilometres and for all other flights between 1500 and 3500 kilometres; or"
+        supports: [exceptions]
+      - text: "by four hours, in respect of all flights not falling under (a) or (b)"
+        supports: [exceptions]
+      - text: "the operating air carrier may reduce the compensation provided for in paragraph 1 by 50 %."
+        supports: [exceptions]
+      - text: "have a confirmed reservation on the flight concerned and, except in the case of cancellation referred to in Article 5, present themselves for check-in,"
+        supports: [exceptions]
+      - text: "have been transferred by an air carrier or tour operator from the flight for which they held a reservation to another flight, irrespective of the reason."
+        supports: [exceptions]
+      - text: "This Regulation shall not apply to passengers travelling free of charge or at a reduced fare not available directly or indirectly to the public. However, it shall apply to passengers having tickets issued under a frequent flyer programme or other commercial programme by an air carrier or tour operator."
+        supports: [exceptions]
+      - text: "This Regulation shall only apply to passengers transported by motorised fixed wing aircraft."
+        supports: [exceptions]
+      - text: "This Regulation shall not apply in cases where a package tour is cancelled for reasons other than cancellation of the flight."
+        supports: [exceptions]
+      - text: "As under the Montreal Convention, obligations on operating air carriers should be limited or excluded in cases where an event has been caused by extraordinary circumstances which could not have been avoided even if all reasonable measures had been taken. Such circumstances may, in particular, occur in cases of political instability, meteorological conditions incompatible with the operation of the flight concerned, security risks, unexpected flight safety shortcomings and strikes that affect the operation of an operating air carrier."
+        supports: [exceptions]
+      - text: "Extraordinary circumstances should be deemed to exist where the impact of an air traffic management decision in relation to a particular aircraft on a particular day gives rise to a long delay, an overnight delay, or the cancellation of one or more flights by that aircraft, even though all reasonable measures had been taken by the air carrier concerned to avoid the delays or cancellations."
+        supports: [exceptions]
+      - text: "Obligations vis-à-vis passengers pursuant to this Regulation may not be limited or waived, notably by a derogation or restrictive clause in the contract of carriage."
+        supports: [how_to_claim.steps.7]
+      - text: "or if the passenger is not correctly informed of his rights and for that reason has accepted compensation which is inferior to that provided for in this Regulation, the passenger shall still be entitled to take the necessary proceedings before the competent courts or bodies in order to obtain additional compensation."
+        supports: [how_to_claim.steps.7]
+  - id: s2
+    source: youreurope-air-passenger-rights
+    quotes:
+      - text: "within the EU"
+        supports: [applies_when]
+      - text: "by an EU or a non-EU airline"
+        supports: [applies_when]
+      - text: "arrives in the EU"
+        supports: [applies_when]
+      - text: "by an EU airline"
+        supports: [applies_when]
+      - text: "departs from the EU"
+        supports: [applies_when]
+      - text: "you have not already received benefits"
+        supports: [exceptions]
+      - text: "The outbound and return flights are always considered as two separate flights even if they were booked as part of one reservation."
+        supports: [applies_when, exceptions]
+      - text: "If you miss a connecting flight travelling within the EU or outside the EU on a flight originating from an EU country, you should be entitled to compensation, if you arrive at your final destination"
+        supports: [applies_when, exceptions]
+      - text: "It is not relevant if the carrier operating the connecting flight is an EU or non-EU airline."
+        supports: [applies_when, exceptions]
+      - text: "If you depart from a non-EU country to your final destination in an EU country, with connecting flights operated successively by non-EU and EU airlines or by EU airlines only,"
+        supports: [applies_when]
+      - text: "only the flights operated by EU airlines"
+        supports: [applies_when]
+      - text: "in case of a long delay on arrival at the final destination."
+        supports: [applies_when]
+      - text: "your flights were booked as part of a single reservation"
+        supports: [exceptions]
+      - text: "and is operated either"
+        supports: [applies_when]
+      - text: "from outside the EU and is operated"
+        supports: [applies_when, exceptions]
+      - text: "to a non-EU country operated"
+        supports: [applies_when]
+      - text: "(compensation, re-routing, assistance from the airline) for flight related problems for this journey under the relevant law of a non-EU country."
+        supports: [exceptions]
+      - text: "EU means the 27 EU countries, including Guadeloupe, French Guiana, Martinique, Mayotte, Réunion, Saint Barthélemy, Saint-Martin (French Antilles), the Azores, Madeira and the Canary Islands, but not the Faeroe Islands."
+        supports: [applies_when, exceptions]
+      - text: "EU rules also apply to flights to and from"
+        supports: [applies_when, exceptions]
+      - text: "and Switzerland."
+        supports: [applies_when, exceptions]
+      - text: "Cancellation occurs when:"
+        supports: [summary, applies_when, exceptions]
+      - text: "your original flight schedule is abandoned, and you are transferred to another scheduled flight"
+        supports: [applies_when, exceptions]
+      - text: "the departure time of your flight is brought forward by more than 1 hour"
+        supports: [summary, applies_when, exceptions]
+      - text: "the aircraft took off but, was forced to return to the airport of departure and you were transferred to another flight"
+        supports: [applies_when, exceptions]
+      - text: "You accepted re-routing (under comparable transport conditions at the earliest opportunity) to the airport of your original final destination or to any other destination agreed by you. In this case it is considered as a"
+        supports: [exceptions]
+      - text: "The airport of arrival and the airport of the original final destination serve the same town, city or region. In this case it is considered as a"
+        supports: [exceptions]
+      - text: "and not a cancellation."
+        supports: [exceptions]
+      - text: "If you were informed of the cancellation less than 14 days prior to the scheduled departure date, you have a right to"
+        supports: [summary, applies_when]
+      - text: "The airline has the obligation to prove if and when you were personally informed that the flight was cancelled."
+        supports: [how_to_claim.steps.0, exceptions]
+      - text: "compensation is not due"
+        supports: [summary, applies_when, exceptions]
+      - text: "if the carrier can prove that the cancellation is caused by"
+        supports: [summary, applies_when, exceptions]
+      - text: "which could not have been avoided even if all reasonable measures had been taken. The airline has to prove this by providing, for example, extracts from logbooks or incident reports."
+        supports: [exceptions, how_to_claim.steps.5]
+      - text: "More than 1 500 km within the EU and all other flights between 1 500 and 3 500 km"
+        supports: [entitlement.amount, how_to_claim.steps.4]
+      - text: "More than 3 500 km"
+        supports: [entitlement.amount, how_to_claim.steps.4]
+      - text: "However, the airline carrier may still have to provide compensation:"
+        supports: [summary, how_to_claim.steps.3]
+      - text: "if you choose to have your ticket reimbursed – the compensation due will depend on the length of your flight"
+        supports: [summary, how_to_claim.steps.3]
+      - text: "if you choose re-routing – the compensation due will depend on the length of your flight and the delay in reaching your final destination, past the original scheduled arrival time."
+        supports: [summary, how_to_claim.steps.3]
+      - text: "Examples of events defined as extraordinary circumstances are"
+        supports: [exceptions]
+      - text: "air traffic management decisions"
+        supports: [exceptions]
+      - text: "political instability"
+        supports: [exceptions]
+      - text: "adverse weather conditions"
+        supports: [exceptions]
+      - text: "security risks"
+        supports: [exceptions]
+      - text: "technical problems"
+        supports: [exceptions]
+      - text: "which come to light during aircraft maintenance or are caused by failure to maintain an aircraft"
+        supports: [exceptions]
+      - text: "collision of mobile boarding stairs with an aircraft"
+        supports: [exceptions]
+      - text: "strikes by air carrier staff (internal strike action)"
+        supports: [exceptions]
+      - text: "that affects the operation of the airline may be considered as extraordinary circumstances. However, to be exempted from paying compensation, the"
+        supports: [exceptions]
+      - text: "airline must prove"
+        supports: [exceptions]
+      - text: "that: i) there is a link between the extraordinary circumstances and the delay or the cancellation, and ii) the delay or cancellation could not have been avoided even if all reasonable measures had been taken."
+        supports: [exceptions]
+      - text: "If the airline does not provide you with a satisfactory explanation, you can contact your"
+        supports: [how_to_claim.steps.5]
+      - text: "If the airline has offered you"
+        supports: [exceptions]
+      - text: "delay the compensation may be reduced by 50%"
+        supports: [exceptions]
+      - text: "Compensation if your flight is re-routed"
+        supports: [exceptions]
+      - text: "2 hours or less"
+        supports: [exceptions]
+      - text: "3 hours or less"
+        supports: [exceptions]
+      - text: "4 hours or less"
+        supports: [exceptions]
+      - text: "In some cases the airline operating the flight (also known as the operating air carrier) may not be the same as the one from which you bought your ticket. In case of any difficulties only the airline which operates the flight can be held responsible."
+        supports: [summary, how_to_claim.steps.1]
+      - text: "However you should always send your complaint to the airline first"
+        supports: [how_to_claim.steps.8]
+      - text: "If you don't receive a reply from the airline within 2 months or if you are not satisfied with the reply, you can lodge a complaint with the relevant"
+        supports: [how_to_claim.steps.8]
+      - text: "in the country where the incident took place, within a reasonable timeframe."
+        supports: [how_to_claim.steps.8]
+      - text: "The time limits for bringing an action against an airline in a national court are defined in accordance with national rules on the limitation of actions in each EU country."
+        supports: [exceptions]
+lead_character: pigeon
+tags: [eu261, cancellation, compensation, eu, flights]
+last_verified: null
+verified_by: null
+review_by: null
+history:
+  - { version: 1, status: draft, date: 2026-10-02 }

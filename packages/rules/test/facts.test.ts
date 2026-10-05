@@ -31,3 +31,28 @@ test('validateSituation rejects wrong primitive types', () => {
   assert.throws(() => validateSituation({ 'flight.touches_us': 'yes' }), /expects a boolean/);
   assert.throws(() => validateSituation({ 'event.delay_minutes': Number.NaN }), /expects a number/);
 });
+
+test('the departure and duration facts exist', () => {
+  validateSituation({ 'flight.departs_us': true, 'trip.us_foreign_nonstop_minutes': 780 });
+  assert.throws(() => validateSituation({ 'trip.us_foreign_nonstop_minutes': '13h' }), /expects a number/);
+});
+
+test('the EU261 rerouting, departure delay, leg distance and journey facts exist', () => {
+  validateSituation({
+    'event.reroute_departs_early_minutes': 60,
+    'event.reroute_arrival_delay_minutes': 120,
+    'event.departure_delay_minutes': 240,
+    'event.departure_moved_earlier_minutes': 61,
+    'flight.leg_distance_km': 1500,
+    'flight.departs_iceland_norway_switzerland': true,
+    'trip.journey_departs_eu': true,
+    'trip.journey_arrives_eu': false,
+  });
+  assert.throws(() => validateSituation({ 'trip.journey_departs_eu': 'yes' }), /expects a boolean/);
+  assert.throws(() => validateSituation({ 'event.departure_delay_minutes': '4h' }), /expects a number/);
+});
+
+test('the marketing carrier and merchant-of-record facts exist', () => {
+  validateSituation({ 'flight.marketing_carrier_iata': 'AA', 'trip.ticket_charged_by': 'ticket_agent' });
+  assert.throws(() => validateSituation({ 'trip.ticket_charged_by': 'bank' }), /expects one of airline/);
+});

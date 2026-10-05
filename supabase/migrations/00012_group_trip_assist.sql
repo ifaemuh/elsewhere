@@ -87,7 +87,10 @@ alter table public.trips
   add column join_token_expires_at timestamptz,
   add column pass_status pass_status not null default 'none',
   add column created_anonymous_id text,
-  add column created_utm jsonb not null default '{}';
+  add column created_utm jsonb not null default '{}',
+  -- Set by /admin's comp action: the founder runs this trip by hand, so its playbooks wait for review.
+  -- A 100% promotion code also makes a comp pass, but not a hand-run trip.
+  add column hand_run boolean not null default false;
 update public.trips set inbound_code = 'trip-' || replace(gen_random_uuid()::text, '-', '') where inbound_code is null;
 alter table public.trips alter column inbound_code set not null;
 
@@ -162,6 +165,34 @@ returns text language sql stable security definer set search_path = public as $$
   select t.inbound_code from public.trips t where t.id = p_trip_id and public.is_trip_planner(p_trip_id);
 $$;
 
+-- Planners set or rotate the invite link here, because join_token_hash is not column-writable
+-- (section 11). The app derives the raw token; only its hash is stored, hashed exactly as join_trip
+-- hashes the token a visitor presents.
+create or replace function public.set_join_token(p_trip_id uuid, p_token text, p_expires_at timestamptz)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  if not public.is_trip_planner(p_trip_id) then
+    raise exception 'only the planner can invite' using errcode = '42501';
+  end if;
+  if length(coalesce(p_token, '')) < 16 or p_expires_at is null or p_expires_at <= now() then
+    raise exception 'invalid invite token' using errcode = '22023';
+  end if;
+  -- A reset must retire the old link, so an unchanged token is refused rather than silently kept.
+  if exists (
+    select 1 from public.trips
+     where id = p_trip_id and join_token_hash = encode(sha256(convert_to(p_token, 'UTF8')), 'hex')
+  ) then
+    raise exception 'invite token unchanged' using errcode = '22023';
+  end if;
+  update public.trips
+     set join_token_hash = encode(sha256(convert_to(p_token, 'UTF8')), 'hex'),
+         join_token_expires_at = p_expires_at
+   where id = p_trip_id;
+end;
+$$;
+revoke execute on function public.set_join_token(uuid, text, timestamptz) from public, anon;
+grant execute on function public.set_join_token(uuid, text, timestamptz) to authenticated;
+
 create or replace function public.trip_directory(p_trip_id uuid)
 returns table (member_id uuid, user_id uuid, display_name text, role member_role, venmo_username text, cashtag text)
 language sql stable security definer set search_path = public as $$
@@ -207,7 +238,7 @@ create table public.travel_admin_partner_routes (
 
 -- 5. Intake and bookings -------------------------------------------------------
 create type booking_kind as enum ('flight', 'hotel', 'rental', 'car', 'rail', 'activity');
-create type inbound_status as enum ('received', 'parsed', 'needs_confirmation', 'quarantined', 'failed');
+create type inbound_status as enum ('received', 'parsed', 'needs_confirmation', 'quarantined', 'failed', 'processing');
 
 create table public.inbound_messages (
   id uuid primary key default gen_random_uuid(),
@@ -219,6 +250,7 @@ create table public.inbound_messages (
   storage_path text,
   status inbound_status not null default 'received',
   error text,
+  claimed_by text,
   received_at timestamptz not null default now()
 );
 
@@ -230,6 +262,15 @@ create table public.bookings (
   provider text not null,
   confirmation_code text,
   booked_via text,
+  -- When the booking was made, as the confirmation printed it: a date, or a local date and time.
+  booked_at text check (
+    booked_at is null
+    or case
+         when booked_at ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}(T([01][0-9]|2[0-3]):[0-5][0-9])?$'
+           then to_char(substr(booked_at, 1, 10)::date, 'YYYY-MM-DD') = substr(booked_at, 1, 10)
+         else false
+       end
+  ),
   passenger_names text[] not null default '{}',
   extraction_confidence numeric(3,2) not null check (extraction_confidence between 0 and 1),
   dedupe_key text not null,
@@ -253,6 +294,8 @@ create table public.booking_segments (
   trip_id uuid not null,
   position int not null check (position >= 1),
   carrier_iata text not null check (carrier_iata ~ '^[A-Z0-9]{2}$'),
+  -- The airline that operates the flight, from AeroAPI. The confirmation shows the marketing carrier, which can differ on a codeshare.
+  operator_iata text check (operator_iata is null or operator_iata ~ '^[A-Z0-9]{2}$'),
   flight_number text not null check (flight_number ~ '^[0-9]{1,4}$'),
   origin_iata text not null check (origin_iata ~ '^[A-Z]{3}$'),
   destination_iata text not null check (destination_iata ~ '^[A-Z]{3}$'),
@@ -266,6 +309,8 @@ create table public.booking_segments (
   fa_flight_id text,
   aeroapi_alert_id text,
   last_status jsonb,
+  -- When last_status was taken: the observation time that notice-days facts need. Written in the same update as last_status.
+  last_status_at timestamptz,
   monitor_state text not null default 'idle' check (monitor_state in ('idle', 'monitoring', 'polling_only', 'ended')),
   foreign key (booking_id, trip_id) references public.bookings(id, trip_id) on delete cascade,
   unique (booking_id, position)
@@ -275,13 +320,16 @@ create table public.booking_members (
   booking_id uuid not null,
   member_id uuid not null,
   trip_id uuid not null,
+  -- True when the member put themselves on the booking. A self-claim shows them the booking but not its
+  -- confirmation code; the planner's assignment (or intake's passenger match) is what unlocks the code.
+  self_claimed boolean not null default false,
   primary key (booking_id, member_id),
   foreign key (booking_id, trip_id) references public.bookings(id, trip_id) on delete cascade,
   foreign key (member_id, trip_id) references public.trip_members(id, trip_id) on delete cascade
 );
 
 create or replace function public.booking_confirmation_code(p_booking_id uuid)
-returns text language sql stable security definer set search_path = public as $$
+returns text language sql stable security definer set search_path = public, pg_temp as $$
   select b.confirmation_code
   from public.bookings b
   where b.id = p_booking_id
@@ -290,10 +338,50 @@ returns text language sql stable security definer set search_path = public as $$
       or exists (
         select 1 from public.booking_members bm
         join public.trip_members m on m.id = bm.member_id
-        where bm.booking_id = b.id and m.user_id = auth.uid()
+        where bm.booking_id = b.id and m.user_id = auth.uid() and not bm.self_claimed
       )
     );
 $$;
+
+-- A member puts only themselves on a booking of a trip they belong to. Assignment decides who reads
+-- a confirmation code, so members never insert booking_members rows directly ("Planners assign
+-- bookings" in section 12). They take themselves off under "Planner or self unassigns bookings".
+create or replace function public.claim_booking_seat(p_booking_id uuid)
+returns uuid language plpgsql security definer set search_path = public, pg_temp as $$
+declare v_trip uuid; v_member uuid;
+begin
+  select b.trip_id into v_trip from public.bookings b where b.id = p_booking_id;
+  select m.id into v_member from public.trip_members m where m.trip_id = v_trip and m.user_id = auth.uid();
+  if v_member is null then
+    raise exception 'not a member of this trip' using errcode = '42501';
+  end if;
+  -- A self-claim does not unlock the confirmation code. An existing planner or intake assignment keeps self_claimed = false.
+  insert into public.booking_members (booking_id, member_id, trip_id, self_claimed)
+  values (p_booking_id, v_member, v_trip, true)
+  on conflict (booking_id, member_id) do nothing;
+  return v_member;
+end;
+$$;
+revoke execute on function public.claim_booking_seat(uuid) from public, anon;
+grant execute on function public.claim_booking_seat(uuid) to authenticated;
+
+-- The planner assigns anyone. Assigning a member who self-claimed is the planner confirming them, which unlocks the code.
+create or replace function public.assign_booking_member(p_booking_id uuid, p_member_id uuid)
+returns void language plpgsql security definer set search_path = public, pg_temp as $$
+declare v_trip uuid;
+begin
+  select b.trip_id into v_trip from public.bookings b where b.id = p_booking_id;
+  if v_trip is null or not public.is_trip_planner(v_trip) then
+    raise exception 'only the planner can assign travelers' using errcode = '42501';
+  end if;
+  insert into public.booking_members (booking_id, member_id, trip_id, self_claimed)
+  values (p_booking_id, p_member_id, v_trip, false)
+  on conflict (booking_id, member_id) do update set self_claimed = false;
+end;
+$$;
+revoke execute on function public.assign_booking_member(uuid, uuid) from public, anon;
+grant execute on function public.assign_booking_member(uuid, uuid) to authenticated;
+revoke update on public.booking_members from anon, authenticated;
 
 -- 6. Checks, incidents, playbooks, action items ------------------------------------
 create type check_result as enum ('ok', 'action_needed', 'unknown');
@@ -319,6 +407,10 @@ create table public.incidents (
   delay_minutes int,
   dedupe_key text not null unique,
   raw_payload jsonb not null default '{}',
+  -- The flight's status just before the snapshot that opened this incident, and when that was taken. The segment's
+  -- last_status is overwritten by the opening snapshot, so this is the only record of what the airline showed before.
+  previous_status jsonb,
+  previous_status_at timestamptz,
   affected_user_ids uuid[] not null default '{}',
   facts jsonb not null default '{}',
   pending_question jsonb,
@@ -330,7 +422,7 @@ create table public.incidents (
 create table public.incident_events (
   id uuid primary key default gen_random_uuid(),
   incident_id uuid not null references public.incidents(id) on delete cascade,
-  kind text not null check (kind in ('detected', 'question_asked', 'answered', 'playbook_generated', 'playbook_edited', 'notified', 'resolved')),
+  kind text not null check (kind in ('detected', 'alerted', 'question_asked', 'answered', 'playbook_generated', 'playbook_edited', 'notified', 'resolved')),
   actor_user_id uuid references public.profiles(id),
   detail jsonb not null default '{}',
   created_at timestamptz not null default now()
@@ -343,6 +435,8 @@ create table public.playbooks (
   rules_cited jsonb not null,
   model text not null,
   citation_check_passed boolean not null,
+  -- True while a hand-run trip's playbook waits for the founder. Only the service role sees it then.
+  held_for_review boolean not null default false,
   created_at timestamptz not null default now()
 );
 
@@ -360,6 +454,22 @@ create table public.action_items (
   created_at timestamptz not null default now(),
   unique (trip_id, source_kind, related_entity_id, title)
 );
+
+-- Replaces a trip's document checks in one transaction. The trip row lock serializes concurrent runs,
+-- and a bad row raises, which rolls the delete back so the trip is never left with no checks.
+create or replace function public.replace_document_checks(p_trip_id uuid, p_rows jsonb)
+returns void
+language plpgsql security definer set search_path = public, pg_temp as $$
+begin
+  perform 1 from public.trips where id = p_trip_id for update;
+  delete from public.document_checks where trip_id = p_trip_id;
+  insert into public.document_checks (trip_id, member_id, user_id, rule_id, rule_version, result, detail)
+  select p_trip_id, r.member_id, r.user_id, r.rule_id, r.rule_version, r.result::check_result, r.detail
+  from jsonb_to_recordset(p_rows) as r(member_id uuid, user_id uuid, rule_id text, rule_version int, result text, detail text);
+end;
+$$;
+revoke execute on function public.replace_document_checks(uuid, jsonb) from public, anon, authenticated;
+grant execute on function public.replace_document_checks(uuid, jsonb) to service_role;
 
 -- 7. Votes and money ------------------------------------------------------------
 create table public.votes (
@@ -393,17 +503,47 @@ create table public.vote_responses (
   foreign key (option_id, vote_id) references public.vote_options(id, vote_id) on delete cascade
 );
 
+-- Members answer only through here. A direct upsert would also SET vote_id and user_id, which no column
+-- grant allows, and this function decides who may answer: a vote that names required voters
+-- (an incident vote names the affected travelers) takes answers from them only, any other vote from
+-- any member, and a closed vote from no one.
+create or replace function public.respond_vote(p_vote_id uuid, p_option_id uuid)
+returns void language plpgsql security definer set search_path = public, pg_temp as $$
+declare v_vote public.votes%rowtype;
+begin
+  select * into v_vote from public.votes where id = p_vote_id;
+  if not found or not public.is_trip_member(v_vote.trip_id) then
+    raise exception 'vote not found' using errcode = 'P0002';
+  end if;
+  if v_vote.status <> 'open' then
+    raise exception 'vote is closed' using errcode = '22023';
+  end if;
+  if cardinality(v_vote.required_user_ids) > 0 and not (auth.uid() = any (v_vote.required_user_ids)) then
+    raise exception 'not a voter on this vote' using errcode = '42501';
+  end if;
+  insert into public.vote_responses (vote_id, user_id, option_id)
+  values (p_vote_id, auth.uid(), p_option_id)
+  on conflict (vote_id, user_id) do update set option_id = excluded.option_id, responded_at = now();
+end;
+$$;
+revoke execute on function public.respond_vote(uuid, uuid) from public, anon;
+grant execute on function public.respond_vote(uuid, uuid) to authenticated;
+
 create table public.expenses (
   id uuid primary key default gen_random_uuid(),
   trip_id uuid not null references public.trips(id) on delete cascade,
   payer_user_id uuid not null references public.profiles(id),
-  amount_cents int not null check (amount_cents > 0),
+  -- Integer cents, at most $100,000.00 a line.
+  amount_cents int not null check (amount_cents > 0 and amount_cents <= 10000000),
   currency text not null default 'USD' check (currency ~ '^[A-Z]{3}$'),
-  description text not null,
+  description text not null check (char_length(description) between 1 and 200),
   split jsonb not null,
   incident_id uuid references public.incidents(id) on delete set null,
   created_by uuid not null references public.profiles(id),
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  -- The form's one-time key: a double-submitted "add expense" lands on the row it already made.
+  client_key uuid,
+  unique (trip_id, client_key)
 );
 
 create table public.settlements (
@@ -411,11 +551,164 @@ create table public.settlements (
   trip_id uuid not null references public.trips(id) on delete cascade,
   from_user_id uuid not null references public.profiles(id),
   to_user_id uuid not null references public.profiles(id),
-  amount_cents int not null check (amount_cents > 0),
+  amount_cents int not null check (amount_cents > 0 and amount_cents <= 10000000),
   currency text not null default 'USD' check (currency ~ '^[A-Z]{3}$'),
   settled_by uuid not null references public.profiles(id),
-  settled_at timestamptz not null default now()
+  settled_at timestamptz not null default now(),
+  client_key uuid,
+  unique (trip_id, client_key),
+  check (from_user_id <> to_user_id)
 );
+
+-- A payer, a split, or a settlement party must belong to the trip the row is on. RLS only proves the caller
+-- is a member, so without this a crafted insert could put another trip's users on this ledger.
+create or replace function public.check_ledger_members() returns trigger
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare
+  v_ids text[];
+  v_id text;
+  v_total bigint;
+begin
+  if tg_table_name = 'expenses' then
+    if not exists (select 1 from public.trip_members where trip_id = new.trip_id and user_id = new.payer_user_id) then
+      raise exception 'payer is not on this trip' using errcode = '23514';
+    end if;
+    if new.split ->> 'kind' = 'equal' and jsonb_typeof(new.split -> 'user_ids') = 'array' and jsonb_array_length(new.split -> 'user_ids') > 0 then
+      select array_agg(value) into v_ids from jsonb_array_elements_text(new.split -> 'user_ids');
+      if (select count(distinct x) from unnest(v_ids) x) <> cardinality(v_ids) then
+        raise exception 'split lists someone twice' using errcode = '23514';
+      end if;
+    elsif new.split ->> 'kind' = 'shares' and jsonb_typeof(new.split -> 'shares') = 'object' and new.split -> 'shares' <> '{}'::jsonb then
+      select array_agg(key) into v_ids from jsonb_object_keys(new.split -> 'shares') key;
+      select sum(case when jsonb_typeof(value) = 'number' and value::text ~ '^[0-9]+$' then value::text::bigint else -1 end)
+        into v_total from jsonb_each(new.split -> 'shares');
+      if v_total is distinct from new.amount_cents then
+        raise exception 'shares must be whole cents that add up to the amount' using errcode = '23514';
+      end if;
+    else
+      raise exception 'split is not valid' using errcode = '23514';
+    end if;
+    foreach v_id in array v_ids loop
+      if v_id !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+         or not exists (select 1 from public.trip_members where trip_id = new.trip_id and user_id = v_id::uuid) then
+        raise exception 'split includes someone who is not on this trip' using errcode = '23514';
+      end if;
+    end loop;
+  else
+    if not exists (select 1 from public.trip_members where trip_id = new.trip_id and user_id = new.from_user_id)
+       or not exists (select 1 from public.trip_members where trip_id = new.trip_id and user_id = new.to_user_id) then
+      raise exception 'both people must be on this trip' using errcode = '23514';
+    end if;
+  end if;
+  return new;
+end;
+$$;
+revoke execute on function public.check_ledger_members() from public, anon, authenticated;
+create trigger expenses_members_check before insert or update on public.expenses
+  for each row execute function public.check_ledger_members();
+create trigger settlements_members_check before insert or update on public.settlements
+  for each row execute function public.check_ledger_members();
+
+-- Marking a transfer paid is the only way to write a settlement. One advisory lock per trip serialises the
+-- balance check and the insert, so two different-key clicks cannot both pass the check and overpay.
+-- "Owed" is capped at min(what p_from owes the group in total, what the group owes p_to in total): every transfer the
+-- page's greedy minimal-transfers result shows is within that cap. Recomputing the exact greedy pairing in SQL was not
+-- practical, so the cap is the DB-level bound; the page still only offers its own transfers.
+create or replace function public.record_settlement(p_trip_id uuid, p_from uuid, p_to uuid, p_amount_cents int, p_client_key uuid)
+returns text
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare
+  v_from_net bigint;
+  v_to_net bigint;
+begin
+  if auth.uid() is null or not public.is_trip_member(p_trip_id) then
+    raise exception 'not on this trip' using errcode = '42501';
+  end if;
+  if p_client_key is null or p_from is null or p_to is null or p_from = p_to
+     or p_amount_cents is null or p_amount_cents <= 0 or p_amount_cents > 10000000 then
+    raise exception 'invalid settlement' using errcode = '22023';
+  end if;
+  perform pg_advisory_xact_lock(hashtext(p_trip_id::text));
+  if not (auth.uid() = p_from or auth.uid() = p_to or public.is_trip_planner(p_trip_id)) then
+    raise exception 'only the two people involved, or the planner, can mark this paid' using errcode = '42501';
+  end if;
+  if not exists (select 1 from public.trip_members where trip_id = p_trip_id and user_id = p_from)
+     or not exists (select 1 from public.trip_members where trip_id = p_trip_id and user_id = p_to) then
+    raise exception 'both people must be on this trip' using errcode = '42501';
+  end if;
+  -- A repeat of the same submit: already recorded.
+  if exists (select 1 from public.settlements where trip_id = p_trip_id and client_key = p_client_key) then
+    return 'duplicate';
+  end if;
+
+  with lines as (
+    select e.payer_user_id as uid, e.amount_cents::bigint as cents from public.expenses e where e.trip_id = p_trip_id
+    union all
+    select x.value::uuid, -(e.amount_cents / jsonb_array_length(e.split -> 'user_ids') + case when x.ord <= e.amount_cents % jsonb_array_length(e.split -> 'user_ids') then 1 else 0 end)::bigint
+      from public.expenses e, jsonb_array_elements_text(e.split -> 'user_ids') with ordinality as x(value, ord)
+      where e.trip_id = p_trip_id and e.split ->> 'kind' = 'equal'
+    union all
+    select s.key::uuid, -s.value::bigint
+      from public.expenses e, jsonb_each_text(e.split -> 'shares') s
+      where e.trip_id = p_trip_id and e.split ->> 'kind' = 'shares'
+    union all
+    select st.from_user_id, st.amount_cents::bigint from public.settlements st where st.trip_id = p_trip_id
+    union all
+    select st.to_user_id, -st.amount_cents::bigint from public.settlements st where st.trip_id = p_trip_id
+  )
+  select coalesce(sum(cents) filter (where uid = p_from), 0), coalesce(sum(cents) filter (where uid = p_to), 0)
+    into v_from_net, v_to_net from lines;
+  if p_amount_cents > least(-v_from_net, v_to_net) then
+    raise exception 'more than is owed' using errcode = '22023';
+  end if;
+
+  insert into public.settlements (trip_id, from_user_id, to_user_id, amount_cents, settled_by, client_key)
+    values (p_trip_id, p_from, p_to, p_amount_cents, auth.uid(), p_client_key)
+    on conflict (trip_id, client_key) do nothing;
+  return 'recorded';
+end;
+$$;
+revoke execute on function public.record_settlement(uuid, uuid, uuid, int, uuid) from public, anon;
+grant execute on function public.record_settlement(uuid, uuid, uuid, int, uuid) to authenticated;
+
+-- Leaving with an open balance would strand it: record_settlement refuses anyone who is no longer a member. So a
+-- member (or anyone else) is removed only once their net balance on the trip is zero, from the same expense, share and
+-- settlement totals record_settlement uses. A trip being deleted cascades its members away; its ledger goes with it, so
+-- the check stands down once the trip row is gone. The per-trip lock is the one record_settlement takes.
+create or replace function public.check_member_balance_on_leave() returns trigger
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare
+  v_net bigint;
+begin
+  if not exists (select 1 from public.trips where id = old.trip_id) then
+    return old;
+  end if;
+  perform pg_advisory_xact_lock(hashtext(old.trip_id::text));
+  with lines as (
+    select e.payer_user_id as uid, e.amount_cents::bigint as cents from public.expenses e where e.trip_id = old.trip_id
+    union all
+    select x.value::uuid, -(e.amount_cents / jsonb_array_length(e.split -> 'user_ids') + case when x.ord <= e.amount_cents % jsonb_array_length(e.split -> 'user_ids') then 1 else 0 end)::bigint
+      from public.expenses e, jsonb_array_elements_text(e.split -> 'user_ids') with ordinality as x(value, ord)
+      where e.trip_id = old.trip_id and e.split ->> 'kind' = 'equal'
+    union all
+    select s.key::uuid, -s.value::bigint
+      from public.expenses e, jsonb_each_text(e.split -> 'shares') s
+      where e.trip_id = old.trip_id and e.split ->> 'kind' = 'shares'
+    union all
+    select st.from_user_id, st.amount_cents::bigint from public.settlements st where st.trip_id = old.trip_id
+    union all
+    select st.to_user_id, -st.amount_cents::bigint from public.settlements st where st.trip_id = old.trip_id
+  )
+  select coalesce(sum(cents) filter (where uid = old.user_id), 0) into v_net from lines;
+  if v_net <> 0 then
+    raise exception 'settle up before leaving the trip' using errcode = '23514';
+  end if;
+  return old;
+end;
+$$;
+revoke execute on function public.check_member_balance_on_leave() from public, anon, authenticated;
+create trigger trip_members_balance_check before delete on public.trip_members
+  for each row execute function public.check_member_balance_on_leave();
 
 -- 8. Notifications, consents, passes, webhooks ------------------------------------
 create table public.notifications (
@@ -429,8 +722,10 @@ create table public.notifications (
   urgent boolean not null default false,
   send_after timestamptz not null default now(),
   provider_message_id text,
-  status text not null default 'queued' check (status in ('queued', 'sent', 'delivered', 'failed', 'skipped')),
+  status text not null default 'queued' check (status in ('queued', 'sending', 'sent', 'delivered', 'failed', 'skipped')),
   related_entity_id uuid,
+  claimed_at timestamptz,
+  attempts int not null default 0,
   created_at timestamptz not null default now()
 );
 
@@ -509,6 +804,16 @@ create unique index funnel_offer_click_daily_idx on public.funnel_telemetry_even
   (anonymous_id, rule_id, ((created_at at time zone 'utc')::date))
   where event_name = 'offer_click';
 
+-- One paid event per trip. The Stripe webhook retries, and a retry after recordPaid must not
+-- double the revenue count; pass-store.recordPaid treats the 23505 as a no-op.
+create unique index funnel_paid_trip_idx on public.funnel_telemetry_events (trip_id)
+  where event_name = 'paid';
+
+-- Same guard for booking_forwarded: the trip's first forwarded booking counts once, however many
+-- emails follow. recordEvent treats the 23505 as a no-op.
+create unique index funnel_forwarded_trip_idx on public.funnel_telemetry_events (trip_id)
+  where event_name = 'booking_forwarded';
+
 create or replace function public.attribution_summary(p_since timestamptz)
 returns table (post_id text, clicks bigint, forwarded_bookings bigint, paid_passes bigint)
 language sql stable security definer set search_path = public as $$
@@ -543,6 +848,78 @@ $$;
 revoke execute on function public.attribution_summary(timestamptz) from public, anon, authenticated;
 grant execute on function public.attribution_summary(timestamptz) to service_role;
 
+-- Atomically claims due notifications for sending, so overlapping runs never send the same row.
+-- Rows stuck in 'sending' for over 10 minutes are crash leftovers and are reclaimed (at-least-once).
+create or replace function public.claim_due_notifications(p_now timestamptz, p_limit int)
+returns table (id uuid, channel text, subject text, body text, attempts int, email text, phone text, sms_opt_in boolean)
+language sql security definer set search_path = public as $$
+  with due as (
+    select n.id from public.notifications n
+     where (n.status = 'queued' and n.send_after <= p_now)
+        or (n.status = 'sending' and n.claimed_at < p_now - interval '10 minutes')
+     order by n.created_at
+     limit p_limit
+     for update skip locked
+  ), claimed as (
+    update public.notifications n
+       set status = 'sending', claimed_at = p_now
+      from due
+     where n.id = due.id
+    returning n.id, n.user_id, n.channel, n.subject, n.body, n.attempts, n.created_at
+  )
+  select c.id, c.channel, c.subject, c.body, c.attempts, p.email, p.phone, p.sms_opt_in
+    from claimed c join public.profiles p on p.id = c.user_id
+   order by c.created_at;
+$$;
+revoke execute on function public.claim_due_notifications(timestamptz, int) from public, anon, authenticated;
+grant execute on function public.claim_due_notifications(timestamptz, int) to service_role;
+
+-- Saves one extracted booking and its segments in a single transaction, for the intake workflow.
+-- created = true means this message still has work to do on the booking: it was inserted now, or this
+-- same message inserted it before a retry (any missing segments are filled in; existing ones are kept).
+-- A booking another message already saved comes back created = false and is left alone.
+create or replace function public.save_booking(p_trip_id uuid, p_message_id uuid, p_booking jsonb, p_confirmed boolean)
+returns table (out_booking_id uuid, out_created boolean)
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare
+  v_id uuid;
+  v_message uuid;
+  v_segment jsonb;
+  v_position int := 0;
+begin
+  insert into public.bookings (trip_id, inbound_message_id, kind, provider, confirmation_code, booked_via, booked_at,
+                               passenger_names, extraction_confidence, dedupe_key, confirmed_at)
+  values (p_trip_id, p_message_id, (p_booking->>'kind')::booking_kind, p_booking->>'provider', p_booking->>'confirmation_code',
+          p_booking->>'booked_via', p_booking->>'booked_at',
+          coalesce(array(select jsonb_array_elements_text(p_booking->'passenger_names')), '{}'),
+          round((p_booking->>'confidence')::numeric, 2), p_booking->>'dedupe_key',
+          case when p_confirmed then now() end)
+  on conflict (trip_id, dedupe_key) do nothing
+  returning id into v_id;
+
+  if v_id is null then
+    select b.id, b.inbound_message_id into v_id, v_message
+      from public.bookings b where b.trip_id = p_trip_id and b.dedupe_key = p_booking->>'dedupe_key';
+    if v_message is distinct from p_message_id then
+      return query select v_id, false;
+      return;
+    end if;
+  end if;
+
+  for v_segment in select * from jsonb_array_elements(coalesce(p_booking->'segments', '[]'::jsonb)) loop
+    v_position := v_position + 1;
+    insert into public.booking_segments (booking_id, trip_id, position, carrier_iata, flight_number, origin_iata,
+                                         destination_iata, departure_local, arrival_local)
+    values (v_id, p_trip_id, v_position, v_segment->>'carrier_iata', v_segment->>'flight_number', v_segment->>'origin_iata',
+            v_segment->>'destination_iata', v_segment->>'departure_local', v_segment->>'arrival_local')
+    on conflict (booking_id, position) do nothing;
+  end loop;
+  return query select v_id, true;
+end;
+$$;
+revoke execute on function public.save_booking(uuid, uuid, jsonb, boolean) from public, anon, authenticated;
+grant execute on function public.save_booking(uuid, uuid, jsonb, boolean) to service_role;
+
 -- 10. Indexes for RLS predicates and foreign keys ----------------------------------
 create index trip_members_user_idx on public.trip_members (user_id);
 create index inbound_messages_trip_idx on public.inbound_messages (trip_id);
@@ -552,14 +929,20 @@ create index document_checks_trip_idx on public.document_checks (trip_id);
 create index incidents_trip_idx on public.incidents (trip_id);
 create index incidents_affected_gin on public.incidents using gin (affected_user_ids);
 create index incident_events_incident_idx on public.incident_events (incident_id);
+-- An incident is detected once, however many alerts and polls report it at the same moment.
+create unique index incident_events_detected_once on public.incident_events (incident_id) where kind = 'detected';
 create index playbooks_incident_idx on public.playbooks (incident_id);
 create index action_items_assigned_gin on public.action_items using gin (assigned_user_ids);
 create index votes_trip_idx on public.votes (trip_id);
 create index vote_options_vote_idx on public.vote_options (vote_id);
+-- A double-submitted "start the vote" cannot open two votes for one incident.
+create unique index votes_one_open_per_incident on public.votes (incident_id) where status = 'open' and incident_id is not null;
 create index expenses_trip_idx on public.expenses (trip_id);
 create index settlements_trip_idx on public.settlements (trip_id);
 create index passes_trip_idx on public.passes (trip_id);
 create index notifications_user_idx on public.notifications (user_id);
+create index notifications_provider_message_idx on public.notifications (provider_message_id) where provider_message_id is not null;
+create index notifications_due_idx on public.notifications (status, send_after) where status in ('queued', 'sending');
 
 -- 11. Column-level grants -------------------------------------------------------------
 -- RLS policies decide which rows; these grants decide which columns authenticated users may write.
@@ -571,8 +954,11 @@ grant update (name, destination_country, start_date, end_date) on public.trips t
 grant update (display_name) on public.trip_members to authenticated;
 grant update (status, due_at) on public.action_items to authenticated;
 grant update (title, detail, deadline, status) on public.votes to authenticated;
-grant update (option_id, responded_at) on public.vote_responses to authenticated;
 grant update (revoked_at) on public.consents to authenticated;
+-- email and phone mirror auth.users (handle_new_user); users may not rewrite them, or the SMS opt-in
+-- that depends on a verified phone would be forgeable.
+revoke update on public.profiles from anon, authenticated;
+grant update (display_name, venmo_username, cashtag, timezone, sms_opt_in) on public.profiles to authenticated;
 
 -- The join-token hash and inbound code are not readable by members; see trip_inbound_code().
 revoke select on public.trips from anon, authenticated;
@@ -646,9 +1032,11 @@ create policy "Readers of the incident read its events" on public.incident_event
   exists (select 1 from public.incidents i where i.id = incident_id
           and (public.is_trip_planner(i.trip_id) or auth.uid() = any (i.affected_user_ids)))
 );
-create policy "Readers of the incident read its playbooks" on public.playbooks for select using (
-  exists (select 1 from public.incidents i where i.id = incident_id
-          and (public.is_trip_planner(i.trip_id) or auth.uid() = any (i.affected_user_ids)))
+-- A playbook held for the founder's review stays hidden, from the planner too, until it is released.
+create policy "Readers of the incident read its released playbooks" on public.playbooks for select using (
+  not held_for_review
+  and exists (select 1 from public.incidents i where i.id = incident_id
+              and (public.is_trip_planner(i.trip_id) or auth.uid() = any (i.affected_user_ids)))
 );
 
 create policy "Assignees or planner read action items" on public.action_items for select
@@ -659,7 +1047,10 @@ create policy "Assignees or planner update action items" on public.action_items 
 
 create policy "Members read votes" on public.votes for select using (public.is_trip_member(trip_id));
 create policy "Members create votes" on public.votes for insert
-  with check (public.is_trip_member(trip_id) and created_by = auth.uid());
+  with check (
+    public.is_trip_member(trip_id) and created_by = auth.uid()
+    and (incident_id is null or exists (select 1 from public.incidents i where i.id = incident_id and i.trip_id = votes.trip_id))
+  );
 create policy "Creator or planner updates votes" on public.votes for update
   using (created_by = auth.uid() or public.is_trip_planner(trip_id))
   with check (created_by = auth.uid() or public.is_trip_planner(trip_id));
@@ -672,16 +1063,7 @@ create policy "Vote creator adds options" on public.vote_options for insert with
 create policy "Members read responses" on public.vote_responses for select using (
   exists (select 1 from public.votes v where v.id = vote_id and public.is_trip_member(v.trip_id))
 );
-create policy "Members respond to open votes" on public.vote_responses for insert with check (
-  user_id = auth.uid()
-  and exists (select 1 from public.votes v where v.id = vote_id and v.status = 'open' and public.is_trip_member(v.trip_id))
-);
-create policy "Members change their open-vote response" on public.vote_responses for update
-  using (user_id = auth.uid())
-  with check (
-    user_id = auth.uid()
-    and exists (select 1 from public.votes v where v.id = vote_id and v.status = 'open' and public.is_trip_member(v.trip_id))
-  );
+-- No write policies on vote_responses: members answer through respond_vote().
 
 create policy "Members read expenses" on public.expenses for select using (public.is_trip_member(trip_id));
 create policy "Members add expenses" on public.expenses for insert
@@ -690,10 +1072,7 @@ create policy "Creator or planner deletes expenses" on public.expenses for delet
   using (created_by = auth.uid() or public.is_trip_planner(trip_id));
 
 create policy "Members read settlements" on public.settlements for select using (public.is_trip_member(trip_id));
-create policy "Parties or planner record settlements" on public.settlements for insert with check (
-  public.is_trip_member(trip_id) and settled_by = auth.uid()
-  and (from_user_id = auth.uid() or to_user_id = auth.uid() or public.is_trip_planner(trip_id))
-);
+-- No insert policy on settlements: members record payments through record_settlement().
 
 create policy "Users read their notifications" on public.notifications for select using (user_id = auth.uid());
 
@@ -705,3 +1084,75 @@ create policy "Users revoke consents" on public.consents for update
 create policy "Members read passes" on public.passes for select using (public.is_trip_member(trip_id));
 -- webhook_events, experiment_assignments, funnel_telemetry_events, attribution_touchpoints:
 -- RLS on with no policies, so only the service role reads or writes them.
+
+-- 12. Admin, retention and the airports cache (Task 16) ----------------------------------
+-- Airport data is static, and each AeroAPI lookup costs money, so lookups are read through this table.
+-- Only the service role reads or writes it.
+create table public.airports (
+  iata text primary key check (iata ~ '^[A-Z0-9]{3,4}$'),
+  latitude double precision not null check (latitude between -90 and 90),
+  longitude double precision not null check (longitude between -180 and 180),
+  country_code text check (country_code is null or country_code ~ '^[A-Z]{2}$'),
+  timezone text,
+  fetched_at timestamptz not null default now()
+);
+alter table public.airports enable row level security;
+revoke all on public.airports from public, anon, authenticated;
+grant select, insert, update, delete on public.airports to service_role;
+
+-- /admin's comp action, in one transaction: marks the trip comped and hand-run, and writes the comp pass row, only if
+-- the trip has no pass. The trip row is locked first, so two comps (or a comp and a webhook) cannot both win. A paid or
+-- comped passes row also refuses it, which covers a paid session whose webhook has not marked the trip yet.
+-- Returns true when it comped.
+create or replace function public.comp_trip_pass(p_trip_id uuid, p_created_by uuid)
+returns boolean
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare
+  v_status pass_status;
+begin
+  select pass_status into v_status from public.trips where id = p_trip_id for update;
+  if not found then
+    raise exception 'trip not found';
+  end if;
+  if v_status <> 'none' or exists (select 1 from public.passes where trip_id = p_trip_id and status in ('paid', 'comp')) then
+    return false;
+  end if;
+  update public.trips set pass_status = 'comp', hand_run = true where id = p_trip_id;
+  insert into public.passes (trip_id, price_variant, amount_cents, status, created_by, paid_at)
+  values (p_trip_id, 'comp', 0, 'comp', p_created_by, now());
+  return true;
+end;
+$$;
+revoke execute on function public.comp_trip_pass(uuid, uuid) from public, anon, authenticated;
+grant execute on function public.comp_trip_pass(uuid, uuid) to service_role;
+
+-- The retention job's document rule, in one statement so there is no snapshot to go stale: delete a member's documents
+-- when they did not choose to keep them, were last saved over 30 days ago, and the member has no trip that ended
+-- (its end date, else its start date) within the last 30 days or is still to come. A trip with no dates counts as
+-- upcoming, so it protects the documents. A member on no trip has nothing to wait for. Returns the number deleted.
+create or replace function public.purge_member_documents(p_now timestamptz)
+returns int
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare
+  v_deleted int;
+begin
+  with gone as (
+    delete from public.member_documents d
+     where not d.keep_on_profile
+       and d.updated_at < p_now - interval '30 days'
+       and not exists (
+         select 1
+           from public.trip_members m
+           join public.trips t on t.id = m.trip_id
+          where m.user_id = d.user_id
+            and (coalesce(t.end_date, t.start_date) is null
+                 or coalesce(t.end_date, t.start_date) >= (p_now at time zone 'UTC')::date - 30)
+       )
+    returning 1
+  )
+  select count(*) into v_deleted from gone;
+  return v_deleted;
+end;
+$$;
+revoke execute on function public.purge_member_documents(timestamptz) from public, anon, authenticated;
+grant execute on function public.purge_member_documents(timestamptz) to service_role;

@@ -12,6 +12,8 @@ describe('inbound codes', () => {
     const address = inboundAddress('trip-abcdefghjkmn', 'in.example.test');
     expect(address).toBe('trip-abcdefghjkmn@in.example.test');
     expect(inboundCodeFromAddress('Lisbon Trip <TRIP-ABCDEFGHJKMN@IN.EXAMPLE.TEST>', 'in.example.test')).toBe('trip-abcdefghjkmn');
+    expect(inboundCodeFromAddress('xtrip-abcdefghjkmn@in.example.test', 'in.example.test')).toBeNull();
+    expect(inboundCodeFromAddress('trip-abcdefghjkmn@in.example.test', 'in.example.test')).toBe('trip-abcdefghjkmn');
     expect(inboundCodeFromAddress('someone@else.test', 'in.example.test')).toBeNull();
   });
 });

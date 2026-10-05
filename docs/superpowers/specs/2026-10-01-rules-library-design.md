@@ -222,8 +222,10 @@ item that can't be backed by a primary source is replaced, not weakened.
 ## Research workflow (new rules)
 
 1. **Draft.** A worker agent (Codex, per the CLAUDE.md routing) takes a backlog item,
-   reads only the primary sources in `sources.yaml` (adding a source to that file is part
-   of the same PR), and writes the YAML with exact quotes. Status is `draft`.
+   reads only the primary sources in `sources.yaml` and writes the YAML with exact quotes.
+   Status is `draft`. A new source goes in its own earlier PR: CI checks each new quote
+   against tracked text, which does not exist until the tracker has run on the merged
+   source (source PR, merge, dispatch the tracker, then the rule PR).
 2. **Check.** CI runs `rules:build` (schema) and `rules:check-quotes`. Each quote must
    appear in the source's current text, compared after whitespace and Unicode
    normalization. Every field listed under any quote's `supports` must be covered, and

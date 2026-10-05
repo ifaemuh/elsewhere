@@ -1,0 +1,77 @@
+id: uk-eta-required
+version: 1
+status: draft
+domain: documents
+jurisdiction: country:GB
+title: "Visiting the UK on a US, Canadian or Australian passport? You usually need an ETA before you go"
+summary: >-
+  Most visitors to the UK, Jersey, Guernsey or the Isle of Man need an ETA or a visa, depending on nationality and why
+  they're coming. You usually need an ETA rather than a visa if you're from the USA, Australia or Canada. It costs £20, each
+  traveler needs one, and it does not guarantee entry.
+applies_when:
+  all:
+    - fact: trip.destination_country
+      in: [GB, JE, GG, IM]
+    - fact: passenger.nationality
+      in: [US, CA, AU]
+entitlement:
+  kind: requirement
+  amount:
+    cost_gbp: 20
+    needed_by: each person travelling, including babies and children
+  timing: lets you travel to the UK, Jersey, Guernsey or the Isle of Man for up to 6 months
+how_to_claim:
+  steps:
+    - "Check on the UK government's page whether you need an ETA or a visa. It depends on your nationality and why you're coming."
+    - "Apply for an ETA for every person in your group, including babies and children. You can apply for other people."
+    - "Apply on the UK government's site. Other websites may charge more, so avoid sites that imitate government services."
+    - "If you are only passing through border control at a UK airport on your way onward, you still need an ETA. Check with your airline if you are not sure."
+    - "If you think you already have an ETA, check online on the UK government's site that you have one and when it expires."
+  templates: []
+exceptions:
+  - "You may need a visa instead of an ETA, depending on your reason for visiting. The page says what you need depends on your nationality and why you're coming."
+  - "You don't need an ETA if, for example, you have a British or Irish passport, or permission to live, work or study in the UK."
+  - "An ETA does not guarantee entry to the UK, Jersey, Guernsey or the Isle of Man."
+sources:
+  - id: s1
+    source: uk-eta
+    quotes:
+      - text: "Most visitors need an ETA or a visa."
+        supports: [summary, exceptions]
+      - text: "your nationality"
+        supports: [summary, exceptions, how_to_claim.steps.0]
+      - text: "why you’re coming to the UK, Jersey, Guernsey or the Isle of Man"
+        supports: [summary, applies_when, exceptions, how_to_claim.steps.0]
+      - text: "You usually need an ETA rather than a visa if you’re from Europe, the USA, Australia, Canada or certain other countries."
+        supports: [summary, applies_when, entitlement]
+      - text: "An ETA costs £20."
+        supports: [summary, entitlement.amount]
+      - text: "Each person travelling needs an ETA, including babies and children."
+        supports: [summary, entitlement.amount, how_to_claim.steps.1]
+      - text: "You can apply for other people."
+        supports: [how_to_claim.steps.1]
+      - text: "An electronic travel authorisation (ETA) lets you travel to the UK, Jersey, Guernsey or the Isle of Man for up to 6 months."
+        supports: [entitlement.timing]
+      - text: "Other websites may charge more to apply. Avoid websites that imitate government services."
+        supports: [how_to_claim.steps.2]
+      - text: "An ETA does not guarantee entry to the UK, Jersey, Guernsey or the Isle of Man."
+        supports: [summary, exceptions]
+      - text: "a British or Irish passport"
+        supports: [exceptions]
+      - text: "permission to live, work or study in the UK"
+        supports: [exceptions]
+      - text: "You need an ETA if you’re passing through border control at a UK airport before continuing your onward journey."
+        supports: [how_to_claim.steps.3]
+      - text: "You can check with your airline if you are not sure."
+        supports: [how_to_claim.steps.3]
+      - text: "if you have an ETA"
+        supports: [how_to_claim.steps.4]
+      - text: "when your ETA expires"
+        supports: [how_to_claim.steps.4]
+lead_character: owl
+tags: [documents, uk-eta, entry-permit]
+last_verified: null
+verified_by: null
+review_by: null
+history:
+  - { version: 1, status: draft, date: 2026-10-05 }

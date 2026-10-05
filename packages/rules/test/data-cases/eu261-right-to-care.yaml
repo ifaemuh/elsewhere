@@ -1,0 +1,120 @@
+rule: eu261-right-to-care
+cases:
+  - name: "cancellation, any cause, no time threshold"
+    situation: { trip.journey_departs_eu: true, flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: false, event.type: cancellation, event.cause: controllable }
+    outcome: applies
+  - name: "cancellation caused by extraordinary circumstances still gets care"
+    situation: { trip.journey_departs_eu: true, flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: false, event.type: cancellation, event.cause: uncontrollable }
+    outcome: applies
+  - name: "cancellation with no cause given"
+    situation: { trip.journey_departs_eu: true, flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: false, event.type: cancellation }
+    outcome: applies
+  - name: "Paris outbound, DL from JFK to CDG, cancelled (not covered)"
+    situation: { trip.journey_departs_eu: false, flight.departs_eu: false, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: true, flight.arrives_eu: true, flight.carrier_is_eu: false, event.type: cancellation }
+    outcome: does_not_apply
+  - name: "Paris return, DL from CDG to JFK, cancelled"
+    situation: { trip.journey_departs_eu: true, flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: false, event.type: cancellation }
+    outcome: applies
+  - name: "CDG-ATL-DEN on DL, ATL-DEN leg delayed 2 hours, 1946 km"
+    situation: { trip.journey_departs_eu: true, flight.departs_eu: false, flight.arrives_eu: false, flight.carrier_is_eu: false, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: false, event.type: delay, event.departure_delay_minutes: 120, flight.leg_distance_km: 1946 }
+    outcome: does_not_apply
+  - name: "CDG-ATL-DEN on DL, ATL-DEN leg delayed 3 hours, 1946 km"
+    situation: { trip.journey_departs_eu: true, flight.departs_eu: false, flight.arrives_eu: false, flight.carrier_is_eu: false, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: false, event.type: delay, event.departure_delay_minutes: 180, flight.leg_distance_km: 1946 }
+    outcome: applies
+  - name: "DEN-ATL-CDG on DL, DEN-ATL leg delayed 5 hours (non-EU airline into the EU)"
+    situation: { trip.journey_departs_eu: false, flight.departs_eu: false, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, event.type: delay, event.departure_delay_minutes: 300, flight.leg_distance_km: 1946 }
+    outcome: does_not_apply
+  - name: "Paris outbound, DL from JFK to CDG, delayed 5 hours (not covered)"
+    situation: { trip.journey_departs_eu: false, flight.departs_eu: false, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: true, flight.arrives_eu: true, flight.carrier_is_eu: false, event.type: delay, event.departure_delay_minutes: 300, flight.leg_distance_km: 5837 }
+    outcome: does_not_apply
+  - name: "Paris return, DL from CDG to JFK, delayed 5 hours"
+    situation: { trip.journey_departs_eu: true, flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: false, event.type: delay, event.departure_delay_minutes: 300, flight.leg_distance_km: 5837 }
+    outcome: applies
+  - name: "JFK to CDG on an EU airline, delayed 4 hours"
+    situation: { trip.journey_departs_eu: false, flight.departs_eu: false, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: true, flight.arrives_eu: true, flight.carrier_is_eu: true, event.type: delay, event.departure_delay_minutes: 240, flight.leg_distance_km: 5837 }
+    outcome: applies
+  - name: "Reykjavik to New York, delayed 2 hours, 4200 km"
+    situation: { trip.journey_departs_eu: false, flight.departs_eu: false, flight.departs_iceland_norway_switzerland: true, trip.journey_arrives_eu: false, flight.carrier_is_eu: false, event.type: delay, event.departure_delay_minutes: 120, flight.leg_distance_km: 4200 }
+    outcome: does_not_apply
+  - name: "Reykjavik to New York, delayed 4 hours, 4200 km"
+    situation: { trip.journey_departs_eu: false, flight.departs_eu: false, flight.departs_iceland_norway_switzerland: true, trip.journey_arrives_eu: false, flight.carrier_is_eu: false, event.type: delay, event.departure_delay_minutes: 240, flight.leg_distance_km: 4200 }
+    outcome: applies
+  - name: "delay caused by extraordinary circumstances still gets care"
+    situation: { trip.journey_departs_eu: true, flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: false, event.type: delay, event.cause: uncontrollable, flight.leg_distance_km: 1200, event.departure_delay_minutes: 120 }
+    outcome: applies
+  - name: "1500 km or less, 119 minutes"
+    situation: { trip.journey_departs_eu: true, flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: false, event.type: delay, event.departure_delay_minutes: 119, flight.leg_distance_km: 1500 }
+    outcome: does_not_apply
+  - name: "1500 km or less, exactly 120 minutes"
+    situation: { trip.journey_departs_eu: true, flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: false, event.type: delay, event.departure_delay_minutes: 120, flight.leg_distance_km: 1500 }
+    outcome: applies
+  - name: "exactly 1500 km, exactly 120 minutes (still the 1500 km or less band)"
+    situation: { trip.journey_departs_eu: true, flight.departs_eu: true, flight.arrives_eu: true, flight.carrier_is_eu: true, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: true, event.type: delay, event.departure_delay_minutes: 120, flight.leg_distance_km: 1500 }
+    outcome: applies
+  - name: "1501 km inside the EU, 120 minutes (3 hour band)"
+    situation: { trip.journey_departs_eu: true, flight.departs_eu: true, flight.arrives_eu: true, flight.carrier_is_eu: true, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: true, event.type: delay, event.departure_delay_minutes: 120, flight.leg_distance_km: 1501 }
+    outcome: does_not_apply
+  - name: "1501 km inside the EU, 179 minutes"
+    situation: { trip.journey_departs_eu: true, flight.departs_eu: true, flight.arrives_eu: true, flight.carrier_is_eu: true, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: true, event.type: delay, event.departure_delay_minutes: 179, flight.leg_distance_km: 1501 }
+    outcome: does_not_apply
+  - name: "1501 km inside the EU, exactly 180 minutes"
+    situation: { trip.journey_departs_eu: true, flight.departs_eu: true, flight.arrives_eu: true, flight.carrier_is_eu: true, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: true, event.type: delay, event.departure_delay_minutes: 180, flight.leg_distance_km: 1501 }
+    outcome: applies
+  - name: "1501 km leaving the EU, 179 minutes"
+    situation: { trip.journey_departs_eu: true, flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: false, event.type: delay, event.departure_delay_minutes: 179, flight.leg_distance_km: 1501 }
+    outcome: does_not_apply
+  - name: "1501 km leaving the EU, exactly 180 minutes"
+    situation: { trip.journey_departs_eu: true, flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: false, event.type: delay, event.departure_delay_minutes: 180, flight.leg_distance_km: 1501 }
+    outcome: applies
+  - name: "exactly 3500 km leaving the EU, 179 minutes"
+    situation: { trip.journey_departs_eu: true, flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: false, event.type: delay, event.departure_delay_minutes: 179, flight.leg_distance_km: 3500 }
+    outcome: does_not_apply
+  - name: "exactly 3500 km leaving the EU, exactly 180 minutes (still the 1500 to 3500 km band)"
+    situation: { trip.journey_departs_eu: true, flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: false, event.type: delay, event.departure_delay_minutes: 180, flight.leg_distance_km: 3500 }
+    outcome: applies
+  - name: "3501 km leaving the EU, 239 minutes"
+    situation: { trip.journey_departs_eu: true, flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: false, event.type: delay, event.departure_delay_minutes: 239, flight.leg_distance_km: 3501 }
+    outcome: does_not_apply
+  - name: "3501 km leaving the EU, exactly 240 minutes"
+    situation: { trip.journey_departs_eu: true, flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: false, event.type: delay, event.departure_delay_minutes: 240, flight.leg_distance_km: 3501 }
+    outcome: applies
+  - name: "3501 km inside the EU, 179 minutes (intra-EU 3 hour band has no upper limit)"
+    situation: { trip.journey_departs_eu: true, flight.departs_eu: true, flight.arrives_eu: true, flight.carrier_is_eu: true, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: true, event.type: delay, event.departure_delay_minutes: 179, flight.leg_distance_km: 3501 }
+    outcome: does_not_apply
+  - name: "3501 km inside the EU, exactly 180 minutes"
+    situation: { trip.journey_departs_eu: true, flight.departs_eu: true, flight.arrives_eu: true, flight.carrier_is_eu: true, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: true, event.type: delay, event.departure_delay_minutes: 180, flight.leg_distance_km: 3501 }
+    outcome: applies
+  - name: "3501 km to the EU on an EU airline, 239 minutes"
+    situation: { trip.journey_departs_eu: false, flight.departs_eu: false, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: true, flight.arrives_eu: true, flight.carrier_is_eu: true, event.type: delay, event.departure_delay_minutes: 239, flight.leg_distance_km: 3501 }
+    outcome: does_not_apply
+  - name: "3501 km to the EU on an EU airline, exactly 240 minutes"
+    situation: { trip.journey_departs_eu: false, flight.departs_eu: false, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: true, flight.arrives_eu: true, flight.carrier_is_eu: true, event.type: delay, event.departure_delay_minutes: 240, flight.leg_distance_km: 3501 }
+    outcome: applies
+  - name: "240 minutes meets every band, so the distance is not needed"
+    situation: { trip.journey_departs_eu: true, flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: false, event.type: delay, event.departure_delay_minutes: 240 }
+    outcome: applies
+  - name: "departure delay not known yet"
+    situation: { trip.journey_departs_eu: true, flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: false, event.type: delay, flight.leg_distance_km: 1000 }
+    outcome: may_apply
+    missing_facts: [event.departure_delay_minutes]
+  - name: "flight distance not known yet, 130 minutes late"
+    situation: { trip.journey_departs_eu: true, flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: false, event.type: delay, event.departure_delay_minutes: 130 }
+    outcome: may_apply
+    missing_facts: [flight.leg_distance_km]
+  - name: "flight distance not known yet, 90 minutes late (under every threshold)"
+    situation: { trip.journey_departs_eu: true, flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: false, event.type: delay, event.departure_delay_minutes: 90 }
+    outcome: does_not_apply
+  - name: "whether the flight arrives in the EU is not known, 5000 km, 200 minutes late"
+    situation: { trip.journey_departs_eu: true, flight.departs_eu: true, event.type: delay, flight.leg_distance_km: 5000, event.departure_delay_minutes: 200 }
+    outcome: may_apply
+    missing_facts: [flight.arrives_eu]
+  - name: "flight scope not known yet"
+    situation: { event.type: cancellation }
+    outcome: may_apply
+    missing_facts: [trip.journey_departs_eu, flight.departs_eu, flight.departs_iceland_norway_switzerland, trip.journey_arrives_eu, flight.carrier_is_eu, flight.arrives_eu]
+  - name: "another kind of event is not covered"
+    situation: { trip.journey_departs_eu: true, flight.departs_eu: true, flight.arrives_eu: false, flight.carrier_is_eu: false, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: false, event.type: bag_delayed }
+    outcome: does_not_apply
+  - name: "JFK-CDG leg on Air France of a JFK-CDG-DXB booking, delayed 4 hours"
+    situation: { trip.journey_departs_eu: false, flight.departs_eu: false, flight.departs_iceland_norway_switzerland: false, trip.journey_arrives_eu: false, flight.arrives_eu: true, flight.carrier_is_eu: true, event.type: delay, event.departure_delay_minutes: 240 }
+    outcome: applies

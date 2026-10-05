@@ -17,7 +17,7 @@ export const config = {
   matcher: [
     {
       source:
-        '/((?!_next/static|_next/image|favicon.ico|characters/|\\.well-known/workflow/|api/webhooks/|api/mcp|api/rules).*)',
+        '/((?!_next/static|_next/image|favicon.ico|characters/|\\.well-known/workflow/|api/webhooks/|api/cron/|api/mcp|api/rules).*)',
     },
   ],
 };

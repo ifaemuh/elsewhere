@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { parseArgs } from 'node:util';
-import { fetchEcfrPart } from '../ecfr';
+import { fetchEcfrPart, guardTruncated } from '../ecfr';
 import { DEFAULT_SOURCES_FILE, loadSources } from '../load';
 import { sourceTextPath } from '../quotes';
 
@@ -24,6 +24,7 @@ for (const source of Object.values(loadSources(values.sources))) {
   try {
     const part = await fetchEcfrPart(source.detector.ecfr);
     const current = existsSync(path) ? readFileSync(path, 'utf8') : '';
+    guardTruncated(current, part.text);
     if (current === part.text) {
       console.log(`${source.key}: unchanged (amended ${part.amendedOn})`);
       continue;

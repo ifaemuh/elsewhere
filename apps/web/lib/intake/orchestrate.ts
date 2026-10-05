@@ -1,0 +1,47 @@
+import type { ExtractOutcome, FailureKind, IntakeResult, PersistOutcome, ReadyExtraction } from './process';
+
+/** The workflow's steps, injected so the control flow is testable and the workflow body stays deterministic. */
+export interface IntakeSteps {
+  /** Atomically takes the message (received -> processing). False means another run owns it. */
+  claim(messageId: string): Promise<boolean>;
+  extract(messageId: string): Promise<ExtractOutcome>;
+  persist(extraction: ReadyExtraction): Promise<PersistOutcome>;
+  confirm(extraction: ReadyExtraction, persisted: PersistOutcome): Promise<IntakeResult>;
+  markFailed(messageId: string, reason: string, problems: string[], kind: FailureKind, storagePath: string | null): Promise<IntakeResult>;
+}
+
+/** A step that threw FatalError (fixed text) or ran out of retries (anything else, which may carry provider detail). */
+function reasonFor(error: unknown): string {
+  return error instanceof Error && (error.name === 'FatalError' || (error as { fatal?: boolean }).fatal === true)
+    ? error.message
+    : 'processing did not finish';
+}
+
+/**
+ * Claim, extract, persist, confirm. The claim makes a second run for the same message a no-op, so a
+ * redelivery or concurrent start never pays for a second extraction (the same run re-claims its own message
+ * when a step retries). Each later phase is its own step and its result is replayed from the event log, so a
+ * retry never reruns the paid extraction. A claimed message ends as parsed, needs_confirmation or failed,
+ * never stuck; only an explicit planner or admin action sets a failed one back to received.
+ */
+export async function runIntake(messageId: string, steps: IntakeSteps): Promise<IntakeResult> {
+  let extraction: ReadyExtraction | null = null;
+  let stage: FailureKind = 'claim';
+  try {
+    if (!(await steps.claim(messageId))) return { status: 'claimed_elsewhere' };
+    stage = 'unreadable';
+    const extracted = await steps.extract(messageId);
+    if (extracted.status === 'missing') return extracted;
+    extraction = extracted;
+    if (extraction.bookings.length === 0) {
+      return await steps.markFailed(messageId, 'no booking found', extraction.problems, 'unreadable', extraction.storagePath);
+    }
+    stage = 'save';
+    const persisted = await steps.persist(extraction);
+    stage = 'lookup';
+    return await steps.confirm(extraction, persisted);
+  } catch (error) {
+    const reason = stage === 'lookup' ? 'flight lookup did not finish' : stage === 'claim' ? 'could not start processing' : reasonFor(error);
+    return steps.markFailed(messageId, reason, extraction?.problems ?? [], stage, extraction?.storagePath ?? null);
+  }
+}

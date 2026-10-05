@@ -1,0 +1,248 @@
+id: eu261-right-to-care
+version: 1
+status: draft
+domain: flights
+jurisdiction: EU-261
+title: "Flight cancelled or badly delayed? The airline must feed you and, if needed, house you"
+summary: >-
+  If an airline cancels a flight EU rules cover, or expects it to leave 2, 3 or 4 or more hours late depending on
+  distance, the airline that operates it must offer, free of charge, meals and refreshments in proportion to the wait,
+  two calls or emails, and a hotel with transport if you must stay overnight, whatever the cause. If it doesn't, ask.
+applies_when:
+  all:
+    - any:
+        - fact: trip.journey_departs_eu
+          eq: true
+        - fact: flight.departs_eu
+          eq: true
+        - fact: flight.departs_iceland_norway_switzerland
+          eq: true
+        - all:
+            - fact: trip.journey_arrives_eu
+              eq: true
+            - fact: flight.carrier_is_eu
+              eq: true
+        - all:
+            - fact: flight.arrives_eu
+              eq: true
+            - fact: flight.carrier_is_eu
+              eq: true
+    - any:
+        - fact: event.type
+          in: [cancellation]
+        - all:
+            - fact: event.type
+              in: [delay]
+            - any:
+                - fact: event.departure_delay_minutes
+                  gte: 240
+                - all:
+                    - fact: event.departure_delay_minutes
+                      gte: 120
+                    - fact: flight.leg_distance_km
+                      lte: 1500
+                - all:
+                    - fact: event.departure_delay_minutes
+                      gte: 180
+                    - fact: flight.leg_distance_km
+                      gt: 1500
+                    - any:
+                        - fact: flight.leg_distance_km
+                          lte: 3500
+                        - all:
+                            - fact: flight.departs_eu
+                              eq: true
+                            - fact: flight.arrives_eu
+                              eq: true
+entitlement:
+  kind: care
+  amount:
+    meals_and_refreshments: "meals and refreshments in a reasonable relation to the waiting time"
+    hotel_accommodation: "hotel accommodation in cases where a stay of one or more nights becomes necessary, or where a stay additional to that intended by the passenger becomes necessary"
+    transport_to_accommodation: "transport between the airport and place of accommodation (hotel or other)"
+    communication: "two telephone calls, telex or fax messages, or e-mails"
+    cost_to_passenger: "free of charge"
+  timing: "For delays, the airline must offer care within the time limits for each distance bracket: 2 hours or more for flights of 1500 km or less, 3 hours or more for EU flights of more than 1500 km and other flights between 1500 and 3500 km, and 4 hours or more for all other flights, counted from the scheduled departure time. For cancellations, care is owed from the cancellation for as long as you wait for rerouting or a return flight."
+how_to_claim:
+  steps:
+    - "Tell the airline's staff at the airport that you are affected, so you are not left to make your own arrangements. The airline that operates the flight must offer the care, even if you bought your ticket from someone else. If it doesn't, ask."
+    - "The airline must offer you, free of charge, meals and refreshments in a reasonable relation to the waiting time. If it doesn't, ask."
+    - "The airline must offer you a hotel and transport between the airport and the hotel if you must stay one or more nights, or longer than you planned. For a delay, that applies when the flight is now expected to leave at least the day after the original departure. For a cancellation, it applies when the rerouted flight is expected to leave at least the day after the cancelled one was planned to. If it doesn't, ask."
+    - "The airline must offer you two telephone calls, telex or fax messages, or e-mails, free of charge. If it doesn't, ask."
+    - "If the airline doesn't offer care and you pay for meals, refreshments or other care yourself, keep all receipts and ask the airline to reimburse you. It owes you expenses that were necessary, reasonable and appropriate."
+    - "If your flight is delayed 5 hours or more, the airline must also offer to reimburse your ticket and, if you have a connecting flight, a return to the airport of departure. Ask for it if you want it."
+    - "Review the request we drafted, add your flight details and the receipts you kept, and send it to the airline yourself."
+  templates: [airline_care_request]
+exceptions:
+  - "The airline may limit or decline care if providing it would itself cause further delay to passengers waiting for an alternative or a delayed flight."
+  - "You only have the right to care for as long as you have to wait for rerouting, under comparable transport conditions, to your final destination at the earliest opportunity, or for a return flight."
+  - "For delays, the time limits count from the flight's scheduled departure time, as the airline expects it, not from your arrival. The limits are 2 hours for flights of 1500 km or less, 3 hours for EU flights of more than 1500 km and for other flights between 1500 and 3500 km, and 4 hours for all other flights. The European Commission's guidance lists the middle band as ending at 3,000 km; the Regulation's 3500 km governs."
+  - "People with reduced mobility and anyone accompanying them, and unaccompanied children, have the right to care as soon as possible on cancellations and on delays of any length, without these time limits."
+  - "Only applies if you had a confirmed reservation and, unless the airline set another time in advance and in writing, checked in at least 45 minutes before the published departure time. You do not have to check in for a cancelled flight. It also applies if the airline moved you from a flight you had booked to another one."
+  - "Not owed for free tickets or tickets at a reduced fare not available directly or indirectly to the public. Tickets issued under a frequent flyer or other commercial programme are covered."
+  - "Only covers passengers carried by motorised fixed wing aircraft."
+  - "Does not apply if a package tour is cancelled for reasons other than cancellation of the flight."
+  - "A flight arriving in the EU from outside the EU is covered only if the operating airline is licensed in an EU member state (an EU airline). A flight leaving the EU is covered whatever the airline. If your flights are on one booking and the journey starts in the EU, every flight of it is covered, whatever the airline: the rules look at the whole journey to your final destination."
+  - "If your flight came into the EU from outside it, these rules don't apply if, in that non-EU country, you already received benefits or compensation and were also given assistance."
+  - "Your outbound and return flights count separately, even if they are on one booking. Each direction is its own journey."
+  - "EU here means the 27 EU countries, including Guadeloupe, French Guiana, Martinique, Mayotte, Reunion, Saint Barthelemy, Saint-Martin, the Azores, Madeira and the Canary Islands, but not the Faeroe Islands. The European Commission's guidance says the rules also apply to flights to and from Iceland, Norway and Switzerland; this rule covers flights leaving them."
+sources:
+  - id: s1
+    source: eurlex-261-2004
+    quotes:
+      - text: "to passengers departing from an airport located in the territory of a Member State to which the Treaty applies;"
+        supports: [summary, applies_when]
+      - text: "to passengers departing from an airport located in a third country to an airport situated in the territory of a Member State to which the Treaty applies, unless they received benefits or compensation and were given assistance in that third country, if the operating air carrier of the flight concerned is a Community carrier."
+        supports: [summary, applies_when, exceptions]
+      - text: '"Community carrier" means an air carrier with a valid operating licence granted by a Member State in accordance with the provisions of Council Regulation (EEC) No 2407/92 of 23 July 1992 on licensing of air carriers(5);'
+        supports: [applies_when, exceptions]
+      - text: '"operating air carrier" means an air carrier that performs or intends to perform a flight under a contract with a passenger or on behalf of another person, legal or natural, having a contract with that passenger;'
+        supports: [summary, how_to_claim.steps.0]
+      - text: "This Regulation shall apply to any operating air carrier providing transport to passengers covered by paragraphs 1 and 2. Where an operating air carrier which has no contract with the passenger performs obligations under this Regulation, it shall be regarded as doing so on behalf of the person having a contract with that passenger."
+        supports: [summary, how_to_claim.steps.0]
+      - text: "In order to ensure the effective application of this Regulation, the obligations that it creates should rest with the operating air carrier who performs or intends to perform a flight, whether with owned aircraft, under dry or wet lease, or on any other basis."
+        supports: [summary, how_to_claim.steps.0]
+      - text: "In case of cancellation of a flight, the passengers concerned shall:"
+        supports: [summary, applies_when]
+      - text: "be offered assistance by the operating air carrier in accordance with Article 9(1)(a) and 9(2), as well as, in event of re-routing when the reasonably expected time of departure of the new flight is at least the day after the departure as it was planned for the cancelled flight, the assistance specified in Article 9(1)(b) and 9(1)(c); and"
+        supports: [summary, applies_when, entitlement.amount, how_to_claim.steps.2, exceptions]
+      - text: "An operating air carrier shall not be obliged to pay compensation in accordance with Article 7, if it can prove that the cancellation is caused by extraordinary circumstances which could not have been avoided even if all reasonable measures had been taken."
+        supports: [summary, applies_when]
+      - text: "When an operating air carrier reasonably expects a flight to be delayed beyond its scheduled time of departure:"
+        supports: [summary, applies_when, entitlement.timing, exceptions]
+      - text: "for two hours or more in the case of flights of 1500 kilometres or less; or"
+        supports: [summary, applies_when, entitlement.timing, exceptions]
+      - text: "for three hours or more in the case of all intra-Community flights of more than 1500 kilometres and of all other flights between 1500 and 3500 kilometres; or"
+        supports: [summary, applies_when, entitlement.timing, exceptions]
+      - text: "for four hours or more in the case of all flights not falling under (a) or (b),"
+        supports: [summary, applies_when, entitlement.timing, exceptions]
+      - text: "passengers shall be offered by the operating air carrier:"
+        supports: [summary, applies_when, how_to_claim.steps.0]
+      - text: "the assistance specified in Article 9(1)(a) and 9(2); and"
+        supports: [summary, entitlement.amount, how_to_claim.steps.1, how_to_claim.steps.3]
+      - text: "when the reasonably expected time of departure is at least the day after the time of departure previously announced, the assistance specified in Article 9(1)(b) and 9(1)(c); and"
+        supports: [summary, entitlement.amount, how_to_claim.steps.2]
+      - text: "when the delay is at least five hours, the assistance specified in Article 8(1)(a)."
+        supports: [how_to_claim.steps.5]
+      - text: "In any event, the assistance shall be offered within the time limits set out above with respect to each distance bracket."
+        supports: [entitlement.timing, exceptions]
+      - text: "Where reference is made to this Article, passengers shall be offered free of charge:"
+        supports: [summary, entitlement.amount, how_to_claim.steps.1]
+      - text: "meals and refreshments in a reasonable relation to the waiting time;"
+        supports: [summary, entitlement.amount, how_to_claim.steps.1]
+      - text: "hotel accommodation in cases"
+        supports: [summary, entitlement.amount, how_to_claim.steps.2]
+      - text: "where a stay of one or more nights becomes necessary, or"
+        supports: [summary, entitlement.amount, how_to_claim.steps.2]
+      - text: "where a stay additional to that intended by the passenger becomes necessary;"
+        supports: [summary, entitlement.amount, how_to_claim.steps.2]
+      - text: "transport between the airport and place of accommodation (hotel or other)."
+        supports: [summary, entitlement.amount, how_to_claim.steps.2]
+      - text: "In addition, passengers shall be offered free of charge two telephone calls, telex or fax messages, or e-mails."
+        supports: [summary, entitlement.amount, how_to_claim.steps.3]
+      - text: "In cases of denied boarding, cancellation and delays of any length, persons with reduced mobility and any persons accompanying them, as well as unaccompanied children, shall have the right to care in accordance with Article 9 as soon as possible."
+        supports: [exceptions]
+      - text: "Care for passengers awaiting an alternative or a delayed flight may be limited or declined if the provision of the care would itself cause further delay."
+        supports: [exceptions]
+      - text: "have a confirmed reservation on the flight concerned and, except in the case of cancellation referred to in Article 5, present themselves for check-in,"
+        supports: [exceptions]
+      - text: "as stipulated and at the time indicated in advance and in writing (including by electronic means) by the air carrier, the tour operator or an authorised travel agent,"
+        supports: [exceptions]
+      - text: "not later than 45 minutes before the published departure time; or"
+        supports: [exceptions]
+      - text: "have been transferred by an air carrier or tour operator from the flight for which they held a reservation to another flight, irrespective of the reason."
+        supports: [exceptions]
+      - text: "This Regulation shall not apply to passengers travelling free of charge or at a reduced fare not available directly or indirectly to the public. However, it shall apply to passengers having tickets issued under a frequent flyer programme or other commercial programme by an air carrier or tour operator."
+        supports: [exceptions]
+      - text: "This Regulation shall only apply to passengers transported by motorised fixed wing aircraft."
+        supports: [exceptions]
+      - text: "This Regulation shall not apply in cases where a package tour is cancelled for reasons other than cancellation of the flight."
+        supports: [exceptions]
+  - id: s2
+    source: youreurope-air-passenger-rights
+    quotes:
+      - text: "within the EU"
+        supports: [applies_when]
+      - text: "by an EU or a non-EU airline"
+        supports: [applies_when]
+      - text: "arrives in the EU"
+        supports: [applies_when]
+      - text: "by an EU airline"
+        supports: [applies_when]
+      - text: "departs from the EU"
+        supports: [applies_when]
+      - text: "you have not already received benefits"
+        supports: [exceptions]
+      - text: "The outbound and return flights are always considered as two separate flights even if they were booked as part of one reservation."
+        supports: [applies_when, exceptions]
+      - text: "If you miss a connecting flight travelling within the EU or outside the EU on a flight originating from an EU country, you should be entitled to compensation, if you arrive at your final destination"
+        supports: [applies_when, exceptions]
+      - text: "It is not relevant if the carrier operating the connecting flight is an EU or non-EU airline."
+        supports: [applies_when, exceptions]
+      - text: "If you depart from a non-EU country to your final destination in an EU country, with connecting flights operated successively by non-EU and EU airlines or by EU airlines only,"
+        supports: [applies_when]
+      - text: "only the flights operated by EU airlines"
+        supports: [applies_when]
+      - text: "in case of a long delay on arrival at the final destination."
+        supports: [applies_when]
+      - text: "your flights were booked as part of a single reservation"
+        supports: [exceptions]
+      - text: "and is operated either"
+        supports: [applies_when]
+      - text: "from outside the EU and is operated"
+        supports: [applies_when, exceptions]
+      - text: "to a non-EU country operated"
+        supports: [applies_when]
+      - text: "(compensation, re-routing, assistance from the airline) for flight related problems for this journey under the relevant law of a non-EU country."
+        supports: [exceptions]
+      - text: "EU means the 27 EU countries, including Guadeloupe, French Guiana, Martinique, Mayotte, Réunion, Saint Barthélemy, Saint-Martin (French Antilles), the Azores, Madeira and the Canary Islands, but not the Faeroe Islands."
+        supports: [applies_when, exceptions]
+      - text: "EU rules also apply to flights to and from"
+        supports: [applies_when, exceptions]
+      - text: "and Switzerland."
+        supports: [applies_when, exceptions]
+      - text: "If an airline expects that your flight will be delayed beyond the scheduled departure time, you are entitled to"
+        supports: [summary, applies_when, exceptions]
+      - text: "in proportion to the waiting time, and 2 free telephone calls, emails or faxes. The point at which you are entitled to these rights depends on the length of the delay and distance of your flight as follows:"
+        supports: [summary, applies_when, entitlement.amount, entitlement.timing]
+      - text: "However, to be exempted from paying compensation, the"
+        supports: [summary, applies_when]
+      - text: "a delay of two hours or more for flights of 1,500km or less"
+        supports: [summary, applies_when, entitlement.timing]
+      - text: "a delay of three hours or more for intra-EU flights of more than 1,500km and for all other flights between 1,500 and 3,000km"
+        supports: [exceptions]
+      - text: "a delay of four hours or more for all other flights"
+        supports: [summary, applies_when, entitlement.timing]
+      - text: "Where the new expected departure time is at least the day after the initially scheduled departure time, you are entitled to"
+        supports: [summary, entitlement.amount, how_to_claim.steps.2]
+      - text: "hotel accommodation"
+        supports: [summary, entitlement.amount, how_to_claim.steps.2]
+      - text: "and transport to and from the airport and your accommodation"
+        supports: [summary, entitlement.amount, how_to_claim.steps.2]
+      - text: "(if you need to stay overnight)."
+        supports: [summary, entitlement.amount, how_to_claim.steps.2]
+      - text: "Accommodation (if you are rebooked to travel the next day)"
+        supports: [summary, entitlement.amount, how_to_claim.steps.2]
+      - text: "Transport to your accommodation and return to the airport"
+        supports: [summary, entitlement.amount, how_to_claim.steps.2]
+      - text: "2 telephone calls, telex, fax messages or emails"
+        supports: [summary, entitlement.amount, how_to_claim.steps.3]
+      - text: "while you wait. In the event of travel disruption, you should make yourself known to the airline, to avoid a situation where you have to make your own arrangements."
+        supports: [how_to_claim.steps.0]
+      - text: "If assistance is not offered and you paid"
+        supports: [how_to_claim.steps.4]
+      - text: "provided the expenses were necessary, reasonable and appropriate. You should keep all receipts for this purpose."
+        supports: [how_to_claim.steps.4]
+      - text: "You only have the right to assistance as long as you have to wait for re-routing, under comparable transport conditions, to your final destination at the earliest opportunity or a return flight."
+        supports: [entitlement.timing, exceptions]
+      - text: "If your flight is delayed at least 5 hours at departure, the airline must reimburse your ticket and, if you have a connecting flight, offer a return to the airport of departure at the earliest opportunity."
+        supports: [how_to_claim.steps.5]
+      - text: "In some cases the airline operating the flight (also known as the operating air carrier) may not be the same as the one from which you bought your ticket. In case of any difficulties only the airline which operates the flight can be held responsible."
+        supports: [summary, how_to_claim.steps.0]
+lead_character: capybara
+tags: [eu261, care, assistance, delay, cancellation, eu, flights]
+last_verified: null
+verified_by: null
+review_by: null
+history:
+  - { version: 1, status: draft, date: 2026-10-02 }

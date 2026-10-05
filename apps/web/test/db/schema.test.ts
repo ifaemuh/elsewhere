@@ -196,6 +196,16 @@ describe('growth tables and attribution', () => {
     await expect(click('r2')).resolves.toBeDefined();
   });
 
+  it('allows only one paid event per trip', async () => {
+    const paid = () =>
+      asService(db, () =>
+        db.query("insert into public.funnel_telemetry_events (anonymous_id, event_name, trip_id) values ($1, 'paid', $2)", ['aid0000000000000000000000000000d', tripId]),
+      );
+    await paid();
+    await expect(paid()).rejects.toThrow(/funnel_paid_trip_idx/);
+    await asService(db, () => db.query("delete from public.funnel_telemetry_events where anonymous_id = 'aid0000000000000000000000000000d'"));
+  });
+
   it('attributes conversions to the last touch before them', async () => {
     const aid = 'aid0000000000000000000000000000a';
     await asService(db, async () => {
@@ -294,7 +304,7 @@ describe('write paths are closed (non-superuser roles)', () => {
     const b = await mk('B');
     await rejects(() => asUser(db, MEMBER, () => db.query('update public.votes set trip_id = gen_random_uuid() where id = $1', [a.vote])));
     await rejects(() => asUser(db, PLANNER, () => db.query('insert into public.vote_responses (vote_id, user_id, option_id) values ($1, $2, $3)', [a.vote, PLANNER, b.option])));
-    await asUser(db, PLANNER, () => db.query('insert into public.vote_responses (vote_id, user_id, option_id) values ($1, $2, $3)', [a.vote, PLANNER, a.option]));
+    await asUser(db, PLANNER, () => db.query('select public.respond_vote($1, $2)', [a.vote, a.option]));
     await rejects(() => asUser(db, PLANNER, () => db.query('update public.vote_responses set option_id = $1 where vote_id = $2', [b.option, a.vote])));
 
     const item = await asService(db, () => one<{ id: string }>(

@@ -54,3 +54,12 @@ supabase/.temp/
 
 # Next app build-time output
 apps/web/generated/
+
+# Workflow SDK output: @workflow/vitest bundles, and Local World run data
+apps/web/.workflow-vitest/
+apps/web/.workflow-data/
+
+# e2e run output
+apps/web/e2e/.run/
+apps/web/test-results/
+apps/web/playwright-report/

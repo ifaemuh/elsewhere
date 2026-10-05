@@ -1,5 +1,5 @@
 name: applies results sort before may_apply results
-situation: { event.type: cancellation, flight.touches_us: true, trip.hours_since_booking: 2, trip.days_until_departure: 10, trip.booked_via: direct }
+situation: { event.type: cancellation, flight.touches_us: true, trip.hours_since_booking: 2, trip.hours_booked_before_departure: 240, trip.booked_via: direct }
 rules: [fx-us-refund-cancelled-flight, fx-24h-free-cancellation]
 expect:
   - { rule_id: fx-24h-free-cancellation, outcome: applies, missing_facts: [] }
