@@ -1,0 +1,127 @@
+id: us-dot-ticket-agent-refund
+version: 1
+status: draft
+domain: flights
+jurisdiction: US-DOT
+title: "Booked via a travel agent, flight cancelled or significantly changed? The agent that charged you owes the refund"
+summary: >-
+  DOT treats it as an unfair or deceptive practice for a ticket agent (a travel agent or online travel agency) that is
+  the merchant of record to fail to promptly refund airfare when you ask, if a flight to, from or within the US is
+  cancelled or significantly delayed or changed and you choose not to travel or take compensation instead.
+applies_when:
+  all:
+    - fact: trip.ticket_charged_by
+      eq: ticket_agent
+    - fact: flight.touches_us
+      eq: true
+    - fact: passenger.accepted_alternative
+      eq: false
+    - fact: event.type
+      in: [cancellation, delay, schedule_change]
+    - any:
+        - fact: event.type
+          eq: cancellation
+        - all:
+            - fact: trip.itinerary_domestic_us
+              eq: true
+            - fact: event.delay_minutes
+              gte: 180
+        - all:
+            - fact: trip.itinerary_domestic_us
+              eq: false
+            - fact: event.delay_minutes
+              gte: 360
+entitlement:
+  kind: refund
+  amount:
+    fare: full airfare including any taxes and ancillary fees
+    form: original form of payment unless you agree to a cash equivalent
+    service_fee_retained: only a per-passenger service fee for more than processing payment that was clearly and prominently disclosed when you bought the ticket
+  timing: "within 7 business days of the ticket agent receiving information from the carrier (credit card purchases), within 20 calendar days of the refund becoming due (cash, check, debit card or other forms of purchase)"
+how_to_claim:
+  steps:
+    - "Find out who the merchant of record is: the entity shown on your credit or debit card statement for the ticket, the airline or the ticket agent."
+    - "Decline the delayed or changed flight, the rebooking, and any voucher, credit, or other compensation offered instead of a refund."
+    - "If the ticket agent is the merchant of record, ask the ticket agent for the refund. If the airline is the merchant of record, ask the airline."
+    - "Check that the money returns to your original form of payment. A credit card refund is due within 7 business days of the agent receiving the carrier's information; if you paid by cash, check, debit card or another way, the refund is due within 20 calendar days of the refund becoming due. Business days are Monday through Friday, excluding US Federal holidays."
+  templates: [airline_refund_request]
+exceptions:
+  - "Applies only when the ticket agent is the merchant of record, the entity shown on your card statement for the ticket. If the airline is the merchant of record, the airline owes the refund instead."
+  - "Not owed if you accept the significantly delayed or changed flight, a rebooking on an alternative flight, or a voucher, credit, or other compensation. A ticket agent may offer a credit or voucher valid for at least 5 years in place of a refund, but must first tell you that you are entitled to a refund if that is the case."
+  - "This rule checks only the arrival-time trigger (arriving 3 hours or more later on a domestic itinerary, 6 hours or more later on an international itinerary) for delays and changes. The regulation also counts as significant a departure that is scheduled that much earlier, a different origination or destination airport, more connection points, and a downgrade to a lower class of service. Any of those can also entitle you to a refund even when this rule does not match."
+  - "For an individual with a disability, a change to different connecting airports or to a substitute aircraft that lacks a needed accessibility feature is also a significant change, and so is a downgrade that makes a needed accessibility feature unavailable. Consumers on the same reservation as that individual can also be refunded in those cases."
+  - "The airline cannot treat you as having accepted a voucher, credit or other compensation unless you affirmatively agree to it."
+  - "A ticket agent that offers a credit, voucher or other compensation must clearly disclose any material restrictions, conditions and limitations on it, including its expiration date."
+  - "A ticket agent is not responsible for refunding optional service fees if the service is not provided or baggage fees if a checked bag is significantly delayed or lost. Ask the airline for those."
+  - "The airline that cancelled or significantly changed the flight must tell the ticket agent without delay whether you are eligible for a refund, and must send the agent the funds if the agent does not hold them."
+sources:
+  - id: s1
+    source: ecfr-14-cfr-399
+    quotes:
+      - text: "It is the policy of the Department to regard as an unfair or deceptive practice or unfair method of competition the practices enumerated in paragraphs (a) through (n) of this section by a ticket agent of any size"
+        supports: [summary]
+      - text: "Failing to make a prompt refund of airfare (including any taxes and ancillary fees) to a consumer, upon request, for a cancelled flight or a significantly delayed or changed flight if the consumer chooses not to travel or accept compensation in lieu of a refund in situations described in 14 CFR 260.6(a) and (b) when the ticket agent is the merchant of record."
+        supports: [summary, applies_when, entitlement.amount, exceptions, how_to_claim.steps.2]
+      - text: "A prompt refund is one that is made within 7 business days of the ticket agent receiving information from a carrier as specified in 14 CFR 260.6(d), as required by 12 CFR part 1026 for credit card purchases, and within 20 calendar days of refund becoming due for cash, check, debit card, or other forms of purchases."
+        supports: [entitlement.timing, how_to_claim.steps.3]
+      - text: "Business days means Monday through Friday, excluding Federal holidays in the United States."
+        supports: [how_to_claim.steps.3]
+      - text: "Ticket agents must provide the refunds in the original form of payment (i.e., money is returned to individual using whatever payment method the individual used to make the original payment, such as a check, a credit card, a debit card, cash, or airline miles), unless the consumer agrees to receive the refund in another form of payment that is cash equivalent."
+        supports: [entitlement.amount, how_to_claim.steps.3]
+      - text: "A ticket agent may retain a service fee charged when issuing the original ticket to the extent that service is for more than processing payment for a flight that the consumer found. That fee must be on a per-passenger basis and its existence, amount, and the non-refundable nature if that is the case must be clearly and prominently disclosed to consumers at the time they purchase the airfare."
+        supports: [entitlement.amount]
+      - text: "Ticket agents may offer alternative transportation, travel credits, vouchers, or other compensation that remains valid and redeemable by the consumer for a period of at least 5 years from the date on which such voucher, credit, or other form of compensation in lieu of refunds but must first inform consumers that they are entitled to a refund if that is the case."
+        supports: [exceptions, how_to_claim.steps.1]
+      - text: "Ticket agents must clearly disclose any material restrictions, conditions, and limitations on travel credits, vouchers, or other compensation they offer, including the expiration date of the travel credits, vouchers, or other compensation"
+        supports: [exceptions]
+      - text: "Merchant of record means the entity responsible for processing payments by consumers for airfare, as shown in the consumer's financial charge statements such as debit or credit card charge statements."
+        supports: [applies_when, exceptions, how_to_claim.steps.0]
+      - text: "Covered flight means a scheduled flight to, from, or within the United States."
+        supports: [applies_when]
+      - text: "Significant delayed or changed flight means a covered flight itinerary with a delay or change made by a U.S. or foreign carrier where as the result of the delay or change:"
+        supports: [applies_when]
+      - text: "The consumer is scheduled to arrive at the destination airport three hours or more for domestic itineraries or six hours or more for international itineraries later than the original scheduled arrival time;"
+        supports: [summary, applies_when]
+      - text: "The consumer is scheduled to depart from the origination airport three hours or more for domestic itineraries and six hours or more for international itineraries earlier than the original scheduled departure time;"
+        supports: [exceptions]
+      - text: "The consumer is scheduled to depart from a different origination airport or arrive at a different destination airport;"
+        supports: [exceptions]
+      - text: "The consumer is scheduled to travel on an itinerary with more connection points than that of the original itinerary;"
+        supports: [exceptions]
+      - text: "The consumer is downgraded to a lower class of service;"
+        supports: [exceptions]
+      - text: "The consumer with a disability is scheduled to travel through one or more connecting airports that are different from the original itinerary; or"
+        supports: [exceptions]
+      - text: "The consumer with a disability is scheduled to travel on substitute aircraft on which one or more accessibility features needed by the passenger are unavailable."
+        supports: [exceptions]
+      - text: "Failing to provide a prompt refund of airfare (including any taxes and ancillary fees), upon request, for a significantly delayed or changed flight itinerary to consumers on the same reservation as an individual with a disability who does not want to continue travel because of a significant change described in paragraph (l)(1)(vii)(E) of this section related to downgrades or paragraph (l)(1)(vii)(G) of this section related to aircraft substitution which result in one or more accessibility features needed by the individual with a disability becoming unavailable or because of the significant change described in paragraph (l)(1)(vii)(F) of this section related to change in connecting airports."
+        supports: [exceptions]
+  - id: s2
+    source: ecfr-14-cfr-260
+    quotes:
+      - text: "A consumer rejects the significantly delayed or changed flight, rebooking on an alternative flight, or any voucher, credit, or other form of compensation offered by the covered carrier pursuant to paragraph (c) of this section;"
+        supports: [applies_when, exceptions, how_to_claim.steps.1]
+      - text: "A covered carrier must not deem a consumer to have accepted an offer for travel credits, vouchers, or other compensation in lieu of a refund under § 260.6(c) unless the consumer affirmatively agrees to the alternative form of compensation."
+        supports: [exceptions, how_to_claim.steps.1]
+      - text: "In situations where a ticket agent is the merchant of record for the transaction, after receiving a refund request by a consumer through the ticket agent, the carrier that canceled or significantly delayed or changed the flight must inform the ticket agent without delay whether the consumer is eligible for a refund under this section"
+        supports: [exceptions, how_to_claim.steps.2]
+      - text: "In situations where a ticket agent is responsible for providing the refund to the consumer pursuant to 14 CFR 399.80(l) and the ticket agent does not possess the funds of the consumer, that carrier that has the funds must promptly transfer the funds to the ticket agent."
+        supports: [exceptions]
+  - id: s3
+    source: dot-refunds
+    quotes:
+      - text: "travel agents or online travel agencies) that are the “merchants of record” are required to make “proper” refunds of airfare when a flight to, from, or within the United States is cancelled or significantly changed by an airline."
+        supports: [summary, applies_when]
+      - text: "Merchants of record are responsible for issuing refunds when they are due."
+        supports: [applies_when, exceptions, how_to_claim.steps.2]
+      - text: "A “merchant of record” is the entity that is shown in the financial charge statement for the ticket purchase, such as your debit or credit card charge statement."
+        supports: [exceptions, how_to_claim.steps.0]
+      - text: "Ticket agents are not responsible for refunding optional service fees if the service is not provided or baggage fees if a checked bag is significantly delayed or lost."
+        supports: [exceptions]
+lead_character: pigeon
+tags: [refund, cancellation, delay, schedule-change, airfare, ticket-agent, ota, dot]
+last_verified: null
+verified_by: null
+review_by: null
+history:
+  - { version: 1, status: draft, date: 2026-10-05 }

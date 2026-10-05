@@ -1,0 +1,47 @@
+rule: ua-controllable-delay-care
+cases:
+  - name: United-caused departure delay of 181 minutes
+    situation: { flight.marketing_carrier_iata: UA, event.type: delay, event.cause: controllable, event.departure_delay_minutes: 181 }
+    outcome: applies
+  - name: cause not known yet still applies
+    situation: { flight.marketing_carrier_iata: UA, event.type: delay, event.cause: unknown, event.departure_delay_minutes: 240 }
+    outcome: applies
+  - name: United Express flight sold as UA, operated by another carrier
+    situation: { flight.marketing_carrier_iata: UA, flight.carrier_iata: OO, event.type: delay, event.cause: controllable, event.departure_delay_minutes: 240 }
+    outcome: applies
+  - name: controllable cancellation with no minutes
+    situation: { flight.marketing_carrier_iata: UA, event.type: cancellation, event.cause: controllable }
+    outcome: applies
+  - name: controllable missed connection with no minutes
+    situation: { flight.marketing_carrier_iata: UA, event.type: missed_connection, event.cause: controllable }
+    outcome: applies
+  - name: exactly three hours is not more than three hours
+    situation: { flight.marketing_carrier_iata: UA, event.type: delay, event.cause: controllable, event.departure_delay_minutes: 180 }
+    outcome: does_not_apply
+  - name: 179 minutes
+    situation: { flight.marketing_carrier_iata: UA, event.type: delay, event.cause: controllable, event.departure_delay_minutes: 179 }
+    outcome: does_not_apply
+  - name: weather delay is outside United's control
+    situation: { flight.marketing_carrier_iata: UA, event.type: delay, event.cause: uncontrollable, event.departure_delay_minutes: 400 }
+    outcome: does_not_apply
+  - name: uncontrollable cancellation
+    situation: { flight.marketing_carrier_iata: UA, event.type: cancellation, event.cause: uncontrollable }
+    outcome: does_not_apply
+  - name: another marketing carrier
+    situation: { flight.marketing_carrier_iata: DL, event.type: delay, event.cause: controllable, event.departure_delay_minutes: 400 }
+    outcome: does_not_apply
+  - name: schedule change is not covered
+    situation: { flight.marketing_carrier_iata: UA, event.type: schedule_change, event.cause: controllable }
+    outcome: does_not_apply
+  - name: delay with only the arrival-delay fact
+    situation: { flight.marketing_carrier_iata: UA, event.type: delay, event.cause: controllable, event.delay_minutes: 240 }
+    outcome: may_apply
+    missing_facts: [event.departure_delay_minutes]
+  - name: cause not entered yet
+    situation: { flight.marketing_carrier_iata: UA, event.type: delay, event.departure_delay_minutes: 240 }
+    outcome: may_apply
+    missing_facts: [event.cause]
+  - name: marketing carrier not known yet
+    situation: { event.type: delay, event.cause: controllable, event.departure_delay_minutes: 240 }
+    outcome: may_apply
+    missing_facts: [flight.marketing_carrier_iata]

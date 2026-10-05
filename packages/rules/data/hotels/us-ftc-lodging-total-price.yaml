@@ -1,0 +1,72 @@
+id: us-ftc-lodging-total-price
+version: 1
+status: draft
+domain: hotels
+jurisdiction: US-FTC
+title: "Hotel or rental price shown? The total price must include mandatory fees (government charges may be left out)"
+summary: >-
+  Under the FTC's fee rule, a business that offers, displays or advertises a price for a hotel, short-term rental or
+  other short-term lodging must clearly and conspicuously show the total price, including mandatory fees but not
+  necessarily government charges, more prominently than any other pricing information.
+applies_when:
+  all:
+    - fact: lodging.kind
+      in: [hotel, short_term_rental]
+entitlement:
+  kind: protection
+  amount:
+    price_shown: the total price, the maximum total of all fees or charges you must pay for the lodging and any mandatory ancillary good or service
+    may_be_left_out: government charges, and fees or charges for any optional ancillary good or service
+    also_shown_before_you_pay: the nature, purpose and amount of any fee left out of the total price, and the final amount of payment
+how_to_claim:
+  steps:
+    - "Before you agree to pay, check that the total price shown includes every mandatory fee or charge for the stay, except government charges (fees or charges a government imposes on the transaction), which may be left out."
+    - "Check that any fee left out of the total price is disclosed before you agree to pay, with its nature, purpose and amount, and that the final amount of payment is shown."
+  templates: []
+exceptions:
+  - "Part 464 does not itself give you a refund or set a complaint route."
+  - "A business may not misrepresent any fee or charge, including its nature, purpose, amount or refundability."
+  - "This describes what the business must show you. The rule governs how a price is displayed or advertised, not whether the price is fair or what the stay costs."
+  - "The total price may leave out government charges and fees or charges for any optional ancillary good or service. The business must still disclose any excluded fee, with its nature, purpose and amount, clearly and conspicuously before you agree to pay."
+  - "Where the final amount of payment is displayed, it must be shown more prominently than, or as prominently as, the total price."
+  - "Part 464 applies to any \"business\", meaning any individual, corporation, partnership, association, or any other entity that offers goods or services, including online. The text sets no limit by where the business or the traveler is located, and this rule has no fact for that, so it cannot check whether the rule reaches a particular business or stay."
+  - "The rule does not displace state law: a state law that gives you greater protection is not inconsistent with it."
+sources:
+  - id: s1
+    source: ecfr-16-cfr-464
+    quotes:
+      - text: "Covered good or service means:"
+        supports: [summary, applies_when]
+      - text: "Short-term lodging, including temporary sleeping accommodations at a hotel, motel, inn, short-term rental, vacation rental, or other place of lodging."
+        supports: [summary, applies_when]
+      - text: "It is an unfair and deceptive practice and a violation of this part for any business to offer, display, or advertise any price of a covered good or service without clearly and conspicuously disclosing the total price."
+        supports: [summary, entitlement.amount]
+      - text: "In any offer, display, or advertisement that represents any price of a covered good or service, a business must disclose the total price more prominently than any other pricing information."
+        supports: [summary, entitlement.amount]
+      - text: "In any offer, display, or advertisement for a covered good or service it is an unfair and deceptive practice and a violation of this part for any business to misrepresent any fee or charge, including: the nature, purpose, amount, or refundability of any fee or charge; and the identity of the good or service for which the fee or charge is imposed."
+        supports: [exceptions]
+      - text: "However, where the final amount of payment for the transaction is displayed, the final amount of payment must be disclosed more prominently than, or as prominently as, the total price."
+        supports: [exceptions]
+      - text: "Total price means the maximum total of all fees or charges a consumer must pay for any good(s) or service(s) and any mandatory ancillary good or service, except that government charges, shipping charges, and fees or charges for any optional ancillary good or service may be excluded."
+        supports: [summary, entitlement.amount, exceptions, how_to_claim.steps.0]
+      - text: "A business must disclose clearly and conspicuously, before the consumer consents to pay for any covered good or service:"
+        supports: [entitlement.amount, exceptions, how_to_claim.steps.1]
+      - text: "The nature, purpose, and amount of any fee or charge imposed on the transaction that has been excluded from total price and the identity of the good or service for which the fee or charge is imposed; and"
+        supports: [entitlement.amount, exceptions, how_to_claim.steps.1]
+      - text: "The final amount of payment for the transaction."
+        supports: [entitlement.amount, how_to_claim.steps.1]
+      - text: "Business means an individual, corporation, partnership, association, or any other entity that offers goods or services, including, but not limited to, online, in mobile applications, and in physical locations."
+        supports: [exceptions]
+      - text: "Government charges means the fees or charges imposed on the transaction by a Federal, State, Tribal, or local government agency, unit, or department."
+        supports: [summary, exceptions, how_to_claim.steps.0]
+      - text: "This part will not be construed as superseding, altering, or affecting any State statute, regulation, order, or interpretation relating to unfair or deceptive fees or charges, except to the extent that such statute, regulation, order, or interpretation is inconsistent with the provisions of this part, and then only to the extent of the inconsistency."
+        supports: [exceptions]
+      - text: "For purposes of this section, a State statute, regulation, order, or interpretation is not inconsistent with the provisions of this part if the protection such statute, regulation, order, or interpretation affords any consumer is greater than the protection provided under this part."
+        supports: [exceptions]
+lead_character: pigeon
+tags: [hotel, short-term-rental, fees, total-price, junk-fees, ftc]
+last_verified: null
+verified_by: null
+review_by: null
+history:
+  - { version: 1, status: draft, date: 2026-10-05 }
