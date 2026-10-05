@@ -5,45 +5,54 @@ domain: flights
 jurisdiction: carrier:AA
 title: "American Airlines delayed or cancelled your flight? If it's their doing, ask for a meal credit, hotel and transport"
 summary: >-
-  American's customer service plan says that when American causes a delay or cancellation, it gives you on request a food
-  credit if the delay is 3 or more hours, and a hotel voucher plus transport if you are delayed overnight away from home.
-  Nothing is promised if the cause is beyond American's control, like weather.
+  When American causes a delay, cancellation or missed connection, its plan gives you on request a food credit if your
+  delay is 3 or more hours after your scheduled departure, and a hotel voucher plus transport if you are delayed
+  overnight and away from your city of residence. Nothing is promised if the cause is beyond American's control.
 applies_when:
   all:
-    - fact: flight.carrier_iata
+    - fact: flight.marketing_carrier_iata
       eq: AA
-    - fact: event.type
-      in: [delay, cancellation]
     - fact: event.cause
       in: [controllable, unknown]
-    - fact: event.delay_minutes
-      gte: 180
+    - any:
+        - all:
+            - fact: event.type
+              in: [delay]
+            - fact: event.departure_delay_minutes
+              gte: 180
+        - fact: event.type
+          in: [cancellation, missed_connection]
 entitlement:
   kind: care
   amount:
     meal: "Food / beverage credit if your delay is 3 or more hours after your scheduled departure"
-    hotel: "A voucher for an approved hotel with available rooms if you are delayed overnight if you’re away from your city of residence"
+    hotel: "A voucher for an approved hotel with available rooms if you are delayed overnight if you’re away from your city of residence. The contract of carriage words the overnight test as not boarding before 11:59 p.m. local time on your scheduled arrival day"
     transport: "Transportation to a hotel and back to the airport by hotel shuttle / third-party transportation service, or a transportation voucher"
-    fallback: "If no hotel voucher or transportation voucher can be provided, American reimburses reasonable hotel costs or reasonable transportation costs"
+    fallback: "If American can't provide a hotel voucher or a transportation voucher, it reimburses reasonable hotel costs or reasonable transportation costs"
   timing: "Upon request, when the delay or cancellation is caused by American Airlines"
 how_to_claim:
   steps:
-    - "Ask American Airlines staff at the airport for the food credit, hotel voucher and transportation. The plan says they are given upon request."
+    - "Ask American Airlines staff for the food credit, hotel voucher and transportation. The plan says they are given upon request."
     - "If you're delayed overnight, ask American for an approved hotel before you book your own. American doesn't guarantee reimbursement for a hotel you book directly without its written authorization."
     - "If American can't give you a hotel voucher or a transportation voucher, ask for reimbursement of reasonable hotel or transportation costs."
+    - "If you believe American hasn't fulfilled its commitment, contact American first to ensure it gives you what is owed."
   templates: [airline_care_request]
 exceptions:
-  - "Only when the delay or cancellation is caused by American. If it is caused by events beyond American's control (like weather), you are responsible for your own overnight accommodations, meals and incidental expenses, though American agents may be able to help you find a hotel."
-  - "The food credit applies if your delay is 3 or more hours after your scheduled departure. The hotel voucher applies if you are delayed overnight and away from your city of residence. The 3-hour threshold in this rule is the food credit's; the plan sets no hour count for the hotel, so an overnight delay shorter than 3 hours is not covered by this rule's check."
-  - "If you are diverted to another city, the plan has a separate commitment (a hotel voucher if American doesn't board you to your final destination before 11:59 p.m., and a food credit if you're delayed more than 3 hours there). It is not covered by this rule."
-  - "On a codeshare flight operated by another airline, check with that airline."
-  - "The contract of carriage says that if the delay is beyond American's control, or you book your own arrangements without written authorization from American Airlines, you're responsible to pay for your hotel, meals and other expenses."
+  - "Only when American causes the delay or cancellation, except after a diversion (see below). If it is caused by events beyond American's control (like weather), you are responsible for your own overnight accommodations, meals and incidental expenses, though American agents may be able to help you find a hotel."
+  - "American's contract lists what it counts as beyond its control. Besides weather, strikes and civil disorder, the list includes labor disputes that involve or affect its service, government regulations or requirements, shortage of labor, fuel or facilities of American or others, and any fact not reasonably foreseen or predicted by American. A staffing shortage may therefore be treated as beyond American's control."
+  - "The food credit is for a delay of 3 or more hours after your scheduled departure. For a cancellation, it applies only if you end up leaving 3 or more hours after your original scheduled departure."
+  - "The hotel commitment has no hour count in the plan. The contract words it as: the disruption is American's fault and American doesn't board you before 11:59 p.m. local time on your scheduled arrival day, and you're away from your city of residence."
+  - "If your flight is diverted to another city, the plan gives you a hotel voucher, transportation and, if you are delayed in the diversion city for more than 3 hours, a food credit, whatever caused the diversion, if American doesn't board you to your final destination before 11:59 p.m."
+  - "If you book a hotel on your own without written authorization from American Airlines, you're responsible to pay for your hotel, meals and other expenses."
+  - "On a flight sold under American's number but operated by a partner airline, the plan says American will make every reasonable effort to ensure its domestic codeshare partners offer comparable levels of service. It does not promise these commitments."
 sources:
   - id: s1
     source: aa-customer-service-plan
     quotes:
       - text: "In cases where a delay or cancellation is caused by us, upon request we’ll give you:"
-        supports: [summary, applies_when, entitlement.timing, how_to_claim.steps.0]
+        supports: [summary, applies_when, entitlement.timing, how_to_claim.steps.0, exceptions]
+      - text: "When your flight is canceled, significantly delayed, or a delay could cause you to miss your connection, we’ll rebook you on our next flight with available seats at no additional cost."
+        supports: [summary, applies_when]
       - text: "A voucher for an approved hotel with available rooms if you are delayed overnight if you’re away from your city of residence."
         supports: [summary, entitlement.amount, exceptions]
       - text: "Transportation to a hotel and back to the airport by hotel shuttle / third-party transportation service, or a transportation voucher."
@@ -58,17 +67,43 @@ sources:
         supports: [exceptions]
       - text: "Food / beverage credit if you are delayed in the diversion city for more than 3 hours."
         supports: [exceptions]
+      - text: "American Airlines and American Eagle will make their Customer Service Plan readily available to all of our domestic Codeshare partners and, to the extent possible, make every reasonable effort to ensure our partners offer comparable levels of service."
+        supports: [exceptions]
   - id: s2
     source: aa-contract-of-carriage
     quotes:
+      - text: "If the disruption is our fault or you're diverted to another city, and we don't board before 11:59 p.m. local time on your scheduled arrival day, we'll arrange an overnight stay or cover the cost of an approved hotel with available rooms if you’re away from your city of residence."
+        supports: [summary, entitlement.amount, exceptions]
       - text: "We don’t guarantee reimbursement for hotel expenses if you book directly without written authorization from American Airlines."
         supports: [how_to_claim.steps.1, exceptions]
       - text: "If the delay is beyond our control, or you book your own arrangements without written authorization from American Airlines, you're responsible to pay for your hotel, meals and other expenses."
         supports: [exceptions]
-      - text: "If you're on a codeshare flight operated by one of our partners, check with that airline."
+      - text: "Under the name \"American Airlines\" we operate mainline flights as American Airlines and regional codeshare flights (doing business as American Eagle) operated by:"
+        supports: [applies_when]
+      - text: "Labor disputes that involve or affect our service"
+        supports: [exceptions]
+      - text: "Government regulations or requirements"
+        supports: [exceptions]
+      - text: "Shortage of labor, fuel or facilities of American or others"
+        supports: [exceptions]
+      - text: "Any fact not reasonably foreseen or predicted by American"
+        supports: [exceptions]
+  - id: s3
+    source: ecfr-14-cfr-259
+    quotes:
+      - text: "Each covered carrier must adopt a Customer Service Plan applicable to its scheduled flights as specified in paragraphs (b)(1) through (14) of this section and adhere to the plan's terms."
+        supports: [summary, entitlement.timing]
+  - id: s4
+    source: dot-customer-service-dashboard
+    quotes:
+      - text: "DOT will hold airlines accountable if they fail to fulfill a customer service commitment. If you believe an airline has not fulfilled its commitment, contact the airline first to ensure it gives you what is owed."
+        supports: [how_to_claim.steps.3]
+      - text: "Meal or meal cash/voucher when the delay results in a wait of 3 hours or more"
+        supports: [summary, exceptions]
+      - text: "Meal or meal cash/voucher when the cancellation results in a wait of 3 hours or more for a new flight"
         supports: [exceptions]
 lead_character: capybara
-tags: [delay, cancellation, hotel, meal, care, american-airlines]
+tags: [delay, cancellation, missed-connection, hotel, meal, care, american-airlines]
 last_verified: null
 verified_by: null
 review_by: null

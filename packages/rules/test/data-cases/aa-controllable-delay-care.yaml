@@ -1,32 +1,41 @@
 rule: aa-controllable-delay-care
 cases:
-  - name: AA delay of 3 hours, AA's fault
-    situation: { flight.carrier_iata: AA, event.type: delay, event.cause: controllable, event.delay_minutes: 180 }
+  - name: AA delay leaving 3 hours late, AA's fault
+    situation: { flight.marketing_carrier_iata: AA, event.type: delay, event.cause: controllable, event.departure_delay_minutes: 180 }
     outcome: applies
-  - name: AA delay of 179 minutes
-    situation: { flight.carrier_iata: AA, event.type: delay, event.cause: controllable, event.delay_minutes: 179 }
+  - name: AA delay leaving 179 minutes late
+    situation: { flight.marketing_carrier_iata: AA, event.type: delay, event.cause: controllable, event.departure_delay_minutes: 179 }
     outcome: does_not_apply
-  - name: AA cancellation, cause not said yet, long wait
-    situation: { flight.carrier_iata: AA, event.type: cancellation, event.cause: unknown, event.delay_minutes: 600 }
+  - name: delay, only arrival minutes known
+    situation: { flight.marketing_carrier_iata: AA, event.type: delay, event.cause: controllable, event.delay_minutes: 300 }
+    outcome: may_apply
+    missing_facts: [event.departure_delay_minutes]
+  - name: AA cancellation, cause not said yet, no minutes
+    situation: { flight.marketing_carrier_iata: AA, event.type: cancellation, event.cause: unknown }
+    outcome: applies
+  - name: AA controllable cancellation
+    situation: { flight.marketing_carrier_iata: AA, event.type: cancellation, event.cause: controllable }
+    outcome: applies
+  - name: AA controllable missed connection
+    situation: { flight.marketing_carrier_iata: AA, event.type: missed_connection, event.cause: controllable }
     outcome: applies
   - name: AA delay, weather
-    situation: { flight.carrier_iata: AA, event.type: delay, event.cause: uncontrollable, event.delay_minutes: 300 }
+    situation: { flight.marketing_carrier_iata: AA, event.type: delay, event.cause: uncontrollable, event.departure_delay_minutes: 300 }
     outcome: does_not_apply
-  - name: another carrier
-    situation: { flight.carrier_iata: DL, event.type: delay, event.cause: controllable, event.delay_minutes: 300 }
+  - name: AA cancellation, weather
+    situation: { flight.marketing_carrier_iata: AA, event.type: cancellation, event.cause: uncontrollable }
     outcome: does_not_apply
-  - name: missed connection is a different rule
-    situation: { flight.carrier_iata: AA, event.type: missed_connection, event.cause: controllable, event.delay_minutes: 300 }
+  - name: another marketing carrier
+    situation: { flight.marketing_carrier_iata: DL, event.type: delay, event.cause: controllable, event.departure_delay_minutes: 300 }
     outcome: does_not_apply
+  - name: marketing carrier not known yet
+    situation: { event.type: delay, event.cause: controllable, event.departure_delay_minutes: 300 }
+    outcome: may_apply
+    missing_facts: [flight.marketing_carrier_iata]
   - name: cause not known yet
-    situation: { flight.carrier_iata: AA, event.type: delay, event.delay_minutes: 240 }
+    situation: { flight.marketing_carrier_iata: AA, event.type: delay, event.departure_delay_minutes: 240 }
     outcome: may_apply
     missing_facts: [event.cause]
-  - name: delay length not known yet
-    situation: { flight.carrier_iata: AA, event.type: delay, event.cause: controllable }
-    outcome: may_apply
-    missing_facts: [event.delay_minutes]
-  - name: carrier not known yet
-    situation: { event.type: delay, event.cause: controllable, event.delay_minutes: 240 }
-    outcome: may_apply
-    missing_facts: [flight.carrier_iata]
+  - name: denied boarding is not covered
+    situation: { flight.marketing_carrier_iata: AA, event.type: denied_boarding, event.cause: controllable }
+    outcome: does_not_apply

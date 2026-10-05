@@ -1,25 +1,25 @@
 rule: aa-missed-connection-rebooking
 cases:
   - name: AA missed connection on one ticket
-    situation: { flight.carrier_iata: AA, event.type: missed_connection, flight.single_ticket: true }
+    situation: { flight.marketing_carrier_iata: AA, event.type: missed_connection, flight.single_ticket: true }
     outcome: applies
   - name: AA missed connection, weather, still rebooked
-    situation: { flight.carrier_iata: AA, event.type: missed_connection, flight.single_ticket: true, event.cause: uncontrollable }
+    situation: { flight.marketing_carrier_iata: AA, event.type: missed_connection, flight.single_ticket: true, event.cause: uncontrollable }
     outcome: applies
   - name: separate tickets
-    situation: { flight.carrier_iata: AA, event.type: missed_connection, flight.single_ticket: false }
+    situation: { flight.marketing_carrier_iata: AA, event.type: missed_connection, flight.single_ticket: false }
     outcome: does_not_apply
   - name: another carrier
-    situation: { flight.carrier_iata: UA, event.type: missed_connection, flight.single_ticket: true }
+    situation: { flight.marketing_carrier_iata: UA, event.type: missed_connection, flight.single_ticket: true }
     outcome: does_not_apply
   - name: delay is not a missed connection
-    situation: { flight.carrier_iata: AA, event.type: delay, flight.single_ticket: true }
+    situation: { flight.marketing_carrier_iata: AA, event.type: delay, flight.single_ticket: true }
     outcome: does_not_apply
   - name: ticket structure not known yet
-    situation: { flight.carrier_iata: AA, event.type: missed_connection }
+    situation: { flight.marketing_carrier_iata: AA, event.type: missed_connection }
     outcome: may_apply
     missing_facts: [flight.single_ticket]
   - name: carrier not known yet
     situation: { event.type: missed_connection, flight.single_ticket: true }
     outcome: may_apply
-    missing_facts: [flight.carrier_iata]
+    missing_facts: [flight.marketing_carrier_iata]
