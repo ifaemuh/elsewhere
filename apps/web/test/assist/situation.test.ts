@@ -34,6 +34,7 @@ describe('buildSituation', () => {
       'event.reroute_departs_early_minutes': 0,
       'event.reroute_arrival_delay_minutes': 1440,
       'flight.carrier_iata': 'TP',
+      'flight.marketing_carrier_iata': 'TP',
       'flight.carrier_is_us': false,
       'flight.carrier_is_eu': true,
       'flight.departs_us': true,
@@ -71,6 +72,7 @@ describe('buildSituation', () => {
       'event.type': 'delay',
       'event.delay_minutes': 200,
       'flight.carrier_iata': 'UA',
+      'flight.marketing_carrier_iata': 'UA',
       'flight.carrier_is_us': true,
       'flight.carrier_is_eu': false,
       'trip.booked_via': 'direct',
@@ -284,5 +286,23 @@ describe('EU261 facts', () => {
     });
     // With no offer inside the limit, any is reported.
     expect(situation(roundTrip[1], roundTrip, { type: 'cancellation', offers: [offers[0]] })['event.reroute_departs_early_minutes']).toBe(120);
+  });
+});
+
+describe('the ticket’s airline (flight.marketing_carrier_iata)', () => {
+  const regional = { ...leg('AA', 'ORD', 'EWR', '2026-11-03T18:00:00Z', '2026-11-03T20:30:00Z'), operatorIata: 'MQ' };
+
+  it('is the code printed with the flight number, upper-cased, apart from the operating airline on a regional flight', () => {
+    const s = situation(regional, [regional]);
+    expect(s['flight.marketing_carrier_iata']).toBe('AA');
+    expect(s['flight.carrier_iata']).toBe('MQ');
+    expect(s['flight.carrier_is_us']).toBe(true);
+    expect(situation({ ...regional, carrierIata: 'aa' }, [regional])['flight.marketing_carrier_iata']).toBe('AA');
+  });
+
+  it('is left out when the booking has no two-character code', () => {
+    for (const carrierIata of ['', 'A', 'AAL']) {
+      expect('flight.marketing_carrier_iata' in situation({ ...regional, carrierIata }, [regional])).toBe(false);
+    }
   });
 });

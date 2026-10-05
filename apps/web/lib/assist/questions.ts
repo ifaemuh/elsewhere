@@ -72,6 +72,14 @@ const ASKABLE: Record<string, Omit<PlannerQuestion, 'fact'>> = {
       { value: 'unknown', label: 'They didn’t say' },
     ],
   },
+  'trip.ticket_charged_by': {
+    prompt: 'Who charged your card for the flights: the airline, or a travel agency or booking site?',
+    options: [
+      { value: 'airline', label: 'The airline' },
+      { value: 'ticket_agent', label: 'A travel agency or booking site' },
+      { value: MIXED, label: 'Not sure' },
+    ],
+  },
 };
 
 /**
@@ -84,6 +92,7 @@ export const ASK_ORDER = [
   'event.reroute_departs_early_minutes',
   'passenger.volunteered',
   'event.cause',
+  'trip.ticket_charged_by',
 ] as const;
 
 export function nextQuestion(results: MatchResult[], alreadyAsked: string[]): PlannerQuestion | null {
@@ -100,7 +109,7 @@ export function storedAnswerFits(fact: string, value: unknown): boolean {
 }
 
 /**
- * The value of a planner's answer: a boolean for a yes/no fact, a number for a number fact. Undefined for "mixed",
+ * The value of a planner's answer: a boolean for a yes/no fact, a number for a number fact, the option's own string for an enum fact. Undefined for "mixed",
  * which leaves the fact unset. Throws PlannerAnswerError for a fact we don't ask about or a value off the list.
  */
 export function answerValue(answer: PlannerAnswer): Primitive | undefined {

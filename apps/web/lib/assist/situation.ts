@@ -148,8 +148,11 @@ export function buildSituation(input: SituationInput): Situation {
     'event.type': type,
     'trip.booked_via': input.booking.bookedVia ? 'ota' : 'direct',
   };
-  // The carrier facts are about the operating airline, not the marketing code on the confirmation.
+  // carrier_iata, carrier_is_us and carrier_is_eu are about the operating airline. marketing_carrier_iata is the
+  // code printed with the flight number on the ticket: it differs on regional and codeshare flights.
   if (operator) s['flight.carrier_iata'] = operator;
+  const marketing = input.segment.carrierIata?.toUpperCase();
+  if (marketing?.length === 2) s['flight.marketing_carrier_iata'] = marketing;
   const carrierIsUs = isUsCarrier(operator);
   const carrierIsEu = isEuCarrier(operator);
   if (carrierIsUs !== null) s['flight.carrier_is_us'] = carrierIsUs;

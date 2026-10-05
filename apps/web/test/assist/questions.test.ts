@@ -1,5 +1,6 @@
 import type { MatchResult } from '@elsewhere/rules/core';
 import { describe, expect, it } from 'vitest';
+import { buildSituation } from '@/lib/assist/situation';
 import { answerValue, nextQuestion, PlannerAnswerError } from '@/lib/assist/questions';
 
 const mayApply = (rule_id: string, missing_facts: string[]): MatchResult =>
@@ -79,5 +80,39 @@ describe('answerValue validation and mixed groups (fix round 1, items 7 and 8)',
     expect(nextQuestion([mayApply('x', ['passenger.accepted_alternative'])], [])?.prompt).toContain('the changed flight');
     const labels = nextQuestion([mayApply('x', ['event.reroute_arrival_delay_minutes'])], [])?.options.map((o) => o.label);
     expect(labels).toContain('3 hours or more but under 4 hours later');
+  });
+});
+
+describe('who charged for the ticket (trip.ticket_charged_by)', () => {
+  it('asks it in plain words, with a not-sure option that leaves the fact unset', () => {
+    const question = nextQuestion([mayApply('airline-commitment', ['trip.ticket_charged_by'])], []);
+    expect(question?.prompt).toBe('Who charged your card for the flights: the airline, or a travel agency or booking site?');
+    expect(question?.options).toEqual([
+      { value: 'airline', label: 'The airline' },
+      { value: 'ticket_agent', label: 'A travel agency or booking site' },
+      { value: 'mixed', label: 'Not sure' },
+    ]);
+    expect(answerValue({ fact: 'trip.ticket_charged_by', value: 'mixed' })).toBeUndefined();
+  });
+
+  it('turns an answer into the enum string, and rejects anything else', () => {
+    expect(answerValue({ fact: 'trip.ticket_charged_by', value: 'ticket_agent' })).toBe('ticket_agent');
+    expect(() => answerValue({ fact: 'trip.ticket_charged_by', value: 'ota' })).toThrow(PlannerAnswerError);
+  });
+
+  it('flows into the situation as a string, and never from a stored "mixed"', () => {
+    const base = (answers: Record<string, string>) => {
+      const leg = { carrierIata: 'AA', operatorIata: 'AA', originIata: 'ORD', destinationIata: 'EWR', originCountry: 'US', destinationCountry: 'US', scheduledOut: null, scheduledIn: null };
+      return buildSituation({
+        event: { type: 'delay', delayMinutes: null, detectedAt: '2026-11-01T12:00:00Z', observed: [], offers: [] },
+        segment: { ...leg, distanceKm: null },
+        booking: { bookedVia: null, bookedAt: null, segments: [leg] },
+        airports: {},
+        answers,
+      });
+    };
+    expect(base({ 'trip.ticket_charged_by': 'airline' })['trip.ticket_charged_by']).toBe('airline');
+    expect('trip.ticket_charged_by' in base({ 'trip.ticket_charged_by': 'mixed' })).toBe(false);
+    expect('trip.ticket_charged_by' in base({ 'trip.ticket_charged_by': 'ota' })).toBe(false);
   });
 });
