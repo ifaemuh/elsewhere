@@ -1,0 +1,31 @@
+rule: ua-missed-connection-rebooking
+cases:
+  - name: missed connection on one ticket, United-caused
+    situation: { flight.marketing_carrier_iata: UA, event.type: missed_connection, flight.single_ticket: true, event.cause: controllable }
+    outcome: applies
+  - name: uncontrollable cause still applies
+    situation: { flight.marketing_carrier_iata: UA, event.type: missed_connection, flight.single_ticket: true, event.cause: uncontrollable }
+    outcome: applies
+  - name: no cause given
+    situation: { flight.marketing_carrier_iata: UA, event.type: missed_connection, flight.single_ticket: true }
+    outcome: applies
+  - name: United Express flight sold as UA, operated by another carrier
+    situation: { flight.marketing_carrier_iata: UA, flight.carrier_iata: OO, event.type: missed_connection, flight.single_ticket: true }
+    outcome: applies
+  - name: ticket type not known yet
+    situation: { flight.marketing_carrier_iata: UA, event.type: missed_connection }
+    outcome: may_apply
+    missing_facts: [flight.single_ticket]
+  - name: marketing carrier not known yet
+    situation: { event.type: missed_connection, flight.single_ticket: true }
+    outcome: may_apply
+    missing_facts: [flight.marketing_carrier_iata]
+  - name: separate tickets
+    situation: { flight.marketing_carrier_iata: UA, event.type: missed_connection, flight.single_ticket: false }
+    outcome: does_not_apply
+  - name: another marketing carrier
+    situation: { flight.marketing_carrier_iata: AA, event.type: missed_connection, flight.single_ticket: true }
+    outcome: does_not_apply
+  - name: a plain delay is not a missed connection
+    situation: { flight.marketing_carrier_iata: UA, event.type: delay, flight.single_ticket: true }
+    outcome: does_not_apply
