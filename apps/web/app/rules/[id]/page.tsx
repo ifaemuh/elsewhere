@@ -3,7 +3,8 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound, permanentRedirect } from 'next/navigation';
 import { Character } from '@/components/character';
-import { Offer } from '@/components/offer/offer';
+import { FollowCard } from '@/components/follow-card';
+import { FunnelBeacon } from '@/components/funnel/beacon';
 import { RuleArticle } from '@/components/rules/rule-article';
 import { needsReviewSince, resolveRulePage, sourcesFor, staticRuleParams } from '@/lib/rules/accessors';
 import { getLibrary } from '@/lib/rules/library';
@@ -39,7 +40,7 @@ export default async function RulePage({ params }: { params: Params }) {
         <RuleContent id={id} />
       </Suspense>
       <Suspense fallback={null}>
-        <RuleOffer params={params} />
+        <RuleFooter params={params} />
       </Suspense>
     </main>
   );
@@ -71,11 +72,16 @@ async function RuleContent({ id }: { id: string }) {
   );
 }
 
-// The offer shows on every rule state (verified, needs_review, gone); only 404/308 have no page.
-async function RuleOffer({ params }: { params: Params }) {
+// Every rule state with a page (verified, needs_review, gone) records the view and points to the account; only 404/308 have no page.
+async function RuleFooter({ params }: { params: Params }) {
   const { id } = await params;
   const resolution = resolveRulePage(getLibrary(), id);
-  if (resolution.kind === 'page') return <Offer ruleId={resolution.rule.id} />;
-  if (resolution.kind === 'gone') return <Offer ruleId={id} />;
-  return null;
+  const ruleId = resolution.kind === 'page' ? resolution.rule.id : resolution.kind === 'gone' ? id : null;
+  if (!ruleId) return null;
+  return (
+    <>
+      <FunnelBeacon event="rule_page_view" ruleId={ruleId} />
+      <FollowCard />
+    </>
+  );
 }

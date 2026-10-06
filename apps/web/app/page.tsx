@@ -3,53 +3,62 @@ import Link from 'next/link';
 import { Character } from '@/components/character';
 import { Button } from '@/components/ui/button';
 import { CHARACTER_INFO, CHARACTER_NAMES } from '@/lib/characters';
+import { findRule } from '@/lib/rules/accessors';
+import { getLibrary } from '@/lib/rules/library';
+import { HANDLE, INSTAGRAM_URL } from '@/components/follow-card';
 
-const STEPS = [
-  { title: 'Forward the bookings', body: 'Send the confirmation emails to your trip’s address. We build the itinerary.' },
-  { title: 'Drop one link in the group chat', body: 'Everyone joins in a browser. Nobody installs anything.' },
-  { title: 'We watch the trip', body: 'Documents before you go, every flight while you travel, and the rule behind every answer.' },
-];
+const START_HERE = ['us-dot-refund-cancelled-flight', 'us-dot-bag-fee-refund-delayed-bag', 'us-dot-bumping-compensation'];
 
 export default function HomePage() {
+  const library = getLibrary();
+  const startHere = START_HERE.map((id) => findRule(library, id)).filter((rule) => rule !== null);
   return (
-    <main className="mx-auto max-w-5xl px-6 py-16">
+    <main className="mx-auto max-w-5xl px-6 pb-16 pt-10">
       <div className="grid items-center gap-10 md:grid-cols-[1.2fr_1fr]">
         <div>
-          <p className="text-sm font-semibold uppercase tracking-widest text-[#b4532a]">Elsewhere</p>
-          <h1 className="mt-3 max-w-2xl text-4xl font-bold tracking-tight sm:text-5xl">
-            Your group trip, watched. When it goes sideways, the right people know what they’re owed.
+          <h1 className="max-w-2xl text-4xl font-bold tracking-tight sm:text-5xl">
+            What you’re owed when travel goes sideways.
           </h1>
           <p className="mt-4 max-w-xl text-lg text-[#4b5745]">
-            We read the rules so you don’t have to: refunds, delays, passports, and the fine print — every answer cited.
+            Cancelled flights, lost bags, bumped seats, surprise fees, passports and permits. Every rule in plain English, with the official source linked.
           </p>
           <div className="mt-8 flex flex-wrap gap-3">
             <Button asChild size="lg">
-              <Link href="/start">Start a trip</Link>
+              <Link href="/rules">Browse the rules</Link>
             </Button>
             <Button asChild size="lg" variant="outline">
-              <Link href="/rules">Browse the rules</Link>
+              <a href={INSTAGRAM_URL}>Follow {HANDLE}</a>
             </Button>
           </div>
         </div>
-        <Image
-          src="/characters/scenes/raccoon-gate.png"
-          alt="The raccoon at a departure gate, panicking over a cancelled flight"
-          width={1200}
-          height={953}
-          sizes="(min-width: 768px) 45vw, 100vw"
-          priority
-          className="w-full rounded-2xl"
-        />
+        <div className="relative mx-auto flex w-full max-w-sm items-end justify-center">
+          <div aria-hidden="true" className="absolute inset-x-6 bottom-0 top-12 rounded-full bg-[#e3e9d3]" />
+          <Image
+            src="/characters/raccoon.png"
+            alt="The raccoon, the chaos one, packed and ready to go"
+            width={640}
+            height={960}
+            sizes="(min-width: 768px) 24rem, 80vw"
+            priority
+            className="relative h-auto w-3/4"
+          />
+        </div>
       </div>
-      <ol className="mt-16 grid gap-6 sm:grid-cols-3">
-        {STEPS.map((step, index) => (
-          <li key={step.title} className="rounded-xl border border-[#e4dfd0] bg-white p-6">
-            <span className="text-sm font-semibold text-[#b4532a]">{index + 1}</span>
-            <h2 className="mt-2 font-semibold">{step.title}</h2>
-            <p className="mt-1 text-sm text-[#4b5745]">{step.body}</p>
-          </li>
-        ))}
-      </ol>
+      {startHere.length > 0 ? (
+        <section aria-labelledby="start-heading" className="mt-16">
+          <h2 id="start-heading" className="text-2xl font-bold">Start here</h2>
+          <ul className="mt-6 grid gap-4 sm:grid-cols-3">
+            {startHere.map((rule) => (
+              <li key={rule.id}>
+                <Link href={`/rules/${rule.id}`} className="flex h-full items-center gap-4 rounded-xl border border-[#e4dfd0] bg-white p-4 hover:border-[#b4532a]">
+                  <Character character={rule.lead_character} variant="avatar" width={44} />
+                  <span className="font-medium">{rule.title}</span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
       <section aria-labelledby="cast-heading" className="mt-16">
         <h2 id="cast-heading" className="text-2xl font-bold">Meet the group</h2>
         <ul className="mt-6 grid grid-cols-2 gap-6 sm:grid-cols-4">
