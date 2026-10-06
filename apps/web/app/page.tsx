@@ -31,18 +31,15 @@ export default function HomePage() {
             </Button>
           </div>
         </div>
-        <div className="relative mx-auto flex w-full max-w-sm items-end justify-center">
-          <div aria-hidden="true" className="absolute inset-x-6 bottom-0 top-12 rounded-full bg-[#e3e9d3]" />
-          <Image
-            src="/characters/raccoon.png"
-            alt="The raccoon, the chaos one, packed and ready to go"
-            width={640}
-            height={960}
-            sizes="(min-width: 768px) 24rem, 80vw"
-            priority
-            className="relative h-auto w-3/4"
-          />
-        </div>
+        <Image
+          src="/characters/scenes/raccoon-gate.jpg"
+          alt="The raccoon at a departure gate, panicking over a cancelled flight"
+          width={1856}
+          height={1664}
+          sizes="(min-width: 768px) 45vw, 100vw"
+          priority
+          className="w-full rounded-2xl"
+        />
       </div>
       {startHere.length > 0 ? (
         <section aria-labelledby="start-heading" className="mt-16">
