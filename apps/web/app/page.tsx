@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { CHARACTER_INFO, CHARACTER_NAMES } from '@/lib/characters';
 import { findRule } from '@/lib/rules/accessors';
 import { getLibrary } from '@/lib/rules/library';
-import { INSTAGRAM_URL } from '@/components/follow-card';
+import { HANDLE, INSTAGRAM_URL } from '@/components/follow-card';
 
 const START_HERE = ['us-dot-refund-cancelled-flight', 'us-dot-bag-fee-refund-delayed-bag', 'us-dot-bumping-compensation'];
 
@@ -13,11 +13,10 @@ export default function HomePage() {
   const library = getLibrary();
   const startHere = START_HERE.map((id) => findRule(library, id)).filter((rule) => rule !== null);
   return (
-    <main className="mx-auto max-w-5xl px-6 py-16">
+    <main className="mx-auto max-w-5xl px-6 pb-16 pt-10">
       <div className="grid items-center gap-10 md:grid-cols-[1.2fr_1fr]">
         <div>
-          <p className="text-sm font-semibold uppercase tracking-widest text-[#b4532a]">Elsewhere</p>
-          <h1 className="mt-3 max-w-2xl text-4xl font-bold tracking-tight sm:text-5xl">
+          <h1 className="max-w-2xl text-4xl font-bold tracking-tight sm:text-5xl">
             What you’re owed when travel goes sideways.
           </h1>
           <p className="mt-4 max-w-xl text-lg text-[#4b5745]">
@@ -28,19 +27,22 @@ export default function HomePage() {
               <Link href="/rules">Browse the rules</Link>
             </Button>
             <Button asChild size="lg" variant="outline">
-              <a href={INSTAGRAM_URL}>Follow @go.elsewhere</a>
+              <a href={INSTAGRAM_URL}>Follow {HANDLE}</a>
             </Button>
           </div>
         </div>
-        <Image
-          src="/characters/scenes/raccoon-gate.png"
-          alt="The raccoon at a departure gate, panicking over a cancelled flight"
-          width={1200}
-          height={953}
-          sizes="(min-width: 768px) 45vw, 100vw"
-          priority
-          className="w-full rounded-2xl"
-        />
+        <div className="relative mx-auto flex w-full max-w-sm items-end justify-center">
+          <div aria-hidden="true" className="absolute inset-x-6 bottom-0 top-12 rounded-full bg-[#e3e9d3]" />
+          <Image
+            src="/characters/raccoon.png"
+            alt="The raccoon, the chaos one, packed and ready to go"
+            width={640}
+            height={960}
+            sizes="(min-width: 768px) 24rem, 80vw"
+            priority
+            className="relative h-auto w-3/4"
+          />
+        </div>
       </div>
       {startHere.length > 0 ? (
         <section aria-labelledby="start-heading" className="mt-16">

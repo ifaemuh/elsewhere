@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { SiteHeader } from '@/components/site-header';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -11,7 +12,10 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body className="min-h-screen bg-[#faf8f1] text-[#2f3a2c] antialiased">{children}</body>
+      <body className="min-h-screen bg-[#faf8f1] text-[#2f3a2c] antialiased">
+        <SiteHeader />
+        {children}
+      </body>
     </html>
   );
 }
