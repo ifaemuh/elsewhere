@@ -19,7 +19,7 @@ export default function RulesIndexPage() {
         const inDomain = rules.filter((rule) => rule.domain === domain);
         if (inDomain.length === 0) return null;
         return (
-          <section key={domain} className="mt-10">
+          <section key={domain} id={domain} className="mt-10 scroll-mt-6">
             <h2 className="text-xl font-semibold">{DOMAIN_LABELS[domain]}</h2>
             <ul className="mt-4 grid gap-3">
               {inDomain.map((rule) => (
