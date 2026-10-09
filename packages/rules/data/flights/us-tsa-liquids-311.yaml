@@ -1,0 +1,84 @@
+id: us-tsa-liquids-311
+version: 1
+status: draft
+domain: flights
+jurisdiction: US-TSA
+title: "Packing liquids in your carry-on? Keep each container to 3.4 oz (100 ml) in one quart-sized bag"
+summary: >-
+  TSA lets you bring a quart-sized bag of liquids, aerosols, gels, creams and pastes in your carry-on, in containers of
+  3.4 ounces (100 milliliters) or less. Larger containers go in checked baggage. Medications and infant and child
+  nourishments are exempt.
+applies_when:
+  all:
+    - fact: flight.departs_us
+      eq: true
+entitlement:
+  kind: requirement
+  amount:
+    carry_on_bag: one quart-sized bag of liquids, aerosols, gels, creams and pastes
+    max_container_size: 3.4 ounces (100 milliliters) or less per item
+    larger_containers: checked baggage
+    exempt: medications and infant and child nourishments
+how_to_claim:
+  steps:
+    - "Put your liquids, aerosols, gels, creams and pastes in travel-sized containers of 3.4 ounces (100 milliliters) or less per item."
+    - "Place those containers in a quart-sized bag and keep it separate from the rest of your carry-on. TSA says this facilitates the screening process."
+    - "Pack any container larger than 3.4 ounces or 100 milliliters in your checked baggage."
+    - "If you carry medication in liquid, gel or aerosol form, TSA says larger amounts are allowed in reasonable quantities for your trip, but you must declare them to TSA officers at the checkpoint for inspection."
+    - "If you carry baby formula, breast milk, toddler drinks or baby/toddler food, tell the TSA officer at the start of screening and take those items out of your carry-on to be screened separately."
+  templates: []
+exceptions:
+  - "Medications are exempt from the quart-bag limit. You must declare larger amounts of medically necessary liquids, gels and aerosols to TSA officers at the checkpoint for inspection."
+  - "Infant and child nourishments are exempt. Formula, breast milk, toddler drinks and baby/toddler food over 3.4 ounces (100 milliliters) don't need to fit in a quart-sized bag, and you must tell the TSA officer at the start of screening."
+  - "Any liquid, aerosol, gel, cream or paste that alarms during screening requires additional screening."
+  - "Duty free liquids over 3.4 oz or 100 ml bought internationally for a connecting flight to the United States have their own conditions: a secure, tamper-evident bag, the original receipt, and a purchase within 48 hours. TSA recommends packing them in checked baggage anyway."
+  - "TSA says the final decision rests with the TSA officer on whether an item is allowed through the checkpoint."
+sources:
+  - id: s1
+    source: tsa-liquids-rule
+    quotes:
+      - text: "You are allowed to bring a quart-sized bag of liquids, aerosols, gels, creams and pastes in your carry-on bag and through the checkpoint."
+        supports: [summary, entitlement.amount, how_to_claim.steps.1]
+      - text: "These are limited to travel-sized containers that are 3.4 ounces (100 milliliters) or less per item."
+        supports: [summary, entitlement.amount, how_to_claim.steps.0]
+      - text: "Placing these items in the small bag and separating from your carry-on baggage facilitates the screening process."
+        supports: [how_to_claim.steps.1]
+      - text: "Pack items that are in containers larger than 3.4 ounces or 100 milliliters in checked baggage."
+        supports: [summary, entitlement.amount, how_to_claim.steps.2]
+      - text: "Any liquid, aerosol, gel, cream or paste that alarms during screening will require additional screening."
+        supports: [exceptions]
+      - text: "Medications"
+        supports: [summary, entitlement.amount, exceptions]
+      - text: "Infant and child nourishments"
+        supports: [summary, entitlement.amount, exceptions]
+      - text: "The duty free liquids were purchased internationally and you are traveling to the United States with a connecting flight."
+        supports: [exceptions]
+      - text: "The liquids are packed in a transparent, secure, tamper-evident bag by the retailer and do not show signs of tampering when presented to TSA for screening."
+        supports: [exceptions]
+      - text: "The original receipt for the liquids is present and the purchase was made within 48 hours."
+        supports: [exceptions]
+      - text: "We recommend packing all liquids, gels, and aerosols that are over 3.4 oz or 100 ml in your checked baggage, even if they are in a secure, tamper-evident bag."
+        supports: [exceptions]
+  - id: s2
+    source: tsa-medications-liquid
+    quotes:
+      - text: "TSA allows larger amounts of medically necessary liquids, gels, and aerosols in reasonable quantities for your trip, but you must declare them to TSA officers at the checkpoint for inspection."
+        supports: [entitlement.amount, how_to_claim.steps.3, exceptions]
+      - text: "The final decision rests with the TSA officer on whether an item is allowed through the checkpoint."
+        supports: [exceptions]
+  - id: s3
+    source: tsa-baby-formula
+    quotes:
+      - text: "Formula, breast milk, toddler drinks, and baby/toddler food (to include puree pouches) in quantities greater than 3.4 ounces or 100 milliliters are allowed in carry-on baggage and do not need to fit within a quart-sized bag."
+        supports: [entitlement.amount, how_to_claim.steps.4, exceptions]
+      - text: "Inform the TSA officer at the beginning of the screening process that you are carrying formula, breast milk, toddler drinks, and baby/toddler food (to include puree pouches) in excess of 3.4 ounces."
+        supports: [how_to_claim.steps.4, exceptions]
+      - text: "Remove these items from your carry-on bag to be screened separately from your other belongings."
+        supports: [how_to_claim.steps.4]
+lead_character: owl
+tags: [packing, liquids, carry-on, tsa, 3-1-1]
+last_verified: null
+verified_by: null
+review_by: null
+history:
+  - { version: 1, status: draft, date: 2026-10-08 }

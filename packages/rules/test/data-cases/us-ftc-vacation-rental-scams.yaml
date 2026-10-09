@@ -1,0 +1,12 @@
+rule: us-ftc-vacation-rental-scams
+cases:
+  - name: vacation rental
+    situation: { lodging.kind: short_term_rental }
+    outcome: applies
+  - name: hotel stay
+    situation: { lodging.kind: hotel }
+    outcome: does_not_apply
+  - name: kind of lodging not known yet
+    situation: {}
+    outcome: may_apply
+    missing_facts: [lodging.kind]

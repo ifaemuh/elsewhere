@@ -1,0 +1,115 @@
+id: us-passport-renewal
+version: 1
+status: draft
+domain: documents
+jurisdiction: US-STATE
+title: "Renewing a US passport? Check if you can renew by mail or must apply in person, and renew early"
+summary: >-
+  USAGov says you can renew a US passport unless it was issued before your 16th birthday or more than 15 years ago, is
+  damaged, lost or stolen, or is in a previous name you can't document. Then you apply in person with Form DS-11.
+  Otherwise renew by mail with Form DS-82, or online if eligible. Renew early.
+applies_when:
+  all:
+    - fact: passenger.nationality
+      eq: US
+entitlement:
+  kind: requirement
+  amount:
+    renew_by_mail_or_online: your passport was not issued before your 16th birthday or more than 15 years ago, is not damaged, lost or stolen, and is in your current name or you can document the change
+    form_for_renewal: DS-82
+    form_for_new_application_in_person: DS-11
+how_to_claim:
+  steps:
+    - "Check whether you can renew. You can't if your passport was issued before your 16th birthday, was issued more than 15 years ago, is damaged, lost or stolen, or is in a previous name and you have no legal document like a marriage license to prove the change."
+    - "If you can't renew, apply for a new passport in person using Form DS-11."
+    - "If you can renew by mail, you will typically need Form DS-82, a passport photo, the passport fee, your most recent passport, and name change documentation if necessary."
+    - "Your most recent passport is mailed back to you separately after your new passport is mailed. USAGov says in most cases it should arrive about 4 weeks after you receive your new one."
+    - "You may be able to renew online instead. The State Department offers the only authorized place to renew your passport online."
+    - "If you need your passport quickly, look at the State Department's options for emergency or urgent travel and expedited processing. USAGov says there may be additional fees."
+    - "Renew early, and check your destination's passport validity rules on the State Department's country information page."
+  templates: []
+exceptions:
+  - "You can renew an expired passport only if it was issued within the last 15 years."
+  - "Online renewal is only for those who meet the State Department's requirements."
+  - "Some countries and airlines will not allow a U.S. passport holder to enter if their passport expires in less than 6 months."
+  - "USAGov says passport processing times vary and points to the State Department for current processing times."
+  - "If you are outside the U.S., contact the U.S. embassy or consulate near you to renew."
+sources:
+  - id: s1
+    source: usagov-renew-adult-passport
+    quotes:
+      - text: "If any of the following are true, you"
+        supports: [summary, entitlement.amount, how_to_claim.steps.0]
+      - text: "cannot"
+        supports: [summary, entitlement.amount, how_to_claim.steps.0]
+      - text: "renew your U.S. passport and must instead apply for a"
+        supports: [summary, entitlement.amount, how_to_claim.steps.0]
+      - text: "new passport in person"
+        supports: [summary, entitlement.amount, how_to_claim.steps.1]
+      - text: "using Form DS-11"
+        supports: [summary, entitlement.amount, how_to_claim.steps.1]
+      - text: "Issued before your 16th birthday"
+        supports: [summary, entitlement.amount, how_to_claim.steps.0]
+      - text: "Issued more than 15 years ago"
+        supports: [summary, entitlement.amount, how_to_claim.steps.0]
+      - text: "Damaged, lost, or stolen."
+        supports: [summary, entitlement.amount, how_to_claim.steps.0]
+      - text: "Issued in your previous name, and you do not have a legal document like a marriage license to prove your legal name change"
+        supports: [summary, entitlement.amount, how_to_claim.steps.0]
+      - text: "If none of the above situations are true, you"
+        supports: [summary, entitlement.amount]
+      - text: "renew your U.S. passport."
+        supports: [summary, entitlement.amount]
+      - text: "You can renew an expired passport only if it was issued within the last 15 years."
+        supports: [exceptions]
+      - text: "You can renew your passport and/or passport card by mail."
+        supports: [summary, how_to_claim.steps.2]
+      - text: "You will need Form DS-82."
+        supports: [summary, entitlement.amount, how_to_claim.steps.2]
+      - text: "Typically, you will need the following items to renew your passport or passport card by mail:"
+        supports: [how_to_claim.steps.2]
+      - text: "Passport photo"
+        supports: [how_to_claim.steps.2]
+      - text: "Passport fee"
+        supports: [how_to_claim.steps.2]
+      - text: "Name change documentation, if necessary"
+        supports: [how_to_claim.steps.2]
+      - text: "Your most recent passport will be mailed back to you separately after your new passport is mailed."
+        supports: [how_to_claim.steps.2, how_to_claim.steps.3]
+      - text: "In most cases, it should arrive about 4 weeks after you receive your new one."
+        supports: [how_to_claim.steps.3]
+      - text: "You may be able to renew your passport book and/or card online."
+        supports: [summary, how_to_claim.steps.4, exceptions]
+      - text: "The State Department offers the only authorized place to renew your passport online."
+        supports: [how_to_claim.steps.4]
+      - text: "for emergency or urgent travel or to get expedited processing."
+        supports: [how_to_claim.steps.5]
+      - text: "there may be additional fees."
+        supports: [how_to_claim.steps.5]
+      - text: "Renew early."
+        supports: [summary, how_to_claim.steps.6]
+      - text: "Passport processing times"
+        supports: [exceptions]
+      - text: "vary. And some countries and airlines deny entry if your passport expires in less than 6 months."
+        supports: [how_to_claim.steps.6, exceptions]
+      - text: "Some countries and airlines will not allow a U.S. passport holder to enter if their passport expires in less than 6 months."
+        supports: [exceptions]
+      - text: "Check your destination country's U.S. passport expiration rules on the"
+        supports: [how_to_claim.steps.6]
+      - text: "Department of State's country information page"
+        supports: [how_to_claim.steps.6]
+      - text: "Check with the Department of State to"
+        supports: [exceptions]
+      - text: "find out the current processing times for passport renewals"
+        supports: [exceptions]
+      - text: "U.S. embassy or consulate"
+        supports: [exceptions]
+      - text: "renew a passport while outside the U.S."
+        supports: [exceptions]
+lead_character: owl
+tags: [documents, passport, renewal, ds-82, ds-11]
+last_verified: null
+verified_by: null
+review_by: null
+history:
+  - { version: 1, status: draft, date: 2026-10-08 }
