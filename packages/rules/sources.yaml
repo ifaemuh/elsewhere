@@ -100,6 +100,28 @@ uk-eta:
   kind: government_page
   detector: { ota: { service: "UK ETA", terms_type: "Official Guidance" } }
 
+# Packing, passport renewal and scams (government consumer guidance)
+tsa-liquids-rule:
+  url: https://www.tsa.gov/travel/security-screening/liquids-rule
+  kind: government_page
+  detector: { ota: { service: "TSA Liquids Rule", terms_type: "Official Guidance" } }
+tsa-medications-liquid:
+  url: https://www.tsa.gov/travel/security-screening/whatcanibring/items/medications-liquid
+  kind: government_page
+  detector: { ota: { service: "TSA Liquid Medications", terms_type: "Official Guidance" } }
+tsa-baby-formula:
+  url: https://www.tsa.gov/travel/security-screening/whatcanibring/items/baby-formula
+  kind: government_page
+  detector: { ota: { service: "TSA Baby Formula", terms_type: "Official Guidance" } }
+usagov-renew-adult-passport:
+  url: https://www.usa.gov/renew-adult-passport
+  kind: government_page
+  detector: { ota: { service: "USAGov Renew Adult Passport", terms_type: "Official Guidance" } }
+ftc-avoid-travel-scams:
+  url: https://consumer.ftc.gov/articles/avoid-scams-when-you-travel
+  kind: government_page
+  detector: { ota: { service: "FTC Avoid Scams When You Travel", terms_type: "Official Guidance" } }
+
 # Airline contracts of carriage and customer service plans
 aa-contract-of-carriage:
   url: https://www.aa.com/i18n/customer-service/support/conditions-of-carriage.jsp
