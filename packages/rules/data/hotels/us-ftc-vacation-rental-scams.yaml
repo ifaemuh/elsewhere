@@ -1,0 +1,111 @@
+id: us-ftc-vacation-rental-scams
+version: 1
+status: draft
+domain: hotels
+jurisdiction: US-FTC
+title: "Booking a vacation rental? Spot the scam signs before you pay"
+summary: >-
+  The FTC warns that scammers hijack real rental listings or invent ones. Its signs of a scam: being told you can only
+  pay by wire transfer, gift card, payment app or cryptocurrency, being rushed to decide, or rent far below comparable
+  rentals. It also tells you how to check a listing and where to report.
+applies_when:
+  all:
+    - fact: lodging.kind
+      eq: short_term_rental
+entitlement:
+  kind: protection
+  amount:
+    payment_red_flag: the only way to pay is by wire transfer, gift card, payment app, or cryptocurrency
+    pressure_red_flag: being pressured to decide right away
+    price_red_flag: rent a lot less than comparable rentals
+    check_listing: search online for the property's address plus the owner or rental company name, and check the rental company's own website
+    report_to: ReportFraud.ftc.gov and your state attorney general
+how_to_claim:
+  steps:
+    - "Search online for the rental property's address plus the name of the property owner or rental company listed. If other ads come up for the same address, especially with a different owner or rental company name, it's probably a scam."
+    - "Check the rental company's website to see if the property is listed there too. If it isn't, the FTC says the listing is likely a scam."
+    - "Check that the address of the property really exists. Look up the company, rental and agent with the words scam, review or complaint."
+    - "Don't sign or pay until you know the terms of the deal. Get a copy of the cancellation and refund policies before you pay, and walk away if you can't get those details."
+    - "Don't pay anyone who says you can only pay by wire transfer, gift card or cryptocurrency. The FTC says if someone says you can only pay with a payment app, it's probably a scam."
+    - "If you think you were targeted by a travel scam, report it to the FTC at ReportFraud.ftc.gov and to your state attorney general."
+  templates: []
+exceptions:
+  - "This is FTC consumer guidance, not a legal right. It doesn't give you a refund or set a deadline to claim one."
+  - "The FTC says that if you pay with wire transfers, gift cards or cryptocurrency and there's a problem, you'll lose your money and there's likely no way to track it or get it back."
+  - "The FTC page doesn't say how to dispute a charge or get money back after paying a scammer."
+  - "The signs are warnings, not proof. The FTC says below-market rent can be a sign of a scam."
+sources:
+  - id: s1
+    source: ftc-avoid-travel-scams
+    quotes:
+      - text: "scammers are also trying to get your"
+        supports: [summary]
+      - text: "For example, they hijack real rental listings and advertise them as their own, so when you show up for your vacation, you find out that other people are also booked for the same property."
+        supports: [summary]
+      - text: "Other scammers don’t bother with real rentals — they make up listings for places that aren’t really for rent or don’t exist."
+        supports: [summary]
+      - text: "Scammers say the"
+        supports: [summary, entitlement.amount]
+      - text: "only"
+        supports: [summary, entitlement.amount, how_to_claim.steps.4]
+      - text: "way to pay for your vacation rental is by"
+        supports: [summary, entitlement.amount]
+      - text: "wire transfer"
+        supports: [summary, entitlement.amount]
+      - text: "gift card"
+        supports: [summary, entitlement.amount]
+      - text: "payment app"
+        supports: [summary, entitlement.amount, how_to_claim.steps.4]
+      - text: "cryptocurrency"
+        supports: [summary, entitlement.amount, how_to_claim.steps.4]
+      - text: "Scammers pressure you to make a quick decision about a vacation package or rental."
+        supports: [summary, entitlement.amount]
+      - text: "Scammers advertise premium vacation properties for super cheap prices."
+        supports: [summary, entitlement.amount]
+      - text: "Is the rent a lot less than comparable rentals?"
+        supports: [summary, entitlement.amount]
+      - text: "Below-market rent can be a sign of a scam."
+        supports: [exceptions]
+      - text: "Searching online for the rental property’s address, plus the name of the property owner or rental company listed, can help you avoid losing time and money to a rental listing scam."
+        supports: [summary, entitlement.amount, how_to_claim.steps.0]
+      - text: "If other ads come up for the same address, it’s probably a scam"
+        supports: [how_to_claim.steps.0]
+      - text: "Check the rental company’s website to see if the property is listed there, too. If it isn’t, the listing is likely a scam."
+        supports: [entitlement.amount, how_to_claim.steps.1]
+      - text: "Also, check that the address of the property really exists."
+        supports: [how_to_claim.steps.2]
+      - text: "Look up travel companies, hotels, rentals, and agents with the words “scam,” “review,” or “complaint.”"
+        supports: [how_to_claim.steps.2]
+      - text: "Don’t sign or pay until you know the terms of the deal."
+        supports: [how_to_claim.steps.3]
+      - text: "Get a copy of the cancellation and refund policies before you pay. If you can’t get those details, walk away."
+        supports: [how_to_claim.steps.3]
+      - text: "Don’t pay anyone who says you can"
+        supports: [how_to_claim.steps.4]
+      - text: "wire transfers"
+        supports: [how_to_claim.steps.4]
+      - text: "gift cards"
+        supports: [how_to_claim.steps.4]
+      - text: "Dishonest travel package promoters might tell you to pay in one of these ways, but that’s a sure sign of a scam."
+        supports: [how_to_claim.steps.4]
+      - text: "And if someone says you can only pay with a"
+        supports: [how_to_claim.steps.4]
+      - text: "it’s probably a scam."
+        supports: [how_to_claim.steps.4]
+      - text: "If you pay with wire transfers, gifts cards, or cryptocurrency and there’s a problem with what you paid for, you’ll lose your money, and there’s likely no way to track it or get it back."
+        supports: [exceptions]
+      - text: "If you think you may have been targeted by a travel scam, report it to"
+        supports: [summary, entitlement.amount, how_to_claim.steps.5]
+      - text: "the FTC at"
+        supports: [summary, entitlement.amount, how_to_claim.steps.5]
+      - text: "ReportFraud.ftc.gov"
+        supports: [summary, entitlement.amount, how_to_claim.steps.5]
+      - text: "state attorney general"
+        supports: [summary, entitlement.amount, how_to_claim.steps.5]
+lead_character: owl
+tags: [hotel, short-term-rental, vacation-rental, scam, fraud, ftc]
+last_verified: null
+verified_by: null
+review_by: null
+history:
+  - { version: 1, status: draft, date: 2026-10-08 }

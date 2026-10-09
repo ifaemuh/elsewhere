@@ -1,0 +1,12 @@
+rule: us-tsa-liquids-311
+cases:
+  - name: flight leaving a US airport
+    situation: { flight.departs_us: true }
+    outcome: applies
+  - name: flight leaving an airport outside the US
+    situation: { flight.departs_us: false }
+    outcome: does_not_apply
+  - name: departure airport not known yet
+    situation: {}
+    outcome: may_apply
+    missing_facts: [flight.departs_us]

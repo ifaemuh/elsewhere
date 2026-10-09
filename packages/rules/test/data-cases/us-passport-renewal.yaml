@@ -1,0 +1,12 @@
+rule: us-passport-renewal
+cases:
+  - name: US passport holder
+    situation: { passenger.nationality: US }
+    outcome: applies
+  - name: non-US passport holder
+    situation: { passenger.nationality: GB }
+    outcome: does_not_apply
+  - name: nationality not known yet
+    situation: {}
+    outcome: may_apply
+    missing_facts: [passenger.nationality]
