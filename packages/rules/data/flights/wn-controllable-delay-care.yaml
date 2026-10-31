@@ -1,6 +1,6 @@
 id: wn-controllable-delay-care
 version: 1
-status: verified
+status: needs_review
 domain: flights
 jurisdiction: "carrier:WN"
 title: "Southwest caused your delay, cancellation or missed connection? Its plan commits to rebooking, a meal and maybe a hotel"
@@ -134,3 +134,4 @@ review_by: 2027-01-03
 history:
   - { version: 1, status: draft, date: 2026-10-05 }
   - { version: 1, status: verified, date: 2026-10-05 }
+  - { version: 1, status: needs_review, date: 2026-10-31, note: quote not found in wn-customer-service-plan }
